@@ -91,6 +91,8 @@ jobs:
         fi
         
         echo "✅ Test description provided"
+        echo "Creating test-scenarios directory..."
+        mkdir -p test-scenarios
         echo "Calling API to parse steps..."
         
         # Create properly escaped JSON payload
