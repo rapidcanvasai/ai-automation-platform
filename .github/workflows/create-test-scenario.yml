@@ -124,10 +124,13 @@ jobs:
       run: |
         echo "🚀 Generating test code..."
         
+        # Write the steps response to a temporary file to avoid shell escaping issues
+        echo "${{ steps.generate-steps.outputs.steps_response }}" > /tmp/steps.json
+        
         # Call your existing API to generate code
         CODE_RESPONSE=$(curl -X POST http://localhost:3001/api/nlp/generate-code \
           -H "Content-Type: application/json" \
-          -d "${{ steps.generate-steps.outputs.steps_response }}" \
+          -d @/tmp/steps.json \
           -w "\n%{http_code}")
         
         HTTP_CODE=$(echo "$CODE_RESPONSE" | tail -n1)
@@ -143,6 +146,9 @@ jobs:
           echo "❌ Failed to generate test code"
           exit 1
         fi
+        
+        # Clean up temporary file
+        rm -f /tmp/steps.json
 
     - name: Create test scenario files
       run: |
