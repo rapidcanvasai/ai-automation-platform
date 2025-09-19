@@ -96,15 +96,47 @@ jobs:
         echo "Calling API to parse steps..."
         
         # Create properly escaped JSON payload
-        jq -n --arg text "${{ env.TEST_DESCRIPTION }}" '{text: $text}' > /tmp/nlp-payload.json
+        # GitHub Actions converts newlines to spaces, so we need to restore them
+        # Use a more robust approach that works across different environments
+        echo "🔍 Restoring newlines from GitHub Actions input..."
+        echo "Original input: ${{ env.TEST_DESCRIPTION }}"
         
-        STEPS_RESPONSE=$(curl -X POST http://localhost:3001/api/nlp/parse -H "Content-Type: application/json" -d @/tmp/nlp-payload.json -w "\n%{http_code}")
+        # Method 1: Try with extended regex (GNU sed)
+        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed -E 's/(Open https:|Enter |Click |Verify |Wait )/\n\1/g' 2>/dev/null || echo "${{ env.TEST_DESCRIPTION }}")
+        
+        # Method 2: If Method 1 failed, try basic regex
+        if [ "$TEST_DESC_WITH_NEWLINES" = "${{ env.TEST_DESCRIPTION }}" ]; then
+            echo "Trying basic regex approach..."
+            TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/Open https:/\nOpen https:/g' | sed 's/Enter /\nEnter /g' | sed 's/Click /\nClick /g' | sed 's/Verify /\nVerify /g' | sed 's/Wait /\nWait /g' | sed '1d')
+        fi
+        
+        echo "Restored description:"
+        echo "$TEST_DESC_WITH_NEWLINES"
+        echo ""
+        
+        jq -n --arg text "$TEST_DESC_WITH_NEWLINES" '{text: $text}' > /tmp/nlp-payload.json
+        
+        STEPS_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/nlp/parse -H "Content-Type: application/json" -d @/tmp/nlp-payload.json -w "\n%{http_code}")
         HTTP_CODE=$(echo "$STEPS_RESPONSE" | tail -n1)
         STEPS_BODY=$(echo "$STEPS_RESPONSE" | sed '$d')
         
         echo "Steps HTTP Code: $HTTP_CODE"
         echo "Steps Response Length: ${#STEPS_BODY}"
         echo "Success: $(echo "$STEPS_BODY" | grep -o '"success":true' || echo 'false')"
+        
+        # Debug: Check number of steps parsed
+        STEPS_COUNT=$(echo "$STEPS_BODY" | jq '.steps | length' 2>/dev/null || echo "0")
+        echo "Number of steps parsed: $STEPS_COUNT"
+        
+        if [ "$STEPS_COUNT" -gt 5 ]; then
+            echo "✅ SUCCESS: Multiple steps parsed correctly!"
+            echo "First few steps:"
+            echo "$STEPS_BODY" | jq '.steps[0:3]'
+        else
+            echo "❌ ISSUE: Only $STEPS_COUNT step(s) parsed"
+            echo "Full response:"
+            echo "$STEPS_BODY" | jq '.'
+        fi
         
         if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
           echo "✅ Test steps generated successfully!"
@@ -117,7 +149,7 @@ jobs:
           echo ""
           
           echo "Calling API to generate code..."
-          CODE_RESPONSE=$(curl -X POST http://localhost:3001/api/nlp/generate-code -H "Content-Type: application/json" -d @/tmp/steps.json -w "\n%{http_code}")
+          CODE_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/nlp/generate-code -H "Content-Type: application/json" -d @/tmp/steps.json -w "\n%{http_code}")
           CODE_HTTP_CODE=$(echo "$CODE_RESPONSE" | tail -n1)
           CODE_BODY=$(echo "$CODE_RESPONSE" | sed '$d')
           
@@ -211,7 +243,7 @@ jobs:
           }' > /tmp/test-payload.json
         
         echo "Creating test in platform..."
-        CREATE_RESPONSE=$(curl -X POST http://localhost:3001/api/tests -H "Content-Type: application/json" -d @/tmp/test-payload.json -w "\n%{http_code}")
+        CREATE_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/tests -H "Content-Type: application/json" -d @/tmp/test-payload.json -w "\n%{http_code}")
         CREATE_HTTP_CODE=$(echo "$CREATE_RESPONSE" | tail -n1)
         CREATE_BODY=$(echo "$CREATE_RESPONSE" | sed '$d')
         echo "Create Test HTTP Code: $CREATE_HTTP_CODE"
@@ -250,7 +282,7 @@ jobs:
           cat /tmp/exec-payload.json
           echo ""
           
-          EXEC_RESPONSE=$(curl -X POST http://localhost:3001/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}")
+          EXEC_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}")
           EXEC_HTTP_CODE=$(echo "$EXEC_RESPONSE" | tail -n1)
           EXEC_BODY=$(echo "$EXEC_RESPONSE" | sed '$d')
           echo "Execution HTTP Code: $EXEC_HTTP_CODE"
@@ -290,7 +322,7 @@ jobs:
           
           # Get detailed execution results
           echo "📋 Getting detailed execution results..."
-          DETAILED_RESULTS=$(curl -X GET "http://localhost:3001/api/execution/${{ env.EXECUTION_ID }}/results" | jq '.')
+          DETAILED_RESULTS=$(curl -X GET "${BACKEND_URL:-http://localhost:3001}/api/execution/${{ env.EXECUTION_ID }}/results" | jq '.')
           echo "Detailed Results:"
           echo "$DETAILED_RESULTS" | jq '.'
           
