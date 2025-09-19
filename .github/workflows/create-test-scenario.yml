@@ -224,22 +224,22 @@ jobs:
         echo "📝 Creating test payload..."
         TEST_NAME="GitHub Action Test - ${{ github.run_id }}"
         
-            # Extract steps from the original NLP parsing response and code from generation response
-            STEPS_DATA=$(cat test-scenarios/steps-response-${{ github.run_id }}.json | jq -c '.steps // []')
-            GENERATED_CODE=$(cat test-scenarios/code-response-${{ github.run_id }}.json | jq -r '.code.code // ""')
+        # Extract steps from the original NLP parsing response (like the frontend does)
+        STEPS_DATA=$(cat test-scenarios/steps-response-${{ github.run_id }}.json | jq -c '.steps // []')
         
-        # Create test payload using jq to properly escape JSON
+        echo "🔍 Extracted steps data:"
+        echo "$STEPS_DATA" | jq '.'
+        echo ""
+        
+        # Create test payload using jq to properly escape JSON (matching frontend behavior)
         jq -n \
           --arg name "$TEST_NAME" \
           --arg description "${{ env.TEST_DESCRIPTION }}" \
           --argjson steps "$STEPS_DATA" \
-          --arg generatedCode "$GENERATED_CODE" \
           '{
             name: $name,
             description: $description,
-            steps: $steps,
-            generatedCode: $generatedCode,
-            language: "typescript"
+            steps: $steps
           }' > /tmp/test-payload.json
         
         echo "Creating test in platform..."
