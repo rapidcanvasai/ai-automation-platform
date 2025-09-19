@@ -15,15 +15,11 @@ on:
         description: 'Slack Webhook URL for notifications'
         required: false
         type: string
-      run_tests:
-        description: 'Run tests in browser (headless/headed)'
+      headless:
+        description: 'Run browser in headless mode (true) or show browser window (false)'
         required: false
-        type: choice
-        default: 'headless'
-        options:
-          - 'headless'
-          - 'headed'
-          - 'no'
+        type: boolean
+        default: true
       enable_slack:
         description: 'Enable Slack notifications'
         required: false
@@ -189,7 +185,6 @@ jobs:
         rm -f /tmp/steps.json /tmp/nlp-payload.json
 
     - name: Create test in platform and execute
-      if: env.RUN_TESTS != 'no'
       run: |
         echo "🚀 Creating test in platform and executing..."
         echo "📝 Creating test payload..."
@@ -225,11 +220,13 @@ jobs:
           echo "Test ID: $TEST_ID"
           echo "🚀 Executing test..."
           
-          # Create execution payload using jq
-          if [ "${{ env.RUN_TESTS }}" = "headless" ]; then
+          # Set browser execution mode
+          if [ "${{ inputs.headless }}" = "true" ]; then
             HEADLESS_VALUE="true"
+            echo "🖥️ Running in HEADLESS mode (browser runs in background)"
           else
             HEADLESS_VALUE="false"
+            echo "🖥️ Running in HEADED mode (browser window visible)"
           fi
           
           if [ "${{ env.ENABLE_SLACK }}" = "true" ]; then
@@ -246,6 +243,10 @@ jobs:
               slowMoMs: 1000,
               enableSlackNotifications: $enableSlack
             }' > /tmp/exec-payload.json
+          
+          echo "📋 Execution payload:"
+          cat /tmp/exec-payload.json
+          echo ""
           
           EXEC_RESPONSE=$(curl -X POST http://localhost:3001/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}")
           EXEC_HTTP_CODE=$(echo "$EXEC_RESPONSE" | tail -n1)
@@ -275,52 +276,35 @@ jobs:
         # Cleanup
         rm -f /tmp/test-payload.json /tmp/exec-payload.json
 
-    - name: Install Playwright and dependencies
-      if: env.RUN_TESTS != 'no'
-      run: |
-        npm install -g playwright
-        npx playwright install chromium
-        npx playwright install-deps
 
-    - name: Extract and run test code
-      if: env.RUN_TESTS != 'no'
+    - name: Verify test execution results
       run: |
-        echo "🚀 Extracting and running test code..." && \
-        if [ "${{ env.RUN_TESTS }}" = "no" ]; then \
-          echo "⏭️ Skipping test execution as requested"; \
-          exit 0; \
-        fi && \
-        echo "📝 Extracting test code from JSON response..." && \
-        TEST_CODE=$(python3 extract_code.py test-scenarios/code-response-${{ github.run_id }}.json 2>/dev/null || echo "No code found - parsing failed") && \
-        if [ "$TEST_CODE" = "No code found" ] || [ "$TEST_CODE" = "null" ]; then \
-          echo "❌ No test code found in response"; \
-          exit 1; \
-        fi && \
-        echo "✅ Test code extracted successfully!" && \
-        echo "💾 Saving test code to file..." && \
-        echo "$TEST_CODE" > test-scenarios/generated-test-${{ github.run_id }}.js && \
-        echo "🔧 Setting up test environment..." && \
-        mkdir -p test-runner && \
-        cd test-runner && \
-        npm init -y && \
-        npm install playwright && \
-        echo "📋 Creating test configuration..." && \
-        echo "module.exports = { use: { headless: ${{ env.RUN_TESTS == 'headless' }} } };" > playwright.config.js && \
-        echo "🚀 Running test..." && \
-        if [ "${{ env.RUN_TESTS }}" = "headed" ]; then \
-          echo "🖥️ Running test with browser visible..." && \
-          npx playwright test ../test-scenarios/generated-test-${{ github.run_id }}.js --headed; \
-        else \
-          echo "👻 Running test headlessly..." && \
-          npx playwright test ../test-scenarios/generated-test-${{ github.run_id }}.js; \
-        fi && \
-        echo "✅ Test execution completed!" && \
-        echo "📊 Test results:" && \
-        ls -la test-results/ 2>/dev/null || echo "No test results directory found" && \
-        echo "📸 Screenshots:" && \
-        ls -la test-results/screenshots/ 2>/dev/null || echo "No screenshots found" && \
-        echo "🎥 Videos:" && \
-        ls -la test-results/videos/ 2>/dev/null || echo "No videos found"
+        echo "📊 Verifying test execution results..."
+        if [ -n "${{ env.EXECUTION_ID }}" ]; then
+          echo "✅ Test executed in platform successfully!"
+          echo "Execution ID: ${{ env.EXECUTION_ID }}"
+          echo "Test Status: ${{ env.TEST_STATUS }}"
+          echo "Test ID: ${{ env.TEST_ID }}"
+          
+          # Get detailed execution results
+          echo "📋 Getting detailed execution results..."
+          DETAILED_RESULTS=$(curl -X GET "http://localhost:3001/api/execution/${{ env.EXECUTION_ID }}/results" | jq '.')
+          echo "Detailed Results:"
+          echo "$DETAILED_RESULTS" | jq '.'
+          
+          STEPS_EXECUTED=$(echo "$DETAILED_RESULTS" | jq '.execution.result.steps | length')
+          echo "Steps executed: $STEPS_EXECUTED"
+          
+          if [ "$STEPS_EXECUTED" -gt 0 ]; then
+            echo "🎉 SUCCESS: Browser execution completed! Steps were executed."
+            echo "Step details:"
+            echo "$DETAILED_RESULTS" | jq '.execution.result.steps[] | {step: .step, action: .action, target: .target, status: .status, error: .error}'
+          else
+            echo "⚠️ WARNING: No steps were executed in the browser."
+          fi
+        else
+          echo "❌ No execution ID found - test may not have been executed"
+        fi
 
     - name: Upload test scenarios
       uses: actions/upload-artifact@v4
@@ -330,11 +314,10 @@ jobs:
         retention-days: 30
 
     - name: Upload test results
-      if: env.RUN_TESTS != 'no'
       uses: actions/upload-artifact@v4
       with:
         name: test-results-${{ github.run_id }}
-        path: test-runner/test-results/
+        path: backend/test-results/
         retention-days: 30
 
     - name: Send workflow completion notification to Slack
