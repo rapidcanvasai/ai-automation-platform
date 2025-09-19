@@ -124,8 +124,9 @@ jobs:
       run: |
         echo "🚀 Generating test code..."
         
-        # Write the steps response to a temporary file to avoid shell escaping issues
-        echo "${{ steps.generate-steps.outputs.steps_response }}" > /tmp/steps.json
+        # Extract steps array from the response and create proper payload for generate-code
+        STEPS_ARRAY=$(echo "${{ steps.generate-steps.outputs.steps_response }}" | jq -r '.steps')
+        echo "{\"steps\": $STEPS_ARRAY, \"language\": \"typescript\"}" > /tmp/steps.json
         
         # Call your existing API to generate code
         CODE_RESPONSE=$(curl -X POST http://localhost:3001/api/nlp/generate-code \
