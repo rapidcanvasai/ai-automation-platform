@@ -106,6 +106,8 @@ jobs:
         
         if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
           echo "✅ Test steps generated successfully!"
+          echo "Saving NLP parsing response..."
+          echo "$STEPS_BODY" > test-scenarios/steps-response-${{ github.run_id }}.json
           echo "Creating payload..."
           echo "$STEPS_BODY" | jq -c '{steps: .steps, language: "typescript"}' > /tmp/steps.json
           echo "Payload created:"
@@ -159,8 +161,6 @@ jobs:
             
             echo "Creating raw response file..."
             echo "$CODE_BODY" > test-scenarios/code-response-${{ github.run_id }}.json
-            echo "Creating steps response file..."
-            echo "$STEPS_BODY" > test-scenarios/steps-response-${{ github.run_id }}.json
             echo "Creating steps file..."
             echo "$TEST_STEPS" > test-scenarios/test-steps-${{ github.run_id }}.txt
             
