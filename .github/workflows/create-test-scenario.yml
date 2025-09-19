@@ -249,8 +249,10 @@ jobs:
         
         if [ "$CREATE_HTTP_CODE" -eq 201 ]; then
           echo "✅ Test created successfully!"
-          TEST_ID=$(echo "$CREATE_BODY" | jq -r '.test.id // "unknown"')
-          echo "Test ID: $TEST_ID"
+            TEST_ID=$(echo "$CREATE_BODY" | jq -r '.test.id // "unknown"')
+            echo "Test ID: $TEST_ID"
+            echo "🔍 Debug: Full create response:"
+            echo "$CREATE_BODY" | jq '.'
           echo "🚀 Executing test..."
           
           # Set browser execution mode
@@ -281,10 +283,15 @@ jobs:
           cat /tmp/exec-payload.json
           echo ""
           
-          EXEC_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}")
+          echo "🔍 Testing execution with test ID: $TEST_ID"
+          echo "🔍 Checking if test exists first..."
+          curl -X GET ${BACKEND_URL:-http://localhost:3001}/api/tests/$TEST_ID | jq '.test.id // "not found"'
+          
+          EXEC_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}" --max-time 120)
           EXEC_HTTP_CODE=$(echo "$EXEC_RESPONSE" | tail -n1)
           EXEC_BODY=$(echo "$EXEC_RESPONSE" | sed '$d')
           echo "Execution HTTP Code: $EXEC_HTTP_CODE"
+          echo "Execution Response: $EXEC_BODY"
           
           if [ "$EXEC_HTTP_CODE" -eq 200 ]; then
             echo "✅ Test executed successfully!"
@@ -295,8 +302,20 @@ jobs:
             echo "EXECUTION_ID=$EXECUTION_ID" >> $GITHUB_ENV
             echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
             echo "TEST_ID=$TEST_ID" >> $GITHUB_ENV
+            
+            # Check if execution actually completed
+            STEPS_EXECUTED=$(echo "$EXEC_BODY" | jq '.result.steps | length' 2>/dev/null || echo "0")
+            echo "Steps executed: $STEPS_EXECUTED"
+            if [ "$STEPS_EXECUTED" -eq 0 ]; then
+              echo "⚠️ WARNING: No steps were executed in the browser."
+              echo "This might be due to browser automation issues in Docker environment."
+            fi
+          elif [ "$EXEC_HTTP_CODE" -eq 404 ]; then
+            echo "❌ Test not found (404) - Test ID: $TEST_ID"
+            echo "Raw execution response: $EXEC_RESPONSE"
+            exit 1
           else
-            echo "❌ Test execution failed"
+            echo "❌ Test execution failed with HTTP $EXEC_HTTP_CODE"
             echo "Raw execution response: $EXEC_RESPONSE"
             exit 1
           fi
@@ -387,14 +406,14 @@ jobs:
         echo "   - test-scenario-${{ github.run_id }}.md (comprehensive report)"
         echo "   - code-response-${{ github.run_id }}.json (raw code response)"
         echo "   - test-steps-${{ github.run_id }}.txt (human readable steps)"
-        echo "   - test-results-${{ github.run_id }} (test execution results)"
-        echo "   - generated-test-${{ github.run_id }}.js (executable test file)"
+          echo "   - test-results-${{ github.run_id }} (test execution results)"
+          echo "   - generated-test-${{ github.run_id }}.js (executable test file)"
         echo ""
         echo "🎯 Next steps:"
         echo "   1. Download the artifacts from this workflow run"
-        echo "   2. ✅ Tests were executed automatically!"
-        echo "   3. Check test-results artifact for screenshots/videos"
-        echo "   4. Use generated-test-${{ github.run_id }}.js for future runs"
+          echo "   2. ✅ Tests were executed automatically!"
+          echo "   3. Check test-results artifact for screenshots/videos"
+          echo "   4. Use generated-test-${{ github.run_id }}.js for future runs"
         echo "   5. Check Slack for detailed execution notifications"
         echo ""
         echo "🔗 Platform Integration:"
