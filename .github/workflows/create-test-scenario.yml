@@ -85,65 +85,183 @@ jobs:
 
     - name: Generate and create complete test scenario
       run: |
-        echo "🚀 Generating and creating complete test scenario from: ${{ env.TEST_DESCRIPTION }}" && echo "Test description length: ${#TEST_DESCRIPTION}" && if [ -z "${{ env.TEST_DESCRIPTION }}" ]; then echo "❌ No test description provided"; echo "Raw env value: '${{ env.TEST_DESCRIPTION }}'"; exit 1; fi && echo "✅ Test description provided" && echo "Calling API to parse steps..." && STEPS_RESPONSE=$(curl -X POST http://localhost:3001/api/nlp/parse -H "Content-Type: application/json" -d "{\"text\": \"${{ env.TEST_DESCRIPTION }}\"}" -w "\n%{http_code}") && HTTP_CODE=$(echo "$STEPS_RESPONSE" | tail -n1) && STEPS_BODY=$(echo "$STEPS_RESPONSE" | sed '$d') && echo "Steps HTTP Code: $HTTP_CODE" && echo "Steps Response Length: ${#STEPS_BODY}" && echo "Success: $(echo "$STEPS_BODY" | grep -o '"success":true' || echo 'false')" && if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then echo "✅ Test steps generated successfully!"; echo "Creating payload..." && echo "$STEPS_BODY" | jq -c '{steps: .steps, language: "typescript"}' > /tmp/steps.json && echo "Payload created:" && cat /tmp/steps.json && echo "" && echo "Calling API to generate code..." && CODE_RESPONSE=$(curl -X POST http://localhost:3001/api/nlp/generate-code -H "Content-Type: application/json" -d @/tmp/steps.json -w "\n%{http_code}") && CODE_HTTP_CODE=$(echo "$CODE_RESPONSE" | tail -n1) && CODE_BODY=$(echo "$CODE_RESPONSE" | sed '$d') && echo "Code HTTP Code: $CODE_HTTP_CODE" && echo "Code Response Length: ${#CODE_BODY}" && echo "Code Success: $(echo "$CODE_BODY" | grep -o '"success":true' || echo 'false')" && if [ "$CODE_HTTP_CODE" -eq 200 ] || [ "$CODE_HTTP_CODE" -eq 201 ]; then echo "✅ Test code generated successfully!"; echo "Creating test scenario files..." && mkdir -p test-scenarios && echo "Extracting test steps..." && TEST_STEPS=$(echo "$STEPS_BODY" | jq -r '.steps // .parsedSteps // "No steps generated"' 2>/dev/null || echo "No steps generated - parsing failed") && echo "Creating comprehensive test scenario file..." && echo "# Test Scenario" > test-scenarios/test-scenario-${{ github.run_id }}.md && echo "Generated on: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "Triggered by: ${{ github.actor }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "Workflow Run: ${{ github.run_id }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "## Test Description" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "${{ env.TEST_DESCRIPTION }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "## Generated Test Steps" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "\`\`\`json" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "$STEPS_BODY" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "\`\`\`" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "## Generated Test Code Response" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "\`\`\`json" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "$CODE_BODY" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "\`\`\`" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "## Test Steps (Human Readable)" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "$TEST_STEPS" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "## Usage Instructions" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "1. Extract the code from the JSON response above" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "2. Save it as a .js file in your test project" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "3. Run with: npx playwright test your-test-file.js" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "Creating raw response file..." && echo "$CODE_BODY" > test-scenarios/code-response-${{ github.run_id }}.json && echo "Creating steps file..." && echo "$TEST_STEPS" > test-scenarios/test-steps-${{ github.run_id }}.txt && echo "✅ Test scenario files created successfully!" && echo "Files created:" && ls -la test-scenarios/ && echo "Main file size:" && wc -c test-scenarios/test-scenario-${{ github.run_id }}.md; else echo "❌ Failed to generate test code"; echo "Raw code response: $CODE_RESPONSE"; exit 1; fi; else echo "❌ Failed to generate test steps"; echo "Raw steps response: $STEPS_RESPONSE"; echo "Debug: TEST_DESCRIPTION value: '${{ env.TEST_DESCRIPTION }}'"; echo "Debug: TEST_DESCRIPTION length: ${#TEST_DESCRIPTION}"; exit 1; fi && rm -f /tmp/steps.json
+        echo "🚀 Generating and creating complete test scenario from: ${{ env.TEST_DESCRIPTION }}"
+        echo "Test description length: ${#TEST_DESCRIPTION}"
+        
+        if [ -z "${{ env.TEST_DESCRIPTION }}" ]; then
+          echo "❌ No test description provided"
+          echo "Raw env value: '${{ env.TEST_DESCRIPTION }}'"
+          exit 1
+        fi
+        
+        echo "✅ Test description provided"
+        echo "Calling API to parse steps..."
+        
+        # Create properly escaped JSON payload
+        jq -n --arg text "${{ env.TEST_DESCRIPTION }}" '{text: $text}' > /tmp/nlp-payload.json
+        
+        STEPS_RESPONSE=$(curl -X POST http://localhost:3001/api/nlp/parse -H "Content-Type: application/json" -d @/tmp/nlp-payload.json -w "\n%{http_code}")
+        HTTP_CODE=$(echo "$STEPS_RESPONSE" | tail -n1)
+        STEPS_BODY=$(echo "$STEPS_RESPONSE" | sed '$d')
+        
+        echo "Steps HTTP Code: $HTTP_CODE"
+        echo "Steps Response Length: ${#STEPS_BODY}"
+        echo "Success: $(echo "$STEPS_BODY" | grep -o '"success":true' || echo 'false')"
+        
+        if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
+          echo "✅ Test steps generated successfully!"
+          echo "Creating payload..."
+          echo "$STEPS_BODY" | jq -c '{steps: .steps, language: "typescript"}' > /tmp/steps.json
+          echo "Payload created:"
+          cat /tmp/steps.json
+          echo ""
+          
+          echo "Calling API to generate code..."
+          CODE_RESPONSE=$(curl -X POST http://localhost:3001/api/nlp/generate-code -H "Content-Type: application/json" -d @/tmp/steps.json -w "\n%{http_code}")
+          CODE_HTTP_CODE=$(echo "$CODE_RESPONSE" | tail -n1)
+          CODE_BODY=$(echo "$CODE_RESPONSE" | sed '$d')
+          
+          echo "Code HTTP Code: $CODE_HTTP_CODE"
+          echo "Code Response Length: ${#CODE_BODY}"
+          echo "Code Success: $(echo "$CODE_BODY" | grep -o '"success":true' || echo 'false')"
+          
+          if [ "$CODE_HTTP_CODE" -eq 200 ] || [ "$CODE_HTTP_CODE" -eq 201 ]; then
+            echo "✅ Test code generated successfully!"
+            echo "Creating test scenario files..."
+            mkdir -p test-scenarios
+            
+            echo "Extracting test steps..."
+            TEST_STEPS=$(echo "$STEPS_BODY" | jq -r '.steps // .parsedSteps // "No steps generated"' 2>/dev/null || echo "No steps generated - parsing failed")
+            
+            echo "Creating comprehensive test scenario file..."
+            # Create markdown file using jq to avoid sed issues
+            jq -n \
+              --arg title "# Test Scenario" \
+              --arg generated "Generated on: $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              --arg triggered "Triggered by: ${{ github.actor }}" \
+              --arg workflow "Workflow Run: ${{ github.run_id }}" \
+              --arg description "${{ env.TEST_DESCRIPTION }}" \
+              --arg stepsBody "$STEPS_BODY" \
+              --arg codeBody "$CODE_BODY" \
+              --arg testSteps "$TEST_STEPS" \
+              --arg instructions "1. Extract the code from the JSON response above
+2. Save it as a .js file in your test project
+3. Run with: npx playwright test your-test-file.js" \
+              '$title + "\n" + $generated + "\n" + $triggered + "\n" + $workflow + "\n\n## Test Description\n" + $description + "\n\n## Generated Test Steps\n```json\n" + $stepsBody + "\n```\n\n## Generated Test Code Response\n```json\n" + $codeBody + "\n```\n\n## Test Steps (Human Readable)\n" + $testSteps + "\n\n## Usage Instructions\n" + $instructions' -r > test-scenarios/test-scenario-${{ github.run_id }}.md
+            
+            echo "Creating raw response file..."
+            echo "$CODE_BODY" > test-scenarios/code-response-${{ github.run_id }}.json
+            echo "Creating steps response file..."
+            echo "$STEPS_BODY" > test-scenarios/steps-response-${{ github.run_id }}.json
+            echo "Creating steps file..."
+            echo "$TEST_STEPS" > test-scenarios/test-steps-${{ github.run_id }}.txt
+            
+            echo "✅ Test scenario files created successfully!"
+            echo "Files created:"
+            ls -la test-scenarios/
+            echo "Main file size:"
+            wc -c test-scenarios/test-scenario-${{ github.run_id }}.md
+          else
+            echo "❌ Failed to generate test code"
+            echo "Raw code response: $CODE_RESPONSE"
+            exit 1
+          fi
+        else
+          echo "❌ Failed to generate test steps"
+          echo "Raw steps response: $STEPS_RESPONSE"
+          echo "Debug: TEST_DESCRIPTION value: '${{ env.TEST_DESCRIPTION }}'"
+          echo "Debug: TEST_DESCRIPTION length: ${#TEST_DESCRIPTION}"
+          exit 1
+        fi
+        
+        rm -f /tmp/steps.json /tmp/nlp-payload.json
 
     - name: Create test in platform and execute
       if: env.RUN_TESTS != 'no'
       run: |
-        echo "🚀 Creating test in platform and executing..." && \
-        echo "📝 Creating test payload..." && \
-        TEST_NAME="GitHub Action Test - ${{ github.run_id }}" && \
-        TEST_PAYLOAD=$(cat <<EOF
-        {
-          "name": "$TEST_NAME",
-          "description": "${{ env.TEST_DESCRIPTION }}",
-          "steps": $(cat test-scenarios/code-response-${{ github.run_id }}.json | jq '.parsedSteps // .steps // []'),
-          "generatedCode": $(cat test-scenarios/code-response-${{ github.run_id }}.json | jq '.generatedCode.code // ""'),
-          "language": "typescript"
-        }
-        EOF
-        ) && \
-        echo "Creating test in platform..." && \
-        CREATE_RESPONSE=$(curl -X POST http://localhost:3001/api/tests -H "Content-Type: application/json" -d "$TEST_PAYLOAD" -w "\n%{http_code}") && \
-        CREATE_HTTP_CODE=$(echo "$CREATE_RESPONSE" | tail -n1) && \
-        CREATE_BODY=$(echo "$CREATE_RESPONSE" | sed '$d') && \
-        echo "Create Test HTTP Code: $CREATE_HTTP_CODE" && \
-        if [ "$CREATE_HTTP_CODE" -eq 201 ]; then \
-          echo "✅ Test created successfully!" && \
-          TEST_ID=$(echo "$CREATE_BODY" | jq -r '.test.id // "unknown"') && \
-          echo "Test ID: $TEST_ID" && \
-          echo "🚀 Executing test..." && \
-          EXEC_PAYLOAD=$(cat <<EOF
-          {
-            "headless": ${{ env.RUN_TESTS == 'headless' }},
-            "slowMoMs": 1000,
-            "enableSlackNotifications": ${{ env.ENABLE_SLACK == 'true' }}
-          }
-          EOF
-          ) && \
-          EXEC_RESPONSE=$(curl -X POST http://localhost:3001/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d "$EXEC_PAYLOAD" -w "\n%{http_code}") && \
-          EXEC_HTTP_CODE=$(echo "$EXEC_RESPONSE" | tail -n1) && \
-          EXEC_BODY=$(echo "$EXEC_RESPONSE" | sed '$d') && \
-          echo "Execution HTTP Code: $EXEC_HTTP_CODE" && \
-          if [ "$EXEC_HTTP_CODE" -eq 200 ]; then \
-            echo "✅ Test executed successfully!" && \
-            echo "Execution Result:" && \
-            echo "$EXEC_BODY" | jq '.' && \
-            EXECUTION_ID=$(echo "$EXEC_BODY" | jq -r '.executionId // "unknown"') && \
-            TEST_STATUS=$(echo "$EXEC_BODY" | jq -r '.status // "unknown"') && \
-            echo "EXECUTION_ID=$EXECUTION_ID" >> $GITHUB_ENV && \
-            echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV && \
-            echo "TEST_ID=$TEST_ID" >> $GITHUB_ENV; \
-          else \
-            echo "❌ Test execution failed" && \
-            echo "Raw execution response: $EXEC_RESPONSE" && \
-            exit 1; \
-          fi; \
-        else \
-          echo "❌ Failed to create test" && \
-          echo "Raw create response: $CREATE_RESPONSE" && \
-          exit 1; \
+        echo "🚀 Creating test in platform and executing..."
+        echo "📝 Creating test payload..."
+        TEST_NAME="GitHub Action Test - ${{ github.run_id }}"
+        
+            # Extract steps from the original NLP parsing response and code from generation response
+            STEPS_DATA=$(cat test-scenarios/steps-response-${{ github.run_id }}.json | jq -c '.steps // []')
+            GENERATED_CODE=$(cat test-scenarios/code-response-${{ github.run_id }}.json | jq -r '.code.code // ""')
+        
+        # Create test payload using jq to properly escape JSON
+        jq -n \
+          --arg name "$TEST_NAME" \
+          --arg description "${{ env.TEST_DESCRIPTION }}" \
+          --argjson steps "$STEPS_DATA" \
+          --arg generatedCode "$GENERATED_CODE" \
+          '{
+            name: $name,
+            description: $description,
+            steps: $steps,
+            generatedCode: $generatedCode,
+            language: "typescript"
+          }' > /tmp/test-payload.json
+        
+        echo "Creating test in platform..."
+        CREATE_RESPONSE=$(curl -X POST http://localhost:3001/api/tests -H "Content-Type: application/json" -d @/tmp/test-payload.json -w "\n%{http_code}")
+        CREATE_HTTP_CODE=$(echo "$CREATE_RESPONSE" | tail -n1)
+        CREATE_BODY=$(echo "$CREATE_RESPONSE" | sed '$d')
+        echo "Create Test HTTP Code: $CREATE_HTTP_CODE"
+        
+        if [ "$CREATE_HTTP_CODE" -eq 201 ]; then
+          echo "✅ Test created successfully!"
+          TEST_ID=$(echo "$CREATE_BODY" | jq -r '.test.id // "unknown"')
+          echo "Test ID: $TEST_ID"
+          echo "🚀 Executing test..."
+          
+          # Create execution payload using jq
+          if [ "${{ env.RUN_TESTS }}" = "headless" ]; then
+            HEADLESS_VALUE="true"
+          else
+            HEADLESS_VALUE="false"
+          fi
+          
+          if [ "${{ env.ENABLE_SLACK }}" = "true" ]; then
+            SLACK_VALUE="true"
+          else
+            SLACK_VALUE="false"
+          fi
+          
+          jq -n \
+            --argjson headless "$HEADLESS_VALUE" \
+            --argjson enableSlack "$SLACK_VALUE" \
+            '{
+              headless: $headless,
+              slowMoMs: 1000,
+              enableSlackNotifications: $enableSlack
+            }' > /tmp/exec-payload.json
+          
+          EXEC_RESPONSE=$(curl -X POST http://localhost:3001/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}")
+          EXEC_HTTP_CODE=$(echo "$EXEC_RESPONSE" | tail -n1)
+          EXEC_BODY=$(echo "$EXEC_RESPONSE" | sed '$d')
+          echo "Execution HTTP Code: $EXEC_HTTP_CODE"
+          
+          if [ "$EXEC_HTTP_CODE" -eq 200 ]; then
+            echo "✅ Test executed successfully!"
+            echo "Execution Result:"
+            echo "$EXEC_BODY" | jq '.'
+            EXECUTION_ID=$(echo "$EXEC_BODY" | jq -r '.executionId // "unknown"')
+            TEST_STATUS=$(echo "$EXEC_BODY" | jq -r '.status // "unknown"')
+            echo "EXECUTION_ID=$EXECUTION_ID" >> $GITHUB_ENV
+            echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
+            echo "TEST_ID=$TEST_ID" >> $GITHUB_ENV
+          else
+            echo "❌ Test execution failed"
+            echo "Raw execution response: $EXEC_RESPONSE"
+            exit 1
+          fi
+        else
+          echo "❌ Failed to create test"
+          echo "Raw create response: $CREATE_RESPONSE"
+          exit 1
         fi
+        
+        # Cleanup
+        rm -f /tmp/test-payload.json /tmp/exec-payload.json
 
     - name: Install Playwright and dependencies
       if: env.RUN_TESTS != 'no'
