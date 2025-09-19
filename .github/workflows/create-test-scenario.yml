@@ -106,7 +106,7 @@ jobs:
           -w "\n%{http_code}")
         
         HTTP_CODE=$(echo "$STEPS_RESPONSE" | tail -n1)
-        STEPS_BODY=$(echo "$STEPS_RESPONSE" | head -n -1)
+        STEPS_BODY=$(echo "$STEPS_RESPONSE" | sed '$d')
         
         echo "Steps HTTP Code: $HTTP_CODE"
         echo "Steps Response: $STEPS_BODY"
@@ -134,7 +134,7 @@ jobs:
           -w "\n%{http_code}")
         
         HTTP_CODE=$(echo "$CODE_RESPONSE" | tail -n1)
-        CODE_BODY=$(echo "$CODE_RESPONSE" | head -n -1)
+        CODE_BODY=$(echo "$CODE_RESPONSE" | sed '$d')
         
         echo "Code HTTP Code: $HTTP_CODE"
         echo "Code Response: $CODE_BODY"
