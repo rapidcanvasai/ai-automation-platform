@@ -1,0 +1,184 @@
+name: Create Test Scenario
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_description:
+        description: 'Describe what you want to test in plain English'
+        required: true
+        type: string
+        default: 'Navigate to google.com and search for "test automation"'
+      openai_api_key:
+        description: 'OpenAI API Key (or leave blank to use repository secret)'
+        required: false
+        type: string
+
+env:
+  TEST_DESCRIPTION: ${{ github.event.inputs.test_description }}
+  OPENAI_API_KEY: ${{ github.event.inputs.openai_api_key || secrets.OPENAI_API_KEY }}
+
+jobs:
+  create-test-scenario:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: |
+        npm ci
+        cd backend && npm ci
+
+    - name: Start backend server
+      run: |
+        cd backend
+        npm start &
+        sleep 10
+      env:
+        NODE_ENV: production
+        PORT: 3001
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_USER: postgres
+        DB_PASSWORD: password
+        DB_NAME: test_automation
+        REDIS_URL: redis://localhost:6379
+        OPENAI_API_KEY: ${{ env.OPENAI_API_KEY }}
+
+    - name: Wait for backend to be ready
+      run: |
+        for i in {1..30}; do
+          if curl -f http://localhost:3001/health; then
+            echo "Backend is ready!"
+            break
+          fi
+          echo "Waiting for backend... ($i/30)"
+          sleep 2
+        done
+
+    - name: Generate test steps
+      id: generate-steps
+      run: |
+        echo "🚀 Generating test steps from: ${{ env.TEST_DESCRIPTION }}"
+        
+        # Call your existing API to parse natural language
+        STEPS_RESPONSE=$(curl -X POST http://localhost:3001/api/nlp/parse \
+          -H "Content-Type: application/json" \
+          -d "{\"text\": \"${{ env.TEST_DESCRIPTION }}\"}" \
+          -w "\n%{http_code}")
+        
+        HTTP_CODE=$(echo "$STEPS_RESPONSE" | tail -n1)
+        STEPS_BODY=$(echo "$STEPS_RESPONSE" | head -n -1)
+        
+        echo "Steps HTTP Code: $HTTP_CODE"
+        echo "Steps Response: $STEPS_BODY"
+        
+        if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
+          echo "✅ Test steps generated successfully!"
+          echo "steps_response=$STEPS_BODY" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Failed to generate test steps"
+          exit 1
+        fi
+
+    - name: Generate test code
+      id: generate-code
+      run: |
+        echo "🚀 Generating test code..."
+        
+        # Call your existing API to generate code
+        CODE_RESPONSE=$(curl -X POST http://localhost:3001/api/nlp/generate-code \
+          -H "Content-Type: application/json" \
+          -d "${{ steps.generate-steps.outputs.steps_response }}" \
+          -w "\n%{http_code}")
+        
+        HTTP_CODE=$(echo "$CODE_RESPONSE" | tail -n1)
+        CODE_BODY=$(echo "$CODE_RESPONSE" | head -n -1)
+        
+        echo "Code HTTP Code: $HTTP_CODE"
+        echo "Code Response: $CODE_BODY"
+        
+        if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
+          echo "✅ Test code generated successfully!"
+          echo "code_response=$CODE_BODY" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Failed to generate test code"
+          exit 1
+        fi
+
+    - name: Create test scenario files
+      run: |
+        echo "📝 Creating test scenario files..."
+        mkdir -p test-scenarios
+        
+        # Extract data from API responses
+        TEST_STEPS=$(echo "${{ steps.generate-steps.outputs.steps_response }}" | jq -r '.steps // .parsedSteps // "No steps generated"')
+        TEST_CODE=$(echo "${{ steps.generate-code.outputs.code_response }}" | jq -r '.code // .generatedCode // "No code generated"')
+        
+        # Create comprehensive test scenario file
+        cat > test-scenarios/test-scenario-${{ github.run_id }}.md << EOF
+# Test Scenario
+Generated on: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Triggered by: ${{ github.actor }}
+Workflow Run: ${{ github.run_id }}
+
+## Test Description
+${{ env.TEST_DESCRIPTION }}
+
+## Generated Test Steps
+\`\`\`json
+${{ steps.generate-steps.outputs.steps_response }}
+\`\`\`
+
+## Generated Test Code
+\`\`\javascript
+$TEST_CODE
+\`\`\`
+
+## Test Steps (Human Readable)
+$TEST_STEPS
+
+## Usage Instructions
+1. Copy the generated test code above
+2. Save it as a .js file in your test project
+3. Run with: npx playwright test your-test-file.js
+EOF
+        
+        # Create separate code file
+        echo "$TEST_CODE" > test-scenarios/test-code-${{ github.run_id }}.js
+        
+        # Create steps file
+        echo "$TEST_STEPS" > test-scenarios/test-steps-${{ github.run_id }}.txt
+        
+        echo "✅ Test scenario files created successfully!"
+
+    - name: Upload test scenarios
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-scenarios-${{ github.run_id }}
+        path: test-scenarios/
+        retention-days: 30
+
+    - name: Display test scenario
+      run: |
+        echo "## 📋 Test Scenario Created!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Created by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Test Description:** ${{ env.TEST_DESCRIPTION }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📁 Generated Files:" >> $GITHUB_STEP_SUMMARY
+        echo "- **test-scenario-*.md**: Complete test scenario with steps and code" >> $GITHUB_STEP_SUMMARY
+        echo "- **test-code-*.js**: Ready-to-run Playwright test code" >> $GITHUB_STEP_SUMMARY
+        echo "- **test-steps-*.txt**: Human-readable test steps" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🎯 Next Steps:" >> $GITHUB_STEP_SUMMARY
+        echo "1. Download the artifacts from this workflow run" >> $GITHUB_STEP_SUMMARY
+        echo "2. Copy the test code to your test project" >> $GITHUB_STEP_SUMMARY
+        echo "3. Run the test: \`npx playwright test your-test-file.js\`" >> $GITHUB_STEP_SUMMARY
