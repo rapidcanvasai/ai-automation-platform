@@ -1,0 +1,401 @@
+name: Test Execution via GitHub Actions
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_steps:
+        description: 'Test steps to execute (natural language description)'
+        required: true
+        type: string
+        default: 'Navigate to google.com and search for "test automation"'
+      target_url:
+        description: 'Target URL to test'
+        required: true
+        type: string
+        default: 'https://www.google.com'
+      slack_channel:
+        description: 'Slack channel ID for notifications'
+        required: true
+        type: string
+        default: 'C1234567890'
+      openai_api_key:
+        description: 'OpenAI API Key (or use secret OPENAI_API_KEY)'
+        required: false
+        type: string
+      test_type:
+        description: 'Type of test to run'
+        required: true
+        default: 'ai-generated'
+        type: choice
+        options:
+        - ai-generated
+        - exploratory
+        - autonomous
+        - custom-script
+      browser_type:
+        description: 'Browser to use for testing'
+        required: true
+        default: 'chromium'
+        type: choice
+        options:
+        - chromium
+        - firefox
+        - webkit
+      headless_mode:
+        description: 'Run browser in headless mode'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+        - 'true'
+        - 'false'
+      record_video:
+        description: 'Record test execution video'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+        - 'true'
+        - 'false'
+      timeout_minutes:
+        description: 'Test timeout in minutes'
+        required: true
+        default: '10'
+        type: string
+
+env:
+  TEST_STEPS: ${{ github.event.inputs.test_steps }}
+  TARGET_URL: ${{ github.event.inputs.target_url }}
+  SLACK_CHANNEL: ${{ github.event.inputs.slack_channel }}
+  OPENAI_API_KEY: ${{ github.event.inputs.openai_api_key || secrets.OPENAI_API_KEY }}
+  TEST_TYPE: ${{ github.event.inputs.test_type }}
+  BROWSER_TYPE: ${{ github.event.inputs.browser_type }}
+  HEADLESS_MODE: ${{ github.event.inputs.headless_mode }}
+  RECORD_VIDEO: ${{ github.event.inputs.record_video }}
+  TIMEOUT_MINUTES: ${{ github.event.inputs.timeout_minutes }}
+
+jobs:
+  execute-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ env.TIMEOUT_MINUTES }}
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: test_automation
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: |
+        npm ci
+        cd backend && npm ci
+        cd ../frontend && npm ci
+
+    - name: Install Playwright browsers
+      run: |
+        cd backend
+        npx playwright install ${{ env.BROWSER_TYPE }}
+
+    - name: Build backend
+      run: |
+        cd backend
+        npm run build
+
+    - name: Start backend server
+      run: |
+        cd backend
+        npm start &
+        sleep 10
+      env:
+        NODE_ENV: production
+        PORT: 3001
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_USER: postgres
+        DB_PASSWORD: password
+        DB_NAME: test_automation
+        REDIS_URL: redis://localhost:6379
+        OPENAI_API_KEY: ${{ env.OPENAI_API_KEY }}
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    - name: Wait for backend to be ready
+      run: |
+        for i in {1..30}; do
+          if curl -f http://localhost:3001/health; then
+            echo "Backend is ready!"
+            break
+          fi
+          echo "Waiting for backend... ($i/30)"
+          sleep 2
+        done
+
+    - name: Execute test via API
+      id: test-execution
+      run: |
+        echo "🚀 Starting test execution..."
+        echo "Test Steps: ${{ env.TEST_STEPS }}"
+        echo "Target URL: ${{ env.TARGET_URL }}"
+        echo "Test Type: ${{ env.TEST_TYPE }}"
+        echo "Browser: ${{ env.BROWSER_TYPE }}"
+        
+        # Create test execution request
+        TEST_REQUEST=$(cat << EOF
+        {
+          "testSteps": "${{ env.TEST_STEPS }}",
+          "targetUrl": "${{ env.TARGET_URL }}",
+          "testType": "${{ env.TEST_TYPE }}",
+          "browserType": "${{ env.BROWSER_TYPE }}",
+          "headless": ${{ env.HEADLESS_MODE }},
+          "recordVideo": ${{ env.RECORD_VIDEO }},
+          "slackChannel": "${{ env.SLACK_CHANNEL }}",
+          "executionId": "github-actions-${{ github.run_id }}",
+          "triggeredBy": "${{ github.actor }}",
+          "workflowRunId": "${{ github.run_id }}"
+        }
+        EOF
+        )
+        
+        echo "Test request: $TEST_REQUEST"
+        
+        # Execute test via API
+        RESPONSE=$(curl -X POST http://localhost:3001/api/execution/run \
+          -H "Content-Type: application/json" \
+          -d "$TEST_REQUEST" \
+          -w "\n%{http_code}")
+        
+        HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+        RESPONSE_BODY=$(echo "$RESPONSE" | head -n -1)
+        
+        echo "HTTP Code: $HTTP_CODE"
+        echo "Response: $RESPONSE_BODY"
+        
+        if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
+          echo "✅ Test execution started successfully!"
+          echo "execution_id=$(echo "$RESPONSE_BODY" | jq -r '.executionId // "unknown"')" >> $GITHUB_OUTPUT
+          echo "status=success" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Test execution failed!"
+          echo "status=failed" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+    - name: Monitor test execution
+      if: steps.test-execution.outputs.status == 'success'
+      run: |
+        echo "📊 Monitoring test execution..."
+        EXECUTION_ID="${{ steps.test-execution.outputs.execution_id }}"
+        
+        # Poll for test completion
+        for i in {1..60}; do
+          STATUS_RESPONSE=$(curl -s http://localhost:3001/api/execution/$EXECUTION_ID/status)
+          STATUS=$(echo "$STATUS_RESPONSE" | jq -r '.status // "unknown"')
+          
+          echo "Test status: $STATUS (check $i/60)"
+          
+          if [ "$STATUS" = "completed" ] || [ "$STATUS" = "failed" ] || [ "$STATUS" = "error" ]; then
+            echo "Test finished with status: $STATUS"
+            echo "final_status=$STATUS" >> $GITHUB_ENV
+            break
+          fi
+          
+          sleep 10
+        done
+        
+        if [ -z "$final_status" ]; then
+          echo "Test timed out after 10 minutes"
+          echo "final_status=timeout" >> $GITHUB_ENV
+        fi
+
+    - name: Get test results
+      if: steps.test-execution.outputs.status == 'success'
+      run: |
+        echo "📋 Retrieving test results..."
+        EXECUTION_ID="${{ steps.test-execution.outputs.execution_id }}"
+        
+        # Get detailed results
+        RESULTS_RESPONSE=$(curl -s http://localhost:3001/api/execution/$EXECUTION_ID/results)
+        echo "Test Results: $RESULTS_RESPONSE"
+        
+        # Save results to file
+        echo "$RESULTS_RESPONSE" > test-results.json
+        
+        # Extract key information
+        TEST_STATUS=$(echo "$RESULTS_RESPONSE" | jq -r '.status // "unknown"')
+        SUCCESS_COUNT=$(echo "$RESULTS_RESPONSE" | jq -r '.successCount // 0')
+        FAILURE_COUNT=$(echo "$RESULTS_RESPONSE" | jq -r '.failureCount // 0')
+        DURATION=$(echo "$RESULTS_RESPONSE" | jq -r '.duration // "unknown"')
+        VIDEO_URL=$(echo "$RESULTS_RESPONSE" | jq -r '.videoUrl // "none"')
+        SCREENSHOTS=$(echo "$RESULTS_RESPONSE" | jq -r '.screenshots // []')
+        
+        echo "test_status=$TEST_STATUS" >> $GITHUB_ENV
+        echo "success_count=$SUCCESS_COUNT" >> $GITHUB_ENV
+        echo "failure_count=$FAILURE_COUNT" >> $GITHUB_ENV
+        echo "duration=$DURATION" >> $GITHUB_ENV
+        echo "video_url=$VIDEO_URL" >> $GITHUB_ENV
+
+    - name: Upload test artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ github.run_id }}
+        path: |
+          test-results.json
+          backend/test-results/
+          backend/screenshots/
+          backend/videos/
+        retention-days: 30
+
+    - name: Send Slack notification
+      if: always()
+      run: |
+        echo "📢 Sending Slack notification..."
+        
+        if [ "${{ steps.test-execution.outputs.status }}" = "success" ]; then
+          if [ "${{ env.final_status }}" = "completed" ]; then
+            STATUS_EMOJI="✅"
+            STATUS_TEXT="COMPLETED"
+          elif [ "${{ env.final_status }}" = "failed" ]; then
+            STATUS_EMOJI="❌"
+            STATUS_TEXT="FAILED"
+          else
+            STATUS_EMOJI="⏱️"
+            STATUS_TEXT="TIMEOUT"
+          fi
+        else
+          STATUS_EMOJI="💥"
+          STATUS_TEXT="ERROR"
+        fi
+        
+        SLACK_MESSAGE=$(cat << EOF
+        {
+          "channel": "${{ env.SLACK_CHANNEL }}",
+          "text": "Test Execution Report",
+          "blocks": [
+            {
+              "type": "header",
+              "text": {
+                "type": "plain_text",
+                "text": "$STATUS_EMOJI Test Execution $STATUS_TEXT"
+              }
+            },
+            {
+              "type": "section",
+              "fields": [
+                {
+                  "type": "mrkdwn",
+                  "text": "*Triggered by:*\n${{ github.actor }}"
+                },
+                {
+                  "type": "mrkdwn",
+                  "text": "*Test Type:*\n${{ env.TEST_TYPE }}"
+                },
+                {
+                  "type": "mrkdwn",
+                  "text": "*Target URL:*\n${{ env.TARGET_URL }}"
+                },
+                {
+                  "type": "mrkdwn",
+                  "text": "*Browser:*\n${{ env.BROWSER_TYPE }}"
+                }
+              ]
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*Test Steps:*\n${{ env.TEST_STEPS }}"
+              }
+            }
+          ]
+        }
+        EOF
+        )
+        
+        # Add results if available
+        if [ "${{ steps.test-execution.outputs.status }}" = "success" ] && [ -n "${{ env.test_status }}" ]; then
+          SLACK_MESSAGE=$(echo "$SLACK_MESSAGE" | jq --arg status "${{ env.test_status }}" --arg success "${{ env.success_count }}" --arg failure "${{ env.failure_count }}" --arg duration "${{ env.duration }}" '.blocks += [{"type": "section", "fields": [{"type": "mrkdwn", "text": "*Status:*\n\($status)"}, {"type": "mrkdwn", "text": "*Success:*\n\($success)"}, {"type": "mrkdwn", "text": "*Failures:*\n\($failure)"}, {"type": "mrkdwn", "text": "*Duration:*\n\($duration)"}]}]')
+        fi
+        
+        # Add video link if available
+        if [ "${{ env.video_url }}" != "none" ] && [ -n "${{ env.video_url }}" ]; then
+          SLACK_MESSAGE=$(echo "$SLACK_MESSAGE" | jq --arg video "${{ env.video_url }}" '.blocks += [{"type": "section", "text": {"type": "mrkdwn", "text": "*📹 Test Video:*\n<\($video)|View Test Recording>"}}]')
+        fi
+        
+        # Add GitHub Actions link
+        SLACK_MESSAGE=$(echo "$SLACK_MESSAGE" | jq --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" '.blocks += [{"type": "section", "text": {"type": "mrkdwn", "text": "*🔗 GitHub Actions:*\n<\($run_url)|View Workflow Run>"}}]')
+        
+        echo "Slack message: $SLACK_MESSAGE"
+        
+        # Send to Slack
+        curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+          -H "Content-Type: application/json" \
+          -d "$SLACK_MESSAGE"
+
+    - name: Generate test summary
+      if: always()
+      run: |
+        echo "## 🧪 Test Execution Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Test Type:** ${{ env.TEST_TYPE }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Target URL:** ${{ env.TARGET_URL }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Browser:** ${{ env.BROWSER_TYPE }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Headless:** ${{ env.HEADLESS_MODE }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📝 Test Steps:" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "${{ env.TEST_STEPS }}" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ steps.test-execution.outputs.status }}" = "success" ]; then
+          echo "### ✅ Execution Status: SUCCESS" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -n "${{ env.test_status }}" ]; then
+            echo "**Final Status:** ${{ env.test_status }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Success Count:** ${{ env.success_count }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Failure Count:** ${{ env.failure_count }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Duration:** ${{ env.duration }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ env.video_url }}" != "none" ] && [ -n "${{ env.video_url }}" ]; then
+            echo "**📹 Test Video:** [${{ env.video_url }}](${{ env.video_url }})" >> $GITHUB_STEP_SUMMARY
+          fi
+        else
+          echo "### ❌ Execution Status: FAILED" >> $GITHUB_STEP_SUMMARY
+          echo "Check the logs above for error details." >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📊 Artifacts:" >> $GITHUB_STEP_SUMMARY
+        echo "- Test results and screenshots are available in the workflow artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "- Slack notification sent to channel: ${{ env.SLACK_CHANNEL }}" >> $GITHUB_STEP_SUMMARY
