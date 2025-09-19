@@ -50,6 +50,19 @@ jobs:
         cd backend
         npm ci
 
+    - name: Install Playwright browsers
+      run: |
+        cd backend
+        echo "🔍 Checking Playwright installation..."
+        npx playwright --version
+        echo "🚀 Installing Chromium browser..."
+        npx playwright install chromium
+        echo "🔧 Installing system dependencies..."
+        npx playwright install-deps chromium
+        echo "✅ Playwright installation completed!"
+        echo "🔍 Verifying installation..."
+        npx playwright install chromium --dry-run
+
     - name: Build backend
       run: |
         cd backend
@@ -286,6 +299,9 @@ jobs:
           echo "🔍 Testing execution with test ID: $TEST_ID"
           echo "🔍 Checking if test exists first..."
           curl -X GET ${BACKEND_URL:-http://localhost:3001}/api/tests/$TEST_ID | jq '.test.id // "not found"'
+          
+          echo "🔍 Debug: Checking Playwright installation in backend..."
+          curl -X GET ${BACKEND_URL:-http://localhost:3001}/health | jq '.' || echo "Health check failed"
           
           EXEC_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}" --max-time 120)
           EXEC_HTTP_CODE=$(echo "$EXEC_RESPONSE" | tail -n1)

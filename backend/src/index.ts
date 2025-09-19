@@ -36,8 +36,31 @@ app.use('/assets/videos', express.static(path.resolve('test-results')));
 app.use('/assets/uploads', express.static(path.resolve('uploads')));
 
 // Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+app.get('/health', async (req, res) => {
+  try {
+    // Check Playwright installation
+    const { chromium } = require('playwright');
+    let playwrightStatus = 'unknown';
+    try {
+      const browser = await chromium.launch({ headless: true });
+      await browser.close();
+      playwrightStatus = 'working';
+    } catch (error: any) {
+      playwrightStatus = `error: ${error.message}`;
+    }
+    
+    res.json({ 
+      status: 'OK', 
+      timestamp: new Date().toISOString(),
+      playwright: playwrightStatus
+    });
+  } catch (error: any) {
+    res.status(500).json({ 
+      status: 'ERROR', 
+      timestamp: new Date().toISOString(),
+      error: error.message 
+    });
+  }
 });
 
 // Error handling
