@@ -80,7 +80,7 @@ jobs:
       if: env.ENABLE_SLACK == 'true' && env.SLACK_WEBHOOK_URL != ''
       run: |
         curl -X POST -H 'Content-type: application/json' \
-        --data "{\"text\":\"🚀 *AI Test Automation Pipeline Started*\n\n*Test Description:* ${{ env.TEST_DESCRIPTION }}\n*Triggered by:* ${{ github.actor }}\n*Workflow Run:* ${{ github.run_id }}\n*Repository:* ${{ github.repository }}\"}" \
+        --data '{"text":"🚀 *AI Test Automation Pipeline Started*\n\n*Test Description:* ${{ env.TEST_DESCRIPTION }}\n*Triggered by:* ${{ github.actor }}\n*Workflow Run:* ${{ github.run_id }}\n*Repository:* ${{ github.repository }}"}' \
         ${{ env.SLACK_WEBHOOK_URL }}
 
     - name: Generate and create complete test scenario
@@ -134,20 +134,32 @@ jobs:
             TEST_STEPS=$(echo "$STEPS_BODY" | jq -r '.steps // .parsedSteps // "No steps generated"' 2>/dev/null || echo "No steps generated - parsing failed")
             
             echo "Creating comprehensive test scenario file..."
-            # Create markdown file using jq to avoid sed issues
-            jq -n \
-              --arg title "# Test Scenario" \
-              --arg generated "Generated on: $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-              --arg triggered "Triggered by: ${{ github.actor }}" \
-              --arg workflow "Workflow Run: ${{ github.run_id }}" \
-              --arg description "${{ env.TEST_DESCRIPTION }}" \
-              --arg stepsBody "$STEPS_BODY" \
-              --arg codeBody "$CODE_BODY" \
-              --arg testSteps "$TEST_STEPS" \
-              --arg instructions "1. Extract the code from the JSON response above
-2. Save it as a .js file in your test project
-3. Run with: npx playwright test your-test-file.js" \
-              '$title + "\n" + $generated + "\n" + $triggered + "\n" + $workflow + "\n\n## Test Description\n" + $description + "\n\n## Generated Test Steps\n```json\n" + $stepsBody + "\n```\n\n## Generated Test Code Response\n```json\n" + $codeBody + "\n```\n\n## Test Steps (Human Readable)\n" + $testSteps + "\n\n## Usage Instructions\n" + $instructions' -r > test-scenarios/test-scenario-${{ github.run_id }}.md
+            # Create markdown file using echo commands to avoid YAML issues
+            echo "# Test Scenario" > test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "Generated on: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "Triggered by: ${{ github.actor }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "Workflow Run: ${{ github.run_id }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "## Test Description" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "${{ env.TEST_DESCRIPTION }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "## Generated Test Steps" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "\`\`\`json" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "$STEPS_BODY" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "\`\`\`" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "## Generated Test Code Response" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "\`\`\`json" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "$CODE_BODY" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "\`\`\`" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "## Test Steps (Human Readable)" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "$TEST_STEPS" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "## Usage Instructions" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "1. Extract the code from the JSON response above" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "2. Save it as a .js file in your test project" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "3. Run with: npx playwright test your-test-file.js" >> test-scenarios/test-scenario-${{ github.run_id }}.md
             
             echo "Creating raw response file..."
             echo "$CODE_BODY" > test-scenarios/code-response-${{ github.run_id }}.json
@@ -336,11 +348,11 @@ jobs:
             STATUS_TEXT="FAILED"
           fi
           curl -X POST -H 'Content-type: application/json' \
-          --data "{\"text\":\"$STATUS_EMOJI *AI Test Automation Pipeline Completed*\n\n*Test Description:* ${{ env.TEST_DESCRIPTION }}\n*Status:* $STATUS_TEXT\n*Test ID:* ${{ env.TEST_ID }}\n*Execution ID:* ${{ env.EXECUTION_ID }}\n*Triggered by:* ${{ github.actor }}\n*Workflow Run:* ${{ github.run_id }}\n*Repository:* ${{ github.repository }}\n\n📁 *Artifacts Available:*\n• Test scenario report\n• Generated test code\n• Test execution results (if executed)\"}" \
+          --data '{"text":"$STATUS_EMOJI *AI Test Automation Pipeline Completed*\n\n*Test Description:* ${{ env.TEST_DESCRIPTION }}\n*Status:* $STATUS_TEXT\n*Test ID:* ${{ env.TEST_ID }}\n*Execution ID:* ${{ env.EXECUTION_ID }}\n*Triggered by:* ${{ github.actor }}\n*Workflow Run:* ${{ github.run_id }}\n*Repository:* ${{ github.repository }}\n\n📁 *Artifacts Available:*\n• Test scenario report\n• Generated test code\n• Test execution results (if executed)"}' \
           ${{ env.SLACK_WEBHOOK_URL }}
         else
           curl -X POST -H 'Content-type: application/json' \
-          --data "{\"text\":\"✅ *AI Test Automation Pipeline Completed*\n\n*Test Description:* ${{ env.TEST_DESCRIPTION }}\n*Status:* Test code generated successfully\n*Triggered by:* ${{ github.actor }}\n*Workflow Run:* ${{ github.run_id }}\n*Repository:* ${{ github.repository }}\n\n📁 *Artifacts Available:*\n• Test scenario report\n• Generated test code\n• Ready for manual execution\"}" \
+          --data '{"text":"✅ *AI Test Automation Pipeline Completed*\n\n*Test Description:* ${{ env.TEST_DESCRIPTION }}\n*Status:* Test code generated successfully\n*Triggered by:* ${{ github.actor }}\n*Workflow Run:* ${{ github.run_id }}\n*Repository:* ${{ github.repository }}\n\n📁 *Artifacts Available:*\n• Test scenario report\n• Generated test code\n• Ready for manual execution"}' \
           ${{ env.SLACK_WEBHOOK_URL }}
         fi
 
