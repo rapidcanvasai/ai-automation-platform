@@ -4,48 +4,22 @@ on:
   workflow_dispatch:
     inputs:
       test_description:
-        description: 'Describe what you want to test in plain English'
+        description: 'Test description in plain English'
         required: true
         type: string
-        default: 'Navigate to google.com and search for "test automation"'
       openai_api_key:
-        description: 'OpenAI API Key (or leave blank to use repository secret)'
-        required: false
+        description: 'OpenAI API Key'
+        required: true
         type: string
 
 env:
-  TEST_DESCRIPTION: ${{ github.event.inputs.test_description }}
-  OPENAI_API_KEY: ${{ github.event.inputs.openai_api_key || secrets.OPENAI_API_KEY }}
+  TEST_DESCRIPTION: ${{ inputs.test_description }}
+  OPENAI_API_KEY: ${{ inputs.openai_api_key }}
 
 jobs:
   create-test-scenario:
     runs-on: ubuntu-latest
     
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_PASSWORD: password
-          POSTGRES_DB: test_automation
-          POSTGRES_USER: postgres
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-      
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -55,11 +29,12 @@ jobs:
       with:
         node-version: '18'
         cache: 'npm'
+        cache-dependency-path: backend/package-lock.json
 
-    - name: Install dependencies
+    - name: Install backend dependencies
       run: |
+        cd backend
         npm ci
-        cd backend && npm ci
 
     - name: Build backend
       run: |
@@ -69,167 +44,22 @@ jobs:
     - name: Start backend server
       run: |
         cd backend
-        npm start &
-        sleep 15
-      env:
-        NODE_ENV: development
-        PORT: 3001
-        DB_DISABLED: true
-        DB_HOST: localhost
-        DB_PORT: 5432
-        DB_USER: postgres
-        DB_PASSWORD: password
-        DB_NAME: test_automation
-        REDIS_URL: redis://localhost:6379
-        OPENAI_API_KEY: ${{ env.OPENAI_API_KEY }}
-
-    - name: Wait for backend to be ready
-      run: |
+        DB_DISABLED=true NODE_ENV=development PORT=3001 npm start &
+        echo "Backend server starting..."
+        
+        # Wait for backend to be ready
         for i in {1..30}; do
-          if curl -f http://localhost:3001/health; then
-            echo "Backend is ready!"
+          if curl -f http://localhost:3001/health >/dev/null 2>&1; then
+            echo "✅ Backend is ready!"
             break
           fi
           echo "Waiting for backend... ($i/30)"
           sleep 2
         done
 
-    - name: Generate test steps
-      id: generate-steps
+    - name: Generate and create complete test scenario
       run: |
-        echo "🚀 Generating test steps from: ${{ env.TEST_DESCRIPTION }}"
-        
-        # Call your existing API to parse natural language
-        STEPS_RESPONSE=$(curl -X POST http://localhost:3001/api/nlp/parse \
-          -H "Content-Type: application/json" \
-          -d "{\"text\": \"${{ env.TEST_DESCRIPTION }}\"}" \
-          -w "\n%{http_code}")
-        
-        HTTP_CODE=$(echo "$STEPS_RESPONSE" | tail -n1)
-        STEPS_BODY=$(echo "$STEPS_RESPONSE" | sed '$d')
-        
-        echo "Steps HTTP Code: $HTTP_CODE"
-        echo "Steps Response: $STEPS_BODY"
-        
-        if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
-          echo "✅ Test steps generated successfully!"
-          echo "steps_response=$STEPS_BODY" >> $GITHUB_OUTPUT
-        else
-          echo "❌ Failed to generate test steps"
-          exit 1
-        fi
-
-    - name: Generate test code
-      id: generate-code
-      run: |
-        echo "🚀 Generating test code..."
-        
-        # Debug: Check the steps response
-        echo "Steps response: ${{ steps.generate-steps.outputs.steps_response }}"
-        echo "Steps response length: ${#{{ steps.generate-steps.outputs.steps_response }}}"
-        
-        # Validate that we have a response
-        if [ -z "${{ steps.generate-steps.outputs.steps_response }}" ]; then
-          echo "❌ No steps response received"
-          exit 1
-        fi
-        
-        # Create payload directly from the response in one command to avoid variable issues
-        echo "Creating payload directly from response..."
-        echo "${{ steps.generate-steps.outputs.steps_response }}" | jq -c '{steps: .steps, language: "typescript"}' > /tmp/steps.json
-        echo "Generated payload:"
-        cat /tmp/steps.json
-        
-        # Validate that we created a valid payload
-        if [ ! -s /tmp/steps.json ] || [ "$(cat /tmp/steps.json)" = "null" ]; then
-          echo "❌ Failed to create valid payload"
-          echo "Raw response: ${{ steps.generate-steps.outputs.steps_response }}"
-          echo "Trying alternative approach..."
-          # Alternative: create payload manually using the response directly
-          echo "${{ steps.generate-steps.outputs.steps_response }}" | jq -c '.steps' > /tmp/steps_array.json
-          if [ -s /tmp/steps_array.json ] && [ "$(cat /tmp/steps_array.json)" != "null" ]; then
-            STEPS_ARRAY=$(cat /tmp/steps_array.json)
-            echo "{\"steps\": $STEPS_ARRAY, \"language\": \"typescript\"}" > /tmp/steps.json
-            echo "Alternative payload created:"
-            cat /tmp/steps.json
-          else
-            echo "❌ Alternative approach also failed"
-            exit 1
-          fi
-          rm -f /tmp/steps_array.json
-        fi
-        
-        # Call your existing API to generate code
-        CODE_RESPONSE=$(curl -X POST http://localhost:3001/api/nlp/generate-code \
-          -H "Content-Type: application/json" \
-          -d @/tmp/steps.json \
-          -w "\n%{http_code}")
-        
-        HTTP_CODE=$(echo "$CODE_RESPONSE" | tail -n1)
-        CODE_BODY=$(echo "$CODE_RESPONSE" | sed '$d')
-        
-        echo "Code HTTP Code: $HTTP_CODE"
-        echo "Code Response: $CODE_BODY"
-        
-        if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
-          echo "✅ Test code generated successfully!"
-          echo "code_response=$CODE_BODY" >> $GITHUB_OUTPUT
-        else
-          echo "❌ Failed to generate test code"
-          exit 1
-        fi
-        
-        # Clean up temporary files
-        rm -f /tmp/steps.json /tmp/steps_array.json
-
-    - name: Create test scenario files
-      run: |
-        echo "📝 Creating test scenario files..."
-        mkdir -p test-scenarios
-        
-        # Extract data from API responses with error handling
-        TEST_STEPS=$(echo "${{ steps.generate-steps.outputs.steps_response }}" | jq -r '.steps // .parsedSteps // "No steps generated"' 2>/dev/null || echo "No steps generated - parsing failed")
-        
-        # Save the code response for later processing
-        CODE_RESPONSE="${{ steps.generate-code.outputs.code_response }}"
-        echo "$CODE_RESPONSE" > /tmp/code_response.json
-        
-        # Create comprehensive test scenario file
-        {
-          echo "# Test Scenario"
-          echo "Generated on: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          echo "Triggered by: ${{ github.actor }}"
-          echo "Workflow Run: ${{ github.run_id }}"
-          echo ""
-          echo "## Test Description"
-          echo "${{ env.TEST_DESCRIPTION }}"
-          echo ""
-          echo "## Generated Test Steps"
-          echo "\`\`\`json"
-          echo "${{ steps.generate-steps.outputs.steps_response }}"
-          echo "\`\`\`"
-          echo ""
-          echo "## Generated Test Code Response"
-          echo "\`\`\`json"
-          echo "$CODE_RESPONSE"
-          echo "\`\`\`"
-          echo ""
-          echo "## Test Steps (Human Readable)"
-          echo "$TEST_STEPS"
-          echo ""
-          echo "## Usage Instructions"
-          echo "1. Extract the code from the JSON response above"
-          echo "2. Save it as a .js file in your test project"
-          echo "3. Run with: npx playwright test your-test-file.js"
-        } > test-scenarios/test-scenario-${{ github.run_id }}.md
-        
-        # Create raw response file
-        echo "$CODE_RESPONSE" > test-scenarios/code-response-${{ github.run_id }}.json
-        
-        # Create steps file
-        echo "$TEST_STEPS" > test-scenarios/test-steps-${{ github.run_id }}.txt
-        
-        echo "✅ Test scenario files created successfully!"
+        echo "🚀 Generating and creating complete test scenario from: ${{ env.TEST_DESCRIPTION }}" && TEST_DESC="${{ env.TEST_DESCRIPTION }}" && echo "Test description length: ${#TEST_DESC}" && if [ -z "$TEST_DESC" ]; then echo "❌ No test description provided"; echo "Raw env value: '${{ env.TEST_DESCRIPTION }}'"; exit 1; fi && echo "✅ Test description provided" && echo "Calling API to parse steps..." && STEPS_RESPONSE=$(curl -X POST http://localhost:3001/api/nlp/parse -H "Content-Type: application/json" -d "{\"text\": \"$TEST_DESC\"}" -w "\n%{http_code}") && HTTP_CODE=$(echo "$STEPS_RESPONSE" | tail -n1) && STEPS_BODY=$(echo "$STEPS_RESPONSE" | sed '$d') && echo "Steps HTTP Code: $HTTP_CODE" && echo "Steps Response Length: ${#STEPS_BODY}" && echo "Success: $(echo "$STEPS_BODY" | grep -o '"success":true' || echo 'false')" && if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then echo "✅ Test steps generated successfully!"; echo "Creating payload..." && echo "$STEPS_BODY" | jq -c '{steps: .steps, language: "typescript"}' > /tmp/steps.json && echo "Payload created:" && cat /tmp/steps.json && echo "" && echo "Calling API to generate code..." && CODE_RESPONSE=$(curl -X POST http://localhost:3001/api/nlp/generate-code -H "Content-Type: application/json" -d @/tmp/steps.json -w "\n%{http_code}") && CODE_HTTP_CODE=$(echo "$CODE_RESPONSE" | tail -n1) && CODE_BODY=$(echo "$CODE_RESPONSE" | sed '$d') && echo "Code HTTP Code: $CODE_HTTP_CODE" && echo "Code Response Length: ${#CODE_BODY}" && echo "Code Success: $(echo "$CODE_BODY" | grep -o '"success":true' || echo 'false')" && if [ "$CODE_HTTP_CODE" -eq 200 ] || [ "$CODE_HTTP_CODE" -eq 201 ]; then echo "✅ Test code generated successfully!"; echo "Creating test scenario files..." && mkdir -p test-scenarios && echo "Extracting test steps..." && TEST_STEPS=$(echo "$STEPS_BODY" | jq -r '.steps // .parsedSteps // "No steps generated"' 2>/dev/null || echo "No steps generated - parsing failed") && echo "Creating comprehensive test scenario file..." && echo "# Test Scenario" > test-scenarios/test-scenario-${{ github.run_id }}.md && echo "Generated on: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "Triggered by: ${{ github.actor }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "Workflow Run: ${{ github.run_id }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "## Test Description" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "$TEST_DESC" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "## Generated Test Steps" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "\`\`\`json" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "$STEPS_BODY" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "\`\`\`" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "## Generated Test Code Response" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "\`\`\`json" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "$CODE_BODY" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "\`\`\`" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "## Test Steps (Human Readable)" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "$TEST_STEPS" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "## Usage Instructions" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "1. Extract the code from the JSON response above" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "2. Save it as a .js file in your test project" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "3. Run with: npx playwright test your-test-file.js" >> test-scenarios/test-scenario-${{ github.run_id }}.md && echo "Creating raw response file..." && echo "$CODE_BODY" > test-scenarios/code-response-${{ github.run_id }}.json && echo "Creating steps file..." && echo "$TEST_STEPS" > test-scenarios/test-steps-${{ github.run_id }}.txt && echo "✅ Test scenario files created successfully!" && echo "Files created:" && ls -la test-scenarios/ && echo "Main file size:" && wc -c test-scenarios/test-scenario-${{ github.run_id }}.md; else echo "❌ Failed to generate test code"; echo "Raw code response: $CODE_RESPONSE"; exit 1; fi; else echo "❌ Failed to generate test steps"; echo "Raw steps response: $STEPS_RESPONSE"; echo "Debug: TEST_DESC value: '$TEST_DESC'"; echo "Debug: TEST_DESC length: ${#TEST_DESC}"; exit 1; fi && rm -f /tmp/steps.json
 
     - name: Upload test scenarios
       uses: actions/upload-artifact@v4
@@ -238,19 +68,16 @@ jobs:
         path: test-scenarios/
         retention-days: 30
 
-    - name: Display test scenario
+    - name: Comment on workflow
       run: |
-        echo "## 📋 Test Scenario Created!" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Created by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Test Description:** ${{ env.TEST_DESCRIPTION }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📁 Generated Files:" >> $GITHUB_STEP_SUMMARY
-        echo "- **test-scenario-*.md**: Complete test scenario with steps and code" >> $GITHUB_STEP_SUMMARY
-        echo "- **test-code-*.js**: Ready-to-run Playwright test code" >> $GITHUB_STEP_SUMMARY
-        echo "- **test-steps-*.txt**: Human-readable test steps" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🎯 Next Steps:" >> $GITHUB_STEP_SUMMARY
-        echo "1. Download the artifacts from this workflow run" >> $GITHUB_STEP_SUMMARY
-        echo "2. Copy the test code to your test project" >> $GITHUB_STEP_SUMMARY
-        echo "3. Run the test: \`npx playwright test your-test-file.js\`" >> $GITHUB_STEP_SUMMARY
+        echo "✅ Test scenario created successfully!"
+        echo "📁 Files uploaded as artifacts:"
+        echo "   - test-scenario-${{ github.run_id }}.md (comprehensive report)"
+        echo "   - code-response-${{ github.run_id }}.json (raw code response)"
+        echo "   - test-steps-${{ github.run_id }}.txt (human readable steps)"
+        echo ""
+        echo "🎯 Next steps:"
+        echo "   1. Download the artifacts from this workflow run"
+        echo "   2. Extract the test code from the JSON response"
+        echo "   3. Save as a .js file in your test project"
+        echo "   4. Run with: npx playwright test your-test-file.js"
