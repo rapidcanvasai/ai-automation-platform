@@ -30,7 +30,6 @@ env:
   TEST_DESCRIPTION: ${{ inputs.test_description }}
   OPENAI_API_KEY: ${{ inputs.openai_api_key }}
   SLACK_WEBHOOK_URL: ${{ inputs.slack_webhook_url }}
-  RUN_TESTS: ${{ inputs.run_tests }}
   ENABLE_SLACK: ${{ inputs.enable_slack }}
 
 jobs:
@@ -357,7 +356,7 @@ jobs:
     - name: Send workflow completion notification to Slack
       if: env.ENABLE_SLACK == 'true' && env.SLACK_WEBHOOK_URL != ''
       run: |
-        if [ "${{ env.RUN_TESTS }}" != "no" ] && [ -n "${{ env.TEST_STATUS }}" ]; then
+        if [ -n "${{ env.TEST_STATUS }}" ]; then
           STATUS_EMOJI="✅"
           STATUS_TEXT="SUCCESS"
           if [ "${{ env.TEST_STATUS }}" != "passed" ]; then
@@ -381,32 +380,22 @@ jobs:
         echo "   • Natural language processing: ✅"
         echo "   • Test code generation: ✅"
         echo "   • Test creation in platform: ✅"
-        if [ "${{ env.RUN_TESTS }}" != "no" ]; then
-          echo "   • Test execution: ✅"
-          echo "   • Slack notifications: ✅"
-        fi
+        echo "   • Test execution: ✅"
+        echo "   • Slack notifications: ✅"
         echo ""
         echo "📁 Files uploaded as artifacts:"
         echo "   - test-scenario-${{ github.run_id }}.md (comprehensive report)"
         echo "   - code-response-${{ github.run_id }}.json (raw code response)"
         echo "   - test-steps-${{ github.run_id }}.txt (human readable steps)"
-        if [ "${{ env.RUN_TESTS }}" != "no" ]; then
-          echo "   - test-results-${{ github.run_id }} (test execution results)"
-          echo "   - generated-test-${{ github.run_id }}.js (executable test file)"
-        fi
+        echo "   - test-results-${{ github.run_id }} (test execution results)"
+        echo "   - generated-test-${{ github.run_id }}.js (executable test file)"
         echo ""
         echo "🎯 Next steps:"
         echo "   1. Download the artifacts from this workflow run"
-        if [ "${{ env.RUN_TESTS }}" != "no" ]; then
-          echo "   2. ✅ Tests were executed automatically!"
-          echo "   3. Check test-results artifact for screenshots/videos"
-          echo "   4. Use generated-test-${{ github.run_id }}.js for future runs"
-          echo "   5. Check Slack for detailed execution notifications"
-        else
-          echo "   2. Extract the test code from the JSON response"
-          echo "   3. Save as a .js file in your test project"
-          echo "   4. Run with: npx playwright test your-test-file.js"
-        fi
+        echo "   2. ✅ Tests were executed automatically!"
+        echo "   3. Check test-results artifact for screenshots/videos"
+        echo "   4. Use generated-test-${{ github.run_id }}.js for future runs"
+        echo "   5. Check Slack for detailed execution notifications"
         echo ""
         echo "🔗 Platform Integration:"
         echo "   • Test created in platform with ID: ${{ env.TEST_ID }}"

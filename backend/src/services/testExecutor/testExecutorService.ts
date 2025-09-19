@@ -192,7 +192,7 @@ export class TestExecutorService {
       // Check if we need to login before starting test steps
       if (opts?.loginCredentials && test.steps.length > 0) {
         // Navigate to the first step's URL if it's a navigate action
-        const firstStep = test.steps[0] as unknown as ParsedTestStep;
+        const firstStep = test.steps[0];
         if (firstStep.action === 'navigate' || firstStep.action === 'open') {
           await page.goto(firstStep.target);
           await page.waitForTimeout(2000);
@@ -211,7 +211,7 @@ export class TestExecutorService {
       }
 
       for (let i = 0; i < test.steps.length; i++) {
-        const s = test.steps[i] as unknown as ParsedTestStep;
+        const s = test.steps[i];
         const stepNum = i + 1;
         try {
           emit({ type: 'step:start', step: stepNum, action: s.action, target: s.target });

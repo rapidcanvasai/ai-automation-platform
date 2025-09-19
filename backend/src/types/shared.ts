@@ -24,7 +24,7 @@ export interface Test {
   id: string;
   name: string;
   description: string;
-  steps: TestStep[];
+  steps: ParsedTestStep[];
   tags: string[];
   status: 'draft' | 'active' | 'archived';
   createdAt: Date;
