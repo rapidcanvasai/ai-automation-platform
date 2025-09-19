@@ -21,6 +21,31 @@ jobs:
   create-test-scenario:
     runs-on: ubuntu-latest
     
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: test_automation
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -123,33 +148,33 @@ jobs:
         TEST_CODE=$(echo "${{ steps.generate-code.outputs.code_response }}" | jq -r '.code // .generatedCode // "No code generated"')
         
         # Create comprehensive test scenario file
-        cat > test-scenarios/test-scenario-${{ github.run_id }}.md << EOF
-# Test Scenario
-Generated on: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-Triggered by: ${{ github.actor }}
-Workflow Run: ${{ github.run_id }}
-
-## Test Description
-${{ env.TEST_DESCRIPTION }}
-
-## Generated Test Steps
-\`\`\`json
-${{ steps.generate-steps.outputs.steps_response }}
-\`\`\`
-
-## Generated Test Code
-\`\`\javascript
-$TEST_CODE
-\`\`\`
-
-## Test Steps (Human Readable)
-$TEST_STEPS
-
-## Usage Instructions
-1. Copy the generated test code above
-2. Save it as a .js file in your test project
-3. Run with: npx playwright test your-test-file.js
-EOF
+        {
+          echo "# Test Scenario"
+          echo "Generated on: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Triggered by: ${{ github.actor }}"
+          echo "Workflow Run: ${{ github.run_id }}"
+          echo ""
+          echo "## Test Description"
+          echo "${{ env.TEST_DESCRIPTION }}"
+          echo ""
+          echo "## Generated Test Steps"
+          echo "\`\`\`json"
+          echo "${{ steps.generate-steps.outputs.steps_response }}"
+          echo "\`\`\`"
+          echo ""
+          echo "## Generated Test Code"
+          echo "\`\`\`javascript"
+          echo "$TEST_CODE"
+          echo "\`\`\`"
+          echo ""
+          echo "## Test Steps (Human Readable)"
+          echo "$TEST_STEPS"
+          echo ""
+          echo "## Usage Instructions"
+          echo "1. Copy the generated test code above"
+          echo "2. Save it as a .js file in your test project"
+          echo "3. Run with: npx playwright test your-test-file.js"
+        } > test-scenarios/test-scenario-${{ github.run_id }}.md
         
         # Create separate code file
         echo "$TEST_CODE" > test-scenarios/test-code-${{ github.run_id }}.js
