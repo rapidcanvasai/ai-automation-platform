@@ -31,6 +31,7 @@ export interface Test {
   updatedAt: Date;
   createdBy: string;
   version: number;
+  workflowRunUrl?: string;
 }
 
 export interface TestExecution {

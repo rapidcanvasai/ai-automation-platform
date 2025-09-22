@@ -75,11 +75,12 @@ export class SlackService {
   async sendTestCreated(
     testName: string,
     testId: string,
+    workflowRunUrl?: string,
     testDescription?: string,
     testSteps?: any[]
   ): Promise<string | null> {
     try {
-      const message = this.buildTestCreatedMessage(testName, testId, testDescription, testSteps);
+      const message = this.buildTestCreatedMessage(testName, testId, workflowRunUrl, testDescription, testSteps);
       
       // Try Slack API first if bot token is available
       if (this.config.botToken) {
@@ -588,6 +589,7 @@ export class SlackService {
   private buildTestCreatedMessage(
     testName: string,
     testId: string,
+    workflowRunUrl?: string,
     testDescription?: string,
     testSteps?: any[]
   ): SlackMessage {
@@ -595,6 +597,11 @@ export class SlackService {
     
     text += `*Test ID:* ${testId}`;
     text += `\n*Status:* Ready to execute`;
+
+    // Add workflow run link if available
+    if (workflowRunUrl) {
+      text += `\n🔗 <${workflowRunUrl}|View Workflow Run>`;
+    }
 
     return {
       text,

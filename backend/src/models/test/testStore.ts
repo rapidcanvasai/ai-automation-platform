@@ -17,6 +17,7 @@ export function createTest(testInput: Partial<Test>): Test {
     updatedAt: testInput.updatedAt || now,
     createdBy: testInput.createdBy || 'system',
     version: testInput.version || 1,
+    workflowRunUrl: testInput.workflowRunUrl,
   };
   testsById.set(id, test);
   return test;

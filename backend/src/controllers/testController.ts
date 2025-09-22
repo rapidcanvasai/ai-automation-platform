@@ -45,8 +45,8 @@ router.post('/', async (req: Request, res: Response) => {
     try {
       const slackService = createSlackService();
       if (slackService) {
-        // Send main test creation message (no description)
-        await slackService.sendTestCreated(test.name, test.id);
+        // Send main test creation message with workflow run URL if available
+        await slackService.sendTestCreated(test.name, test.id, test.workflowRunUrl);
         
         // Send test steps as thread reply if steps exist
         if (test.steps && test.steps.length > 0) {

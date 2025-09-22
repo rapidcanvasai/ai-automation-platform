@@ -83,23 +83,6 @@ jobs:
           sleep 2
         done
 
-    - name: Send workflow start notification to Slack
-      if: env.ENABLE_SLACK == 'true'
-      run: |
-        # Set default channel if none provided
-        SLACK_CHANNEL_TO_USE="${{ env.SLACK_CHANNEL }}"
-        if [ -z "$SLACK_CHANNEL_TO_USE" ]; then
-          SLACK_CHANNEL_TO_USE="#test-automation"
-          echo "Using default Slack channel: $SLACK_CHANNEL_TO_USE"
-        else
-          echo "Using provided Slack channel: $SLACK_CHANNEL_TO_USE"
-        fi
-        
-        # Send notification via backend API (reuses existing Slack service)
-        curl -X POST -H 'Content-type: application/json' \
-        --data '{"messageType":"workflow_start","testDescription":"${{ env.TEST_DESCRIPTION }}","triggeredBy":"${{ github.actor }}","workflowRun":"${{ github.run_id }}","repository":"${{ github.repository }}","jobRunUrl":"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' \
-        ${BACKEND_URL:-http://localhost:3001}/api/execution/workflow-notification
-
     - name: Generate and create complete test scenario
       run: |
         echo "🚀 Generating and creating complete test scenario from: ${{ env.TEST_DESCRIPTION }}"
@@ -257,10 +240,12 @@ jobs:
           --arg name "$TEST_NAME" \
           --arg description "${{ env.TEST_DESCRIPTION }}" \
           --argjson steps "$STEPS_DATA" \
+          --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
           '{
             name: $name,
             description: $description,
-            steps: $steps
+            steps: $steps,
+            workflowRunUrl: $workflowRunUrl
           }' > /tmp/test-payload.json
         
         echo "Creating test in platform..."
@@ -397,33 +382,6 @@ jobs:
         path: backend/test-results/
         retention-days: 30
 
-    - name: Send workflow completion notification to Slack
-      if: env.ENABLE_SLACK == 'true'
-      run: |
-        # Set default channel if none provided
-        SLACK_CHANNEL_TO_USE="${{ env.SLACK_CHANNEL }}"
-        if [ -z "$SLACK_CHANNEL_TO_USE" ]; then
-          SLACK_CHANNEL_TO_USE="#test-automation"
-          echo "Using default Slack channel: $SLACK_CHANNEL_TO_USE"
-        else
-          echo "Using provided Slack channel: $SLACK_CHANNEL_TO_USE"
-        fi
-        
-        if [ -n "${{ env.TEST_STATUS }}" ]; then
-          STATUS_EMOJI="✅"
-          STATUS_TEXT="SUCCESS"
-          if [ "${{ env.TEST_STATUS }}" != "passed" ]; then
-            STATUS_EMOJI="❌"
-            STATUS_TEXT="FAILED"
-          fi
-          curl -X POST -H 'Content-type: application/json' \
-          --data '{"messageType":"workflow_complete","testDescription":"${{ env.TEST_DESCRIPTION }}","triggeredBy":"${{ github.actor }}","workflowRun":"${{ github.run_id }}","repository":"${{ github.repository }}","testId":"${{ env.TEST_ID }}","executionId":"${{ env.EXECUTION_ID }}","testStatus":"${{ env.TEST_STATUS }}","jobRunUrl":"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' \
-          ${BACKEND_URL:-http://localhost:3001}/api/execution/workflow-notification
-        else
-          curl -X POST -H 'Content-type: application/json' \
-          --data '{"messageType":"workflow_complete","testDescription":"${{ env.TEST_DESCRIPTION }}","triggeredBy":"${{ github.actor }}","workflowRun":"${{ github.run_id }}","repository":"${{ github.repository }}","testStatus":"generated","jobRunUrl":"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' \
-          ${BACKEND_URL:-http://localhost:3001}/api/execution/workflow-notification
-        fi
 
     - name: Comment on workflow
       run: |
