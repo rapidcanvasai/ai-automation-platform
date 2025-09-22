@@ -170,4 +170,52 @@ router.get('/debug/packages/:filename', async (req: Request, res: Response) => {
   }
 });
 
+// Handle workflow notifications from GitHub Actions
+router.post('/workflow-notification', async (req: Request, res: Response) => {
+  try {
+    const { 
+      messageType, 
+      testDescription, 
+      triggeredBy, 
+      workflowRun, 
+      repository, 
+      testId, 
+      executionId, 
+      testStatus, 
+      jobRunUrl 
+    } = req.body;
+
+    const slackService = createSlackService();
+    if (!slackService) {
+      return res.status(500).json({ success: false, error: 'Slack service not configured' });
+    }
+
+    if (messageType === 'workflow_start') {
+      await slackService.sendWorkflowStarted(
+        testDescription, 
+        triggeredBy, 
+        workflowRun, 
+        repository,
+        jobRunUrl
+      );
+    } else if (messageType === 'workflow_complete') {
+      await slackService.sendWorkflowCompleted(
+        testDescription, 
+        triggeredBy, 
+        workflowRun, 
+        repository, 
+        testId, 
+        executionId, 
+        testStatus,
+        jobRunUrl
+      );
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Error handling workflow notification', { error, body: req.body });
+    res.status(500).json({ success: false, error: 'Failed to handle workflow notification' });
+  }
+});
+
 export { router as executionRoutes };

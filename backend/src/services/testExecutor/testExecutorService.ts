@@ -7,7 +7,7 @@ import { AIPageAnalysisService } from '../ai/aiPageAnalysisService';
 
 export interface ExecutionResult {
   status: 'passed' | 'failed';
-  steps: Array<{ step: number; action: string; target: string; status: 'passed' | 'failed'; error?: string; timestamp: string; screenshotPath?: string }>;
+  steps: Array<{ step: number; action: string; target: string; status: 'passed' | 'failed' | 'skipped'; error?: string; timestamp: string; screenshotPath?: string }>;
   videoPath?: string;
   startedAt: string;
   completedAt: string;
@@ -210,37 +210,8 @@ export class TestExecutorService {
         }
       }
 
-      for (let i = 0; i < test.steps.length; i++) {
-        const s = test.steps[i];
-        const stepNum = i + 1;
-        try {
-          emit({ type: 'step:start', step: stepNum, action: s.action, target: s.target });
-          // Adaptive timeout based on step type and target complexity
-          const adaptiveTimeout = this.getAdaptiveTimeout(s);
-          await this.performWithTimeout(() => this.performStep(page!, s), adaptiveTimeout);
-          // screenshot on success
-          let screenshotPath: string | undefined;
-          try {
-            screenshotPath = path.join(screenshotsDir, `${executionId}-step-${stepNum}.png`);
-            await page!.screenshot({ path: screenshotPath, fullPage: false });
-          } catch {}
-          stepsResult.push({ step: stepNum, action: s.action, target: s.target, status: 'passed', timestamp: new Date().toISOString(), screenshotPath });
-          logger.info('Step passed', { step: stepNum, action: s.action, target: s.target });
-          emit({ type: 'step:end', step: stepNum, status: 'passed' });
-        } catch (err: any) {
-          // screenshot on failure
-          let screenshotPath: string | undefined;
-          try {
-            screenshotPath = path.join(screenshotsDir, `${executionId}-step-${stepNum}-failed.png`);
-            await page!.screenshot({ path: screenshotPath, fullPage: false });
-          } catch {}
-          const errorMsg = err?.message || String(err);
-          stepsResult.push({ step: stepNum, action: s.action, target: s.target, status: 'failed', error: errorMsg, timestamp: new Date().toISOString(), screenshotPath });
-          logger.error('Step failed', { step: stepNum, s, error: errorMsg });
-          emit({ type: 'step:end', step: stepNum, status: 'failed', message: errorMsg });
-          throw err;
-        }
-      }
+      // Execute steps with conditional logic support
+      await this.executeStepsWithConditionals(test.steps, page!, emit, stepsResult, executionId, screenshotsDir);
 
       const completedAt = new Date();
       emit({ type: 'end', status: 'passed' });
@@ -299,7 +270,7 @@ export class TestExecutorService {
     return { status, steps: stepsResult, videoPath, startedAt: startedAt.toISOString(), completedAt: completedAt.toISOString() };
   }
 
-  public async performStep(page: Page, step: ParsedTestStep): Promise<void> {
+  public async performStep(page: Page, step: ParsedTestStep, emit?: Function): Promise<void> {
     // If target contains explicit locator hints, prioritize accordingly
     const target = step.target?.trim() || '';
     
@@ -505,33 +476,26 @@ export class TestExecutorService {
       case 'if': {
         const condition = (step as any).condition as string | undefined;
         if (!condition) return;
+        
         const shouldRun = await this.evaluateCondition(page, condition);
+        logger.info('Conditional evaluation', { condition, shouldRun, target });
+        
         if (shouldRun && target) {
-          // If condition contains an inline action like "click X", enqueue a best-effort action
-          try {
-            if (/click\s+/i.test(target)) {
-              const t = target.replace(/click\s+/i, '').trim();
-              const candidates = this.buttonLocators(page, t);
-              await this.tryClick(page, candidates, undefined, t);
-            } else if (/enter\s+(.+)\s+in\s+(.+)/i.test(target)) {
-              const m = target.match(/enter\s+(.+)\s+in\s+(.+)/i);
-              if (m) {
-                const candidates = this.inputLocators(page, m[2]);
-                await this.tryFill(page, candidates, m[1]);
-              }
-            } else if (/verify\s+(.+)/i.test(target)) {
-              const m = target.match(/verify\s+(.+)/i);
-              if (m) {
-                const candidates = this.verifyLocators(page, m[1]);
-                await this.tryVisible(page, candidates);
-              }
-            } else if (/(^|\b)(go\s*back|back)(\b|$)/i.test(target)) {
-              await page.goBack({ waitUntil: 'load' }).catch(() => {});
-            } else if (/(^|\b)(refresh|reload)(\b|$)/i.test(target)) {
-              await page.reload({ waitUntil: 'load' });
-            }
-          } catch {}
+          // Execute the action specified in the if condition
+          await this.executeInlineAction(page, target, emit || (() => {}));
         }
+        return;
+      }
+      case 'else': {
+        // This will be handled by the conditional execution logic
+        // The else action should only execute if the previous if condition was false
+        if (target) {
+          await this.executeInlineAction(page, target, emit || (() => {}));
+        }
+        return;
+      }
+      case 'endif': {
+        // End of conditional block - no action needed
         return;
       }
       case 'wait':
@@ -2254,18 +2218,263 @@ export class TestExecutorService {
     }
   }
 
+  private async executeStepsWithConditionals(
+    steps: ParsedTestStep[], 
+    page: Page, 
+    emit: Function, 
+    stepsResult: any[], 
+    executionId: string, 
+    screenshotsDir: string
+  ): Promise<void> {
+    let i = 0;
+    while (i < steps.length) {
+      const step = steps[i];
+      const stepNum = i + 1;
+      
+      try {
+        emit({ type: 'step:start', step: stepNum, action: step.action, target: step.target });
+        
+        if (step.action === 'if') {
+          // Handle conditional block
+          const conditionalResult = await this.executeConditionalBlock(steps, i, page, emit, stepsResult, executionId, screenshotsDir);
+          i = conditionalResult.nextIndex;
+        } else {
+          // Execute regular step
+          const adaptiveTimeout = this.getAdaptiveTimeout(step);
+          await this.performWithTimeout(() => this.performStep(page, step, emit), adaptiveTimeout);
+          
+          // Screenshot on success
+          let screenshotPath: string | undefined;
+          try {
+            screenshotPath = path.join(screenshotsDir, `${executionId}-step-${stepNum}.png`);
+            await page.screenshot({ path: screenshotPath, fullPage: false });
+          } catch {}
+          
+          stepsResult.push({ 
+            step: stepNum, 
+            action: step.action, 
+            target: step.target, 
+            status: 'passed', 
+            timestamp: new Date().toISOString(), 
+            screenshotPath 
+          });
+          
+          logger.info('Step passed', { step: stepNum, action: step.action, target: step.target });
+          emit({ type: 'step:end', step: stepNum, status: 'passed' });
+          i++;
+        }
+      } catch (err: any) {
+        // Screenshot on failure
+        let screenshotPath: string | undefined;
+        try {
+          screenshotPath = path.join(screenshotsDir, `${executionId}-step-${stepNum}-failed.png`);
+          await page.screenshot({ path: screenshotPath, fullPage: false });
+        } catch {}
+        
+        const errorMsg = err?.message || String(err);
+        stepsResult.push({ 
+          step: stepNum, 
+          action: step.action, 
+          target: step.target, 
+          status: 'failed', 
+          error: errorMsg, 
+          timestamp: new Date().toISOString(), 
+          screenshotPath 
+        });
+        
+        logger.error('Step failed', { step: stepNum, stepData: step, error: errorMsg });
+        emit({ type: 'step:end', step: stepNum, status: 'failed', message: errorMsg });
+        throw err;
+      }
+    }
+  }
+
+  private async executeConditionalBlock(
+    steps: ParsedTestStep[], 
+    startIndex: number, 
+    page: Page, 
+    emit: Function, 
+    stepsResult: any[], 
+    executionId: string, 
+    screenshotsDir: string
+  ): Promise<{ nextIndex: number }> {
+    const ifStep = steps[startIndex];
+    const condition = (ifStep as any).condition as string;
+    
+    // Evaluate the if condition
+    const conditionMet = await this.evaluateCondition(page, condition);
+    logger.info('Conditional block evaluation', { condition, conditionMet, ifStep });
+    
+    // Execute the if action if condition is met
+    if (conditionMet && ifStep.target) {
+      await this.executeInlineAction(page, ifStep.target, emit);
+      
+      // Add if step to results
+      stepsResult.push({
+        step: startIndex + 1,
+        action: ifStep.action,
+        target: ifStep.target,
+        status: 'passed',
+        timestamp: new Date().toISOString(),
+        condition: condition,
+        conditionMet: true
+      });
+    } else {
+      // Add skipped if step to results
+      stepsResult.push({
+        step: startIndex + 1,
+        action: ifStep.action,
+        target: ifStep.target,
+        status: 'skipped',
+        timestamp: new Date().toISOString(),
+        condition: condition,
+        conditionMet: false
+      });
+    }
+    
+    // Check if this is part of a larger if-else-endif block
+    let i = startIndex + 1;
+    let foundElse = false;
+    let foundEndif = false;
+    
+    // Look for else and endif in the next few steps
+    while (i < steps.length && i < startIndex + 10) { // Limit search to avoid infinite loops
+      const step = steps[i];
+      
+      if (step.action === 'else' && !foundElse) {
+        foundElse = true;
+        // Execute else block if if condition was false
+        if (!conditionMet && step.target) {
+          await this.executeInlineAction(page, step.target, emit);
+          
+          // Add else step to results
+          stepsResult.push({
+            step: i + 1,
+            action: step.action,
+            target: step.target,
+            status: 'passed',
+            timestamp: new Date().toISOString(),
+            condition: 'else',
+            conditionMet: !conditionMet
+          });
+        } else {
+          // Add skipped else step to results
+          stepsResult.push({
+            step: i + 1,
+            action: step.action,
+            target: step.target,
+            status: 'skipped',
+            timestamp: new Date().toISOString(),
+            condition: 'else',
+            conditionMet: !conditionMet
+          });
+        }
+        i++;
+      } else if (step.action === 'endif') {
+        foundEndif = true;
+        i++; // Skip the endif
+        break;
+      } else if (step.action === 'if') {
+        // Found another if statement - this is a separate conditional, not part of this block
+        break;
+      } else {
+        // Regular step - this means we're not in a if-else-endif block
+        break;
+      }
+    }
+    
+    // If we found an endif, return the index after it
+    if (foundEndif) {
+      return { nextIndex: i };
+    }
+    
+    // If we found an else but no endif, return the index after the else
+    if (foundElse) {
+      return { nextIndex: i };
+    }
+    
+    // This is a standalone if statement, continue to next step
+    return { nextIndex: startIndex + 1 };
+  }
+
+  private async executeInlineAction(page: Page, action: string, emit: Function): Promise<void> {
+    try {
+      // Check if action contains "with AI" to prioritize AI execution
+      const useAI = /with\s+ai/i.test(action);
+      
+      if (/click\s+(.+?)(?:\s+with\s+ai)?/i.test(action)) {
+        const match = action.match(/click\s+(.+?)(?:\s+with\s+ai)?/i);
+        if (match) {
+          const target = match[1].trim();
+          if (useAI) {
+            await this.performAIClick(page, target);
+          } else {
+            const candidates = this.buttonLocators(page, target);
+            await this.tryClick(page, candidates, undefined, target);
+          }
+        }
+      } else if (/enter\s+(.+?)\s+in\s+(.+?)(?:\s+with\s+ai)?/i.test(action)) {
+        const match = action.match(/enter\s+(.+?)\s+in\s+(.+?)(?:\s+with\s+ai)?/i);
+        if (match) {
+          const value = match[1].trim();
+          const target = match[2].trim();
+          if (useAI) {
+            await this.performAIInput(page, target, value);
+          } else {
+            const candidates = this.inputLocators(page, target);
+            await this.tryFill(page, candidates, value);
+          }
+        }
+      } else if (/verify\s+(.+?)(?:\s+with\s+ai)?/i.test(action)) {
+        const match = action.match(/verify\s+(.+?)(?:\s+with\s+ai)?/i);
+        if (match) {
+          const target = match[1].trim();
+          if (useAI) {
+            await this.performAIVerify(page, target);
+          } else {
+            const candidates = this.verifyLocators(page, target);
+            await this.tryVisible(page, candidates);
+          }
+        }
+      } else if (/(^|\b)(go\s*back|back)(\b|$)/i.test(action)) {
+        await page.goBack({ waitUntil: 'load' }).catch(() => {});
+      } else if (/(^|\b)(refresh|reload)(\b|$)/i.test(action)) {
+        await page.reload({ waitUntil: 'load' });
+      } else if (/wait\s+(.+)/i.test(action)) {
+        const match = action.match(/wait\s+(.+)/i);
+        if (match) {
+          const waitTime = parseInt(match[1].replace('sec', '')) * 1000;
+          await page.waitForTimeout(waitTime);
+        }
+      }
+    } catch (err: any) {
+      logger.warn('Inline action failed', { action, error: err?.message });
+      emit({ type: 'step:error', message: `Inline action failed: ${err?.message}` });
+    }
+  }
+
   private async evaluateCondition(page: Page, condition: string): Promise<boolean> {
-    // Supported simple forms:
-    // - element with text exists: "text=Dashboard" or "Dashboard"
-    // - selector exists: css=..., [data-testid=...]
+    // Supported conditional forms:
+    // - text=Dashboard (exact text match)
+    // - element=button (element exists)
+    // - css=..., [data-testid=...] (CSS selector)
+    // - Dashboard (simple text search)
     const trimmed = condition.trim();
     try {
-      if (/^(css=|xpath=|text=|\[|#|\.|\/\/)/i.test(trimmed)) {
-        const loc = page.locator(trimmed.startsWith('text=') ? trimmed : trimmed);
+      if (trimmed.startsWith('text=')) {
+        const textToCheck = trimmed.substring(5).trim();
+        const count = await page.getByText(textToCheck).count();
+        return count > 0;
+      } else if (trimmed.startsWith('element=')) {
+        const elementToCheck = trimmed.substring(8).trim();
+        const count = await page.locator(elementToCheck).count();
+        return count > 0;
+      } else if (/^(css=|xpath=|\[|#|\.|\/\/)/i.test(trimmed)) {
+        const loc = page.locator(trimmed);
         const count = await loc.count();
         return count > 0;
       }
-      // Treat as visible text
+      // Treat as visible text search
       const count = await page.getByText(new RegExp(trimmed, 'i')).count();
       return count > 0;
     } catch {

@@ -22,7 +22,12 @@ export class NLPService {
     wait: /(?:wait|pause)\s+(?:for\s+)?(.+)/i,
     back: /(?:go\s+back|navigate\s+back|back)/i,
     refresh: /(?:refresh|reload)/i,
+    // Conditional patterns - proper if-else logic
     ifcond: /^(?:if)\s+(.+?)\s*(?:then|,\s*then)?\s*(.*)$/i,
+    iftext: /^(?:if)\s+text\s*=\s*([^\s]+)\s*(?:then|,\s*then)?\s*(.*)$/i,
+    ifelement: /^(?:if)\s+element\s+(.+?)\s+(?:exists|is\s+visible|is\s+present)\s*(?:then|,\s*then)?\s*(.*)$/i,
+    else: /^(?:else|otherwise)\s*(.*)$/i,
+    endif: /^(?:end\s*if|endif|end)$/i,
     upload: /^(?:upload)\s+(.+?)\s+(?:to|into|in)\s+(.+)/i,
   };
 
@@ -73,9 +78,19 @@ export class NLPService {
     const navigateAIMatch = sentence.match(this.actionPatterns.navigateAI);
     if (navigateAIMatch) return this.createParsedStep('navigateAI', navigateAIMatch, stepNumber, sentence);
 
-    // Custom handling for input patterns to prefer value/target ordering
+    // Conditional patterns - handle if-else logic
+    const iftextMatch = sentence.match(this.actionPatterns.iftext);
+    if (iftextMatch) return this.createParsedStep('iftext', iftextMatch, stepNumber, sentence);
+    const ifelementMatch = sentence.match(this.actionPatterns.ifelement);
+    if (ifelementMatch) return this.createParsedStep('ifelement', ifelementMatch, stepNumber, sentence);
     const condMatch = sentence.match(this.actionPatterns.ifcond);
     if (condMatch) return this.createParsedStep('ifcond', condMatch, stepNumber, sentence);
+    const elseMatch = sentence.match(this.actionPatterns.else);
+    if (elseMatch) return this.createParsedStep('else', elseMatch, stepNumber, sentence);
+    const endifMatch = sentence.match(this.actionPatterns.endif);
+    if (endifMatch) return this.createParsedStep('endif', endifMatch, stepNumber, sentence);
+
+    // Custom handling for input patterns to prefer value/target ordering
     const inputAMatch = sentence.match(this.actionPatterns.inputA);
     if (inputAMatch) return this.createParsedStep('input', inputAMatch, stepNumber, sentence);
     const inputBMatch = sentence.match(this.actionPatterns.inputB);
@@ -247,6 +262,28 @@ export class NLPService {
           confidence: 0.95,
           description: originalText,
         };
+      case 'iftext': {
+        const textToCheck = clean(match[1]);
+        const actionToPerform = clean(match[2] || '');
+        return {
+          action: 'if',
+          target: actionToPerform,
+          confidence: 0.9,
+          description: originalText,
+          condition: `text=${textToCheck}`,
+        } as any;
+      }
+      case 'ifelement': {
+        const elementToCheck = clean(match[1]);
+        const actionToPerform = clean(match[2] || '');
+        return {
+          action: 'if',
+          target: actionToPerform,
+          confidence: 0.9,
+          description: originalText,
+          condition: `element=${elementToCheck}`,
+        } as any;
+      }
       case 'ifcond': {
         const condition = clean(match[1]);
         const remainder = clean(match[2] || '');
@@ -256,6 +293,23 @@ export class NLPService {
           confidence: 0.8,
           description: originalText,
           condition,
+        } as any;
+      }
+      case 'else': {
+        const actionToPerform = clean(match[1] || '');
+        return {
+          action: 'else',
+          target: actionToPerform,
+          confidence: 0.9,
+          description: originalText,
+        } as any;
+      }
+      case 'endif': {
+        return {
+          action: 'endif',
+          target: '',
+          confidence: 0.9,
+          description: originalText,
         } as any;
       }
       case 'upload':

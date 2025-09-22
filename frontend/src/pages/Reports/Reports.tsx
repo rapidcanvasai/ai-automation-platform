@@ -26,6 +26,7 @@ import {
   Error as ErrorIcon,
   Schedule as PendingIcon,
   SmartToy as AIBotIcon,
+  SkipNext as SkipNextIcon,
 } from '@mui/icons-material';
 import { apiService } from '../../services/apiService';
 import SSEViewer from '../../components/SSEViewer';
@@ -61,6 +62,7 @@ const Reports: React.FC = () => {
           steps: e.result?.steps?.length || 0,
           passedSteps: e.result?.steps?.filter((s: any) => s.status === 'passed').length || 0,
           failedSteps: e.result?.steps?.filter((s: any) => s.status === 'failed').length || 0,
+          skippedSteps: e.result?.steps?.filter((s: any) => s.status === 'skipped').length || 0,
           videoUrl: e.result?.videoPath ? `/api/execution/${e.id}/video` : null,
           raw: e,
         }));
@@ -79,6 +81,7 @@ const Reports: React.FC = () => {
       case 'failed': return <ErrorIcon color="error" />;
       case 'running': return <PlayIcon color="primary" />;
       case 'pending': return <PendingIcon color="action" />;
+      case 'skipped': return <SkipNextIcon color="warning" />;
       default: return <PendingIcon color="action" />;
     }
   };
@@ -89,6 +92,7 @@ const Reports: React.FC = () => {
       case 'failed': return 'error';
       case 'running': return 'primary';
       case 'pending': return 'default';
+      case 'skipped': return 'warning';
       default: return 'default';
     }
   };
@@ -242,6 +246,11 @@ const Reports: React.FC = () => {
                     {report.failedSteps > 0 && (
                       <Typography variant="body2" color="error.main">
                         ({report.failedSteps} failed)
+                      </Typography>
+                    )}
+                    {report.skippedSteps > 0 && (
+                      <Typography variant="body2" color="warning.main">
+                        ({report.skippedSteps} skipped)
                       </Typography>
                     )}
                   </TableCell>

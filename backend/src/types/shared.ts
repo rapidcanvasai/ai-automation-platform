@@ -49,7 +49,7 @@ export interface TestExecution {
 
 export interface ExecutionStep {
   stepId: string;
-  status: 'pending' | 'running' | 'passed' | 'failed';
+  status: 'pending' | 'running' | 'passed' | 'failed' | 'skipped';
   startedAt: Date;
   completedAt?: Date;
   duration?: number;

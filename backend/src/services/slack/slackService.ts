@@ -937,12 +937,21 @@ export class SlackService {
     const totalSteps = result.steps.length;
     const duration = this.calculateDuration(result.startedAt, result.completedAt);
     const failedSteps = result.steps.filter(step => step.status === 'failed');
+    const skippedSteps = result.steps.filter(step => step.status === 'skipped');
 
     let text = `${statusEmoji} *Test Execution ${status.toUpperCase()}*\n\n` +
       `*Test:* ${testName}\n` +
       `*Status:* ${statusEmoji} ${status.toUpperCase()}\n` +
-      `*Steps:* ${passedSteps}/${totalSteps} passed\n` +
-      `*Duration:* ${duration}\n` +
+      `*Steps:* ${passedSteps}/${totalSteps} passed`;
+    
+    if (skippedSteps.length > 0) {
+      text += ` (${skippedSteps.length} skipped)`;
+    }
+    if (failedSteps.length > 0) {
+      text += ` (${failedSteps.length} failed)`;
+    }
+    
+    text += `\n*Duration:* ${duration}\n` +
       `*Execution ID:* ${executionId}\n` +
       `*Started:* ${new Date(result.startedAt).toLocaleString()}\n` +
       `*Completed:* ${new Date(result.completedAt).toLocaleString()}`;
@@ -1292,6 +1301,166 @@ export class SlackService {
         break;
     }
     return '';
+  }
+
+  // Send workflow started notification
+  async sendWorkflowStarted(
+    testDescription: string,
+    triggeredBy: string,
+    workflowRun: string,
+    repository: string,
+    jobRunUrl?: string
+  ): Promise<void> {
+    try {
+      const blocks: SlackBlock[] = [
+        {
+          type: 'header',
+          text: {
+            type: 'plain_text',
+            text: '🚀 GitHub Actions Workflow Started'
+          }
+        },
+        {
+          type: 'section',
+          fields: [
+            {
+              type: 'mrkdwn',
+              text: `*Repository:*\n${repository}`
+            },
+            {
+              type: 'mrkdwn',
+              text: `*Triggered by:*\n${triggeredBy}`
+            },
+            {
+              type: 'mrkdwn',
+              text: `*Workflow Run:*\n${workflowRun}`
+            },
+            {
+              type: 'mrkdwn',
+              text: `*Test Description:*\n${testDescription.substring(0, 200)}${testDescription.length > 200 ? '...' : ''}`
+            }
+          ]
+        }
+      ];
+
+      if (jobRunUrl) {
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `🔗 <${jobRunUrl}|View Workflow Run>`
+          }
+        });
+      }
+
+      const message: SlackMessage = {
+        text: `🚀 GitHub Actions workflow started for: ${testDescription.substring(0, 100)}...`,
+        blocks,
+        channel: this.config.channel,
+        username: this.config.username,
+        icon_emoji: this.config.iconEmoji
+      };
+
+      await this.sendMessage(message);
+      logger.info('Workflow started notification sent to Slack', { workflowRun, repository });
+    } catch (error) {
+      logger.error('Failed to send workflow started notification', { error, workflowRun });
+    }
+  }
+
+  // Send workflow completed notification
+  async sendWorkflowCompleted(
+    testDescription: string,
+    triggeredBy: string,
+    workflowRun: string,
+    repository: string,
+    testId?: string,
+    executionId?: string,
+    testStatus?: string,
+    jobRunUrl?: string
+  ): Promise<void> {
+    try {
+      const statusEmoji = testStatus === 'passed' ? '✅' : testStatus === 'failed' ? '❌' : '⚠️';
+      const statusText = testStatus === 'passed' ? 'SUCCESS' : testStatus === 'failed' ? 'FAILED' : 'COMPLETED';
+
+      const blocks: SlackBlock[] = [
+        {
+          type: 'header',
+          text: {
+            type: 'plain_text',
+            text: `${statusEmoji} GitHub Actions Workflow ${statusText}`
+          }
+        },
+        {
+          type: 'section',
+          fields: [
+            {
+              type: 'mrkdwn',
+              text: `*Repository:*\n${repository}`
+            },
+            {
+              type: 'mrkdwn',
+              text: `*Triggered by:*\n${triggeredBy}`
+            },
+            {
+              type: 'mrkdwn',
+              text: `*Workflow Run:*\n${workflowRun}`
+            },
+            {
+              type: 'mrkdwn',
+              text: `*Status:*\n${statusText}`
+            }
+          ]
+        }
+      ];
+
+      if (testId) {
+        blocks.push({
+          type: 'section',
+          fields: [
+            {
+              type: 'mrkdwn',
+              text: `*Test ID:*\n${testId}`
+            },
+            {
+              type: 'mrkdwn',
+              text: `*Execution ID:*\n${executionId || 'N/A'}`
+            }
+          ]
+        });
+      }
+
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Test Description:*\n${testDescription.substring(0, 300)}${testDescription.length > 300 ? '...' : ''}`
+        }
+      });
+
+      if (jobRunUrl) {
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `🔗 <${jobRunUrl}|View Workflow Run>`
+          }
+        });
+      }
+
+      const message: SlackMessage = {
+        text: `${statusEmoji} GitHub Actions workflow ${statusText.toLowerCase()} for: ${testDescription.substring(0, 100)}...`,
+        blocks,
+        channel: this.config.channel,
+        username: this.config.username,
+        icon_emoji: this.config.iconEmoji
+      };
+
+      await this.sendMessage(message);
+      logger.info('Workflow completed notification sent to Slack', { workflowRun, repository, testStatus });
+    } catch (error) {
+      logger.error('Failed to send workflow completed notification', { error, workflowRun });
+    }
   }
 }
 
