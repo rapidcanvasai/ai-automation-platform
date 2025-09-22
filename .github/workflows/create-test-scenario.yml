@@ -7,12 +7,8 @@ on:
         description: 'Test description in plain English'
         required: true
         type: string
-      openai_api_key:
-        description: 'OpenAI API Key'
-        required: true
-        type: string
-      slack_webhook_url:
-        description: 'Slack Webhook URL for notifications'
+      slack_channel:
+        description: 'Provide slack channel name / channel ID (Make sure channel is invited by test-automation-bot)'
         required: false
         type: string
       headless:
@@ -28,8 +24,11 @@ on:
 
 env:
   TEST_DESCRIPTION: ${{ inputs.test_description }}
-  OPENAI_API_KEY: ${{ inputs.openai_api_key }}
-  SLACK_WEBHOOK_URL: ${{ inputs.slack_webhook_url }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  OPENAI_MODEL: "gpt-4o-mini"
+  SLACK_CHANNEL: ${{ inputs.slack_channel }}
+  SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
   ENABLE_SLACK: ${{ inputs.enable_slack }}
 
 jobs:
@@ -85,11 +84,21 @@ jobs:
         done
 
     - name: Send workflow start notification to Slack
-      if: env.ENABLE_SLACK == 'true' && env.SLACK_WEBHOOK_URL != ''
+      if: env.ENABLE_SLACK == 'true'
       run: |
+        # Set default channel if none provided
+        SLACK_CHANNEL_TO_USE="${{ env.SLACK_CHANNEL }}"
+        if [ -z "$SLACK_CHANNEL_TO_USE" ]; then
+          SLACK_CHANNEL_TO_USE="#test-automation"
+          echo "Using default Slack channel: $SLACK_CHANNEL_TO_USE"
+        else
+          echo "Using provided Slack channel: $SLACK_CHANNEL_TO_USE"
+        fi
+        
+        # Send notification via backend API (reuses existing Slack service)
         curl -X POST -H 'Content-type: application/json' \
-        --data '{"text":"🚀 *AI Test Automation Pipeline Started*\n\n*Test Description:* ${{ env.TEST_DESCRIPTION }}\n*Triggered by:* ${{ github.actor }}\n*Workflow Run:* ${{ github.run_id }}\n*Repository:* ${{ github.repository }}"}' \
-        ${{ env.SLACK_WEBHOOK_URL }}
+        --data '{"messageType":"workflow_start","testDescription":"${{ env.TEST_DESCRIPTION }}","triggeredBy":"${{ github.actor }}","workflowRun":"${{ github.run_id }}","repository":"${{ github.repository }}"}' \
+        ${BACKEND_URL:-http://localhost:3001}/api/execution/workflow-notification
 
     - name: Generate and create complete test scenario
       run: |
@@ -389,8 +398,17 @@ jobs:
         retention-days: 30
 
     - name: Send workflow completion notification to Slack
-      if: env.ENABLE_SLACK == 'true' && env.SLACK_WEBHOOK_URL != ''
+      if: env.ENABLE_SLACK == 'true'
       run: |
+        # Set default channel if none provided
+        SLACK_CHANNEL_TO_USE="${{ env.SLACK_CHANNEL }}"
+        if [ -z "$SLACK_CHANNEL_TO_USE" ]; then
+          SLACK_CHANNEL_TO_USE="#test-automation"
+          echo "Using default Slack channel: $SLACK_CHANNEL_TO_USE"
+        else
+          echo "Using provided Slack channel: $SLACK_CHANNEL_TO_USE"
+        fi
+        
         if [ -n "${{ env.TEST_STATUS }}" ]; then
           STATUS_EMOJI="✅"
           STATUS_TEXT="SUCCESS"
@@ -399,12 +417,12 @@ jobs:
             STATUS_TEXT="FAILED"
           fi
           curl -X POST -H 'Content-type: application/json' \
-          --data '{"text":"$STATUS_EMOJI *AI Test Automation Pipeline Completed*\n\n*Test Description:* ${{ env.TEST_DESCRIPTION }}\n*Status:* $STATUS_TEXT\n*Test ID:* ${{ env.TEST_ID }}\n*Execution ID:* ${{ env.EXECUTION_ID }}\n*Triggered by:* ${{ github.actor }}\n*Workflow Run:* ${{ github.run_id }}\n*Repository:* ${{ github.repository }}\n\n📁 *Artifacts Available:*\n• Test scenario report\n• Generated test code\n• Test execution results (if executed)"}' \
-          ${{ env.SLACK_WEBHOOK_URL }}
+          --data '{"messageType":"workflow_complete","testDescription":"${{ env.TEST_DESCRIPTION }}","triggeredBy":"${{ github.actor }}","workflowRun":"${{ github.run_id }}","repository":"${{ github.repository }}","testId":"${{ env.TEST_ID }}","executionId":"${{ env.EXECUTION_ID }}","testStatus":"${{ env.TEST_STATUS }}"}' \
+          ${BACKEND_URL:-http://localhost:3001}/api/execution/workflow-notification
         else
           curl -X POST -H 'Content-type: application/json' \
-          --data '{"text":"✅ *AI Test Automation Pipeline Completed*\n\n*Test Description:* ${{ env.TEST_DESCRIPTION }}\n*Status:* Test code generated successfully\n*Triggered by:* ${{ github.actor }}\n*Workflow Run:* ${{ github.run_id }}\n*Repository:* ${{ github.repository }}\n\n📁 *Artifacts Available:*\n• Test scenario report\n• Generated test code\n• Ready for manual execution"}' \
-          ${{ env.SLACK_WEBHOOK_URL }}
+          --data '{"messageType":"workflow_complete","testDescription":"${{ env.TEST_DESCRIPTION }}","triggeredBy":"${{ github.actor }}","workflowRun":"${{ github.run_id }}","repository":"${{ github.repository }}","testStatus":"generated"}' \
+          ${BACKEND_URL:-http://localhost:3001}/api/execution/workflow-notification
         fi
 
     - name: Comment on workflow
