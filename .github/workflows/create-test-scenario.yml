@@ -101,20 +101,18 @@ jobs:
         
         # Create properly escaped JSON payload
         # GitHub Actions converts newlines to spaces, so we need to restore them
-        # Use a more robust approach that works across different environments
-        echo "🔍 Restoring newlines from GitHub Actions input..."
+        # The web interface sends text with actual \n characters, so we need to match that
+        echo "🔍 Restoring newlines to match web interface format..."
         echo "Original input: ${{ env.TEST_DESCRIPTION }}"
         
-        # Method 1: Try with extended regex (GNU sed) - includes conditional statements
-        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed -E 's/(Open https:|Enter |Click |Verify |Wait |If\()/\n\1/g' 2>/dev/null || echo "${{ env.TEST_DESCRIPTION }}")
+        # Convert spaces back to newlines for action keywords (same as web interface)
+        # Handle conditional statements as complete lines: "If(text=X) then Action"
+        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/ Open https:/\nOpen https:/g' | sed 's/ Enter /\nEnter /g' | sed 's/ Verify /\nVerify /g' | sed 's/ Wait /\nWait /g' | sed 's/ If(/\nIf(/g')
         
-        # Method 2: If Method 1 failed, try basic regex - includes conditional statements
-        if [ "$TEST_DESC_WITH_NEWLINES" = "${{ env.TEST_DESCRIPTION }}" ]; then
-            echo "Trying basic regex approach..."
-            TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/Open https:/\nOpen https:/g' | sed 's/Enter /\nEnter /g' | sed 's/Click /\nClick /g' | sed 's/Verify /\nVerify /g' | sed 's/Wait /\nWait /g' | sed 's/If(/\nIf(/g' | sed '1d')
-        fi
+        # Handle Click statements - split only standalone Click, not those after "then"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Click /\1\nClick /g')
         
-        echo "Restored description:"
+        echo "Restored description with newlines:"
         echo "$TEST_DESC_WITH_NEWLINES"
         echo ""
         
