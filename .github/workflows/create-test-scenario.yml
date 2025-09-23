@@ -105,13 +105,13 @@ jobs:
         echo "🔍 Restoring newlines from GitHub Actions input..."
         echo "Original input: ${{ env.TEST_DESCRIPTION }}"
         
-        # Method 1: Try with extended regex (GNU sed)
-        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed -E 's/(Open https:|Enter |Click |Verify |Wait )/\n\1/g' 2>/dev/null || echo "${{ env.TEST_DESCRIPTION }}")
+        # Method 1: Try with extended regex (GNU sed) - includes conditional statements
+        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed -E 's/(Open https:|Enter |Click |Verify |Wait |If\()/\n\1/g' 2>/dev/null || echo "${{ env.TEST_DESCRIPTION }}")
         
-        # Method 2: If Method 1 failed, try basic regex
+        # Method 2: If Method 1 failed, try basic regex - includes conditional statements
         if [ "$TEST_DESC_WITH_NEWLINES" = "${{ env.TEST_DESCRIPTION }}" ]; then
             echo "Trying basic regex approach..."
-            TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/Open https:/\nOpen https:/g' | sed 's/Enter /\nEnter /g' | sed 's/Click /\nClick /g' | sed 's/Verify /\nVerify /g' | sed 's/Wait /\nWait /g' | sed '1d')
+            TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/Open https:/\nOpen https:/g' | sed 's/Enter /\nEnter /g' | sed 's/Click /\nClick /g' | sed 's/Verify /\nVerify /g' | sed 's/Wait /\nWait /g' | sed 's/If(/\nIf(/g' | sed '1d')
         fi
         
         echo "Restored description:"
