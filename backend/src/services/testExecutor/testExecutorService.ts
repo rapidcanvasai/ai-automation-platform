@@ -475,14 +475,26 @@ export class TestExecutorService {
         return;
       case 'if': {
         const condition = (step as any).condition as string | undefined;
-        if (!condition) return;
+        if (!condition) {
+          logger.warn('If step has no condition', { step });
+          return;
+        }
         
+        logger.info('Evaluating conditional step', { condition, target, description: step.description });
         const shouldRun = await this.evaluateCondition(page, condition);
-        logger.info('Conditional evaluation', { condition, shouldRun, target });
+        logger.info('Conditional evaluation result', { condition, shouldRun, target });
         
         if (shouldRun && target) {
-          // Execute the action specified in the if condition
-          await this.executeInlineAction(page, target, emit || (() => {}));
+          logger.info('Executing conditional action', { condition, target });
+          try {
+            await this.executeInlineAction(page, target, emit || (() => {}));
+            logger.info('Conditional action executed successfully', { condition, target });
+          } catch (error) {
+            logger.error('Conditional action failed', { condition, target, error: error instanceof Error ? error.message : String(error) });
+            throw error;
+          }
+        } else {
+          logger.info('Conditional action skipped', { condition, shouldRun, target });
         }
         return;
       }
@@ -2402,10 +2414,14 @@ export class TestExecutorService {
       // Check if action contains "with AI" to prioritize AI execution
       const useAI = /with\s+ai/i.test(action);
       
-      if (/click\s+(.+?)(?:\s+with\s+ai)?/i.test(action)) {
-        const match = action.match(/click\s+(.+?)(?:\s+with\s+ai)?/i);
+      if (/click\s+(.+?)(?:\s+with\s+ai)?$/i.test(action)) {
+        const match = action.match(/click\s+(.+?)(?:\s+with\s+ai)?$/i);
         if (match) {
-          const target = match[1].trim();
+          let target = match[1].trim();
+          // Remove "on" prefix if present for better matching
+          if (target.startsWith('on ')) {
+            target = target.substring(3);
+          }
           if (useAI) {
             await this.performAIClick(page, target);
           } else {
@@ -2460,24 +2476,52 @@ export class TestExecutorService {
     // - css=..., [data-testid=...] (CSS selector)
     // - Dashboard (simple text search)
     const trimmed = condition.trim();
+    logger.info('Evaluating condition', { condition: trimmed });
+    
     try {
       if (trimmed.startsWith('text=')) {
         const textToCheck = trimmed.substring(5).trim();
-        const count = await page.getByText(textToCheck).count();
+        logger.info('Checking for text', { textToCheck });
+        
+        // Try exact text match first
+        let count = await page.getByText(textToCheck, { exact: true }).count();
+        if (count > 0) {
+          logger.info('Found exact text match', { textToCheck, count });
+          return true;
+        }
+        
+        // Try case-insensitive text match
+        count = await page.getByText(new RegExp(textToCheck, 'i')).count();
+        if (count > 0) {
+          logger.info('Found case-insensitive text match', { textToCheck, count });
+          return true;
+        }
+        
+        // Try partial text match
+        count = await page.getByText(new RegExp(textToCheck.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')).count();
+        logger.info('Text search result', { textToCheck, count });
         return count > 0;
       } else if (trimmed.startsWith('element=')) {
         const elementToCheck = trimmed.substring(8).trim();
+        logger.info('Checking for element', { elementToCheck });
         const count = await page.locator(elementToCheck).count();
+        logger.info('Element search result', { elementToCheck, count });
         return count > 0;
       } else if (/^(css=|xpath=|\[|#|\.|\/\/)/i.test(trimmed)) {
+        logger.info('Checking CSS/XPath selector', { selector: trimmed });
         const loc = page.locator(trimmed);
         const count = await loc.count();
+        logger.info('Selector search result', { selector: trimmed, count });
         return count > 0;
       }
+      
       // Treat as visible text search
+      logger.info('Checking for visible text', { text: trimmed });
       const count = await page.getByText(new RegExp(trimmed, 'i')).count();
+      logger.info('Visible text search result', { text: trimmed, count });
       return count > 0;
-    } catch {
+    } catch (error) {
+      logger.error('Condition evaluation failed', { condition: trimmed, error: error instanceof Error ? error.message : String(error) });
       return false;
     }
   }

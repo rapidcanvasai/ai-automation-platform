@@ -20,11 +20,15 @@ export class NLPService {
     verify: /(?:verify|check|assert|confirm)\s+(.+)/i,
     navigate: /(?:go to|navigate to|visit|open)\s+(.+)/i,
     wait: /(?:wait|pause)\s+(?:for\s+)?(.+)/i,
+    waitSeconds: /(?:wait|pause)\s+(?:for\s+)?(\d+)\s*(?:sec|second|seconds)/i,
     back: /(?:go\s+back|navigate\s+back|back)/i,
     refresh: /(?:refresh|reload)/i,
     // Conditional patterns - proper if-else logic
     ifcond: /^(?:if)\s+(.+?)\s*(?:then|,\s*then)?\s*(.*)$/i,
-    iftext: /^(?:if)\s+text\s*=\s*([^\s]+)\s*(?:then|,\s*then)?\s*(.*)$/i,
+    iftext: /^(?:if)\s*\(\s*text\s*=\s*([^)]+)\s*\)\s*(?:then|,\s*then)?\s*(.*)$/i,
+    iftextOld: /^(?:if)\s+text\s*=\s*([^\s]+)\s*(?:then|,\s*then)?\s*(.*)$/i,
+    iftextSimple: /^(?:if)\s*\(\s*text\s*=\s*([^)]+)\s*\)\s*(?:then|,\s*then)?\s*(.*)$/i,
+    iftextNoParen: /^(?:if)\s+text\s*=\s*([^\s]+)\s*(?:then|,\s*then)?\s*(.*)$/i,
     ifelement: /^(?:if)\s+element\s+(.+?)\s+(?:exists|is\s+visible|is\s+present)\s*(?:then|,\s*then)?\s*(.*)$/i,
     else: /^(?:else|otherwise)\s*(.*)$/i,
     endif: /^(?:end\s*if|endif|end)$/i,
@@ -33,15 +37,17 @@ export class NLPService {
 
   async parseNaturalLanguage(input: NaturalLanguageInput): Promise<ParsedTestStep[]> {
     try {
-      logger.info('Parsing natural language input');
+      logger.info('Parsing natural language input', { inputLength: input.text.length });
 
       const sentences = this.splitIntoSentences(input.text);
+      logger.info('Split sentences', { sentences, count: sentences.length });
       const parsedSteps: ParsedTestStep[] = [];
 
       for (let i = 0; i < sentences.length; i++) {
         const sentence = sentences[i].trim();
         if (!sentence) continue;
 
+        logger.info('Processing sentence', { sentence, index: i });
         const parsedStep = this.parseSentence(sentence, i + 1);
         if (parsedStep) {
           parsedSteps.push(parsedStep);
@@ -61,34 +67,81 @@ export class NLPService {
   }
 
   private splitIntoSentences(text: string): string[] {
-    return text
+    // Split on line breaks, periods, exclamation marks, question marks
+    const sentences = text
       .split(/[.!?]\s+|\n+/)
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
+    
+    return sentences;
   }
 
   private parseSentence(sentence: string, stepNumber: number): ParsedTestStep | null {
+    logger.info('Parsing sentence', { sentence, stepNumber });
+    
     // AI patterns first (highest priority)
     const clickAIMatch = sentence.match(this.actionPatterns.clickAI);
-    if (clickAIMatch) return this.createParsedStep('clickAI', clickAIMatch, stepNumber, sentence);
+    if (clickAIMatch) {
+      logger.info('Matched clickAI pattern', { match: clickAIMatch });
+      return this.createParsedStep('clickAI', clickAIMatch, stepNumber, sentence);
+    }
     const inputAIMatch = sentence.match(this.actionPatterns.inputAI);
-    if (inputAIMatch) return this.createParsedStep('inputAI', inputAIMatch, stepNumber, sentence);
+    if (inputAIMatch) {
+      logger.info('Matched inputAI pattern', { match: inputAIMatch });
+      return this.createParsedStep('inputAI', inputAIMatch, stepNumber, sentence);
+    }
     const verifyAIMatch = sentence.match(this.actionPatterns.verifyAI);
-    if (verifyAIMatch) return this.createParsedStep('verifyAI', verifyAIMatch, stepNumber, sentence);
+    if (verifyAIMatch) {
+      logger.info('Matched verifyAI pattern', { match: verifyAIMatch });
+      return this.createParsedStep('verifyAI', verifyAIMatch, stepNumber, sentence);
+    }
     const navigateAIMatch = sentence.match(this.actionPatterns.navigateAI);
-    if (navigateAIMatch) return this.createParsedStep('navigateAI', navigateAIMatch, stepNumber, sentence);
+    if (navigateAIMatch) {
+      logger.info('Matched navigateAI pattern', { match: navigateAIMatch });
+      return this.createParsedStep('navigateAI', navigateAIMatch, stepNumber, sentence);
+    }
 
-    // Conditional patterns - handle if-else logic
+    // Conditional patterns - handle if-else logic (high priority)
     const iftextMatch = sentence.match(this.actionPatterns.iftext);
-    if (iftextMatch) return this.createParsedStep('iftext', iftextMatch, stepNumber, sentence);
+    if (iftextMatch) {
+      logger.info('Matched iftext pattern', { match: iftextMatch });
+      return this.createParsedStep('iftext', iftextMatch, stepNumber, sentence);
+    }
+    const iftextSimpleMatch = sentence.match(this.actionPatterns.iftextSimple);
+    if (iftextSimpleMatch) {
+      logger.info('Matched iftextSimple pattern', { match: iftextSimpleMatch });
+      return this.createParsedStep('iftext', iftextSimpleMatch, stepNumber, sentence);
+    }
+    const iftextNoParenMatch = sentence.match(this.actionPatterns.iftextNoParen);
+    if (iftextNoParenMatch) {
+      logger.info('Matched iftextNoParen pattern', { match: iftextNoParenMatch });
+      return this.createParsedStep('iftext', iftextNoParenMatch, stepNumber, sentence);
+    }
+    const iftextOldMatch = sentence.match(this.actionPatterns.iftextOld);
+    if (iftextOldMatch) {
+      logger.info('Matched iftextOld pattern', { match: iftextOldMatch });
+      return this.createParsedStep('iftext', iftextOldMatch, stepNumber, sentence);
+    }
     const ifelementMatch = sentence.match(this.actionPatterns.ifelement);
-    if (ifelementMatch) return this.createParsedStep('ifelement', ifelementMatch, stepNumber, sentence);
+    if (ifelementMatch) {
+      logger.info('Matched ifelement pattern', { match: ifelementMatch });
+      return this.createParsedStep('ifelement', ifelementMatch, stepNumber, sentence);
+    }
     const condMatch = sentence.match(this.actionPatterns.ifcond);
-    if (condMatch) return this.createParsedStep('ifcond', condMatch, stepNumber, sentence);
+    if (condMatch) {
+      logger.info('Matched ifcond pattern', { match: condMatch });
+      return this.createParsedStep('ifcond', condMatch, stepNumber, sentence);
+    }
     const elseMatch = sentence.match(this.actionPatterns.else);
-    if (elseMatch) return this.createParsedStep('else', elseMatch, stepNumber, sentence);
+    if (elseMatch) {
+      logger.info('Matched else pattern', { match: elseMatch });
+      return this.createParsedStep('else', elseMatch, stepNumber, sentence);
+    }
     const endifMatch = sentence.match(this.actionPatterns.endif);
-    if (endifMatch) return this.createParsedStep('endif', endifMatch, stepNumber, sentence);
+    if (endifMatch) {
+      logger.info('Matched endif pattern', { match: endifMatch });
+      return this.createParsedStep('endif', endifMatch, stepNumber, sentence);
+    }
 
     // Custom handling for input patterns to prefer value/target ordering
     const inputAMatch = sentence.match(this.actionPatterns.inputA);
@@ -111,6 +164,8 @@ export class NLPService {
     if (backMatch) return this.createParsedStep('back', backMatch, stepNumber, sentence);
     const refreshMatch = sentence.match(this.actionPatterns.refresh);
     if (refreshMatch) return this.createParsedStep('refresh', refreshMatch, stepNumber, sentence);
+    const waitSecondsMatch = sentence.match(this.actionPatterns.waitSeconds);
+    if (waitSecondsMatch) return this.createParsedStep('waitSeconds', waitSecondsMatch, stepNumber, sentence);
     const waitMatch = sentence.match(this.actionPatterns.wait);
     if (waitMatch) return this.createParsedStep('wait', waitMatch, stepNumber, sentence);
     const uploadMatch = sentence.match(this.actionPatterns.upload);
@@ -248,6 +303,15 @@ export class NLPService {
           confidence: 0.7,
           description: originalText,
         };
+      case 'waitSeconds': {
+        const seconds = parseInt(clean(match[1]));
+        return {
+          action: 'wait',
+          target: `${seconds * 1000}ms`,
+          confidence: 0.9,
+          description: originalText,
+        };
+      }
       case 'back':
         return {
           action: 'back',

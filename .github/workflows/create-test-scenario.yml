@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       slack_channel:
-        description: 'Provide slack channel name(Make sure channel is invited by test-automation-bot)'
+        description: 'Provide slack channel name(Make sure bot - test-automation-platform is added to mentioned slack channel)'
         required: false
         type: string
       headless:
@@ -19,7 +19,7 @@ on:
       enable_slack:
         description: 'Enable Slack notifications'
         required: false
-        type: boolean
+        type: booleans
         default: true
 
 env:
