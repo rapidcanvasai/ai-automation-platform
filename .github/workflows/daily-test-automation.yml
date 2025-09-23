@@ -1,0 +1,314 @@
+name: Daily AI Test Automation
+
+on:
+  schedule:
+    # Run every day at 10:00 AM UTC (adjust timezone as needed)
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+    inputs:
+      test_description:
+        description: 'Override test description (optional)'
+        required: false
+        type: string
+      slack_channel:
+        description: 'Override Slack channel (optional)'
+        required: false
+        type: string
+
+env:
+  TEST_DESCRIPTION: ${{ inputs.test_description || 'Open https://qa.dev.rapidcanvas.net\nEnter surbhi@rapidcanvas.ai in email\nEnter Surbhi3@rapid in Password\nClick Sign In\nVerify Dashboard\nOpen https://qa.dev.rapidcanvas.net/2bdcdab0-c9cc-46e9-a56c-7b2856cec586/projects/731d8303-9aba-4f13-aad6-0f298328e9fb/project-dataapps/Untitled%20DataApp%203\nWait 100sec\nIf(text=Relaunch) then Click on Relaunch\nIf(text=Launching) then wait 100sec\nWait 100sec\nClick on Artifact Data with AI\nWait 30sec\nVerify no error is coming on UI with AI\nClick on Canvas Dataset with AI\nWait 30sec\nVerify no error is coming on UI with AI' }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  OPENAI_MODEL: "gpt-4o-mini"
+  SLACK_CHANNEL: ${{ inputs.slack_channel || 'test-automation-platform-alerts' }}
+  SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  ENABLE_SLACK: true
+  HEADLESS: true
+
+jobs:
+  daily-test-automation:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Show daily automation info
+      run: |
+        echo "🚀 Daily AI Test Automation Started"
+        echo "📅 Trigger: ${{ github.event_name }}"
+        if [ "${{ github.event_name }}" = "schedule" ]; then
+          echo "⏰ Scheduled run at 10:00 AM UTC daily"
+          echo "📋 Using default test scenario"
+        else
+          echo "👤 Manual trigger by ${{ github.actor }}"
+          if [ -n "${{ inputs.test_description }}" ]; then
+            echo "📝 Using custom test description"
+          else
+            echo "📋 Using default test scenario"
+          fi
+        fi
+        echo "🔧 Environment: ${{ github.ref_name }}"
+        echo "📊 Run ID: ${{ github.run_id }}"
+        echo "📅 Date: $(date)"
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install backend dependencies
+      run: |
+        cd backend
+        npm ci
+
+    - name: Install Playwright browsers
+      run: |
+        cd backend
+        echo "🔍 Checking Playwright installation..."
+        npx playwright --version
+        echo "📦 Installing Playwright browsers..."
+        npx playwright install chromium
+        echo "✅ Playwright browsers installed successfully"
+
+    - name: Build backend
+      run: |
+        cd backend
+        npm run build
+
+    - name: Start backend server
+      run: |
+        cd backend
+        echo "🚀 Starting backend server..."
+        npm start &
+        sleep 10
+        echo "✅ Backend server started"
+
+    - name: Wait for backend to be ready
+      run: |
+        echo "⏳ Waiting for backend server to be ready..."
+        for i in {1..30}; do
+          if curl -f http://localhost:3001/health 2>/dev/null; then
+            echo "✅ Backend server is ready!"
+            break
+          fi
+          echo "⏳ Attempt $i/30: Backend not ready yet, waiting..."
+          sleep 2
+        done
+
+    - name: Parse test steps with NLP
+      run: |
+        echo "🧠 Parsing test steps with Natural Language Processing..."
+        
+        # Convert spaces back to newlines for action keywords (same as web interface)
+        # Handle conditional statements as complete lines: "If(text=X) then Action"
+        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/ Open https:/\nOpen https:/g' | sed 's/ Enter /\nEnter /g' | sed 's/ Verify /\nVerify /g' | sed 's/ Wait /\nWait /g' | sed 's/ If(/\nIf(/g')
+        # Handle Click statements - split only standalone Click, not those after "then"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Click /\1\nClick /g')
+        
+        echo "📝 Processed test description:"
+        echo "$TEST_DESC_WITH_NEWLINES"
+        
+        # Call NLP API to parse the test steps
+        NLP_RESPONSE=$(curl -s -X POST http://localhost:3001/api/nlp/parse \
+          -H "Content-Type: application/json" \
+          -d "{\"text\": \"$TEST_DESC_WITH_NEWLINES\"}")
+        
+        echo "🧠 NLP Response:"
+        echo "$NLP_RESPONSE" | jq '.'
+        
+        # Save NLP response for debugging
+        echo "$NLP_RESPONSE" > nlp-response.json
+        
+        # Extract parsed steps
+        PARSED_STEPS=$(echo "$NLP_RESPONSE" | jq -r '.parsedSteps')
+        echo "📋 Parsed Steps:"
+        echo "$PARSED_STEPS" | jq '.'
+        
+        # Save parsed steps to environment variable for next step
+        echo "PARSED_STEPS<<EOF" >> $GITHUB_ENV
+        echo "$PARSED_STEPS" >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+
+    - name: Generate test code
+      run: |
+        echo "⚙️ Generating test code..."
+        
+        # Call code generation API
+        CODE_RESPONSE=$(curl -s -X POST http://localhost:3001/api/ai/generate-code \
+          -H "Content-Type: application/json" \
+          -d "{\"parsedSteps\": $PARSED_STEPS}")
+        
+        echo "⚙️ Code Generation Response:"
+        echo "$CODE_RESPONSE" | jq '.'
+        
+        # Save code response for debugging
+        echo "$CODE_RESPONSE" > code-response.json
+        
+        # Extract generated code
+        GENERATED_CODE=$(echo "$CODE_RESPONSE" | jq -r '.generatedCode')
+        echo "📝 Generated Code:"
+        echo "$GENERATED_CODE"
+        
+        # Save generated code to environment variable
+        echo "GENERATED_CODE<<EOF" >> $GITHUB_ENV
+        echo "$GENERATED_CODE" >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+
+    - name: Create test in platform
+      run: |
+        echo "📝 Creating test in platform..."
+        
+        # Create test scenario
+        TEST_RESPONSE=$(curl -s -X POST http://localhost:3001/api/tests \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"name\": \"Daily Automation Test - $(date +%Y-%m-%d)\",
+            \"description\": \"${{ env.TEST_DESCRIPTION }}\",
+            \"code\": \"$GENERATED_CODE\",
+            \"parsedSteps\": $PARSED_STEPS
+          }")
+        
+        echo "📝 Test Creation Response:"
+        echo "$TEST_RESPONSE" | jq '.'
+        
+        # Extract test ID
+        TEST_ID=$(echo "$TEST_RESPONSE" | jq -r '.testId')
+        echo "🆔 Test ID: $TEST_ID"
+        
+        # Save test ID to environment variable
+        echo "TEST_ID=$TEST_ID" >> $GITHUB_ENV
+
+    - name: Execute test
+      run: |
+        echo "🚀 Executing test..."
+        
+        # Execute the test
+        EXECUTION_RESPONSE=$(curl -s -X POST http://localhost:3001/api/execution/execute \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"testId\": \"$TEST_ID\",
+            \"headless\": ${{ env.HEADLESS }},
+            \"enableSlack\": ${{ env.ENABLE_SLACK }},
+            \"slackChannel\": \"${{ env.SLACK_CHANNEL }}\"
+          }")
+        
+        echo "🚀 Execution Response:"
+        echo "$EXECUTION_RESPONSE" | jq '.'
+        
+        # Save execution response
+        echo "$EXECUTION_RESPONSE" > execution-response.json
+
+    - name: Create comprehensive test report
+      run: |
+        echo "📊 Creating comprehensive test report..."
+        
+        # Create test scenario markdown file
+        cat > test-scenario-${{ github.run_id }}.md << EOF
+        # Daily AI Test Automation Report
+        
+        **Date:** $(date)
+        **Run ID:** ${{ github.run_id }}
+        **Trigger:** Scheduled Daily Run
+        **Time:** 10:00 AM UTC
+        
+        ## Test Description
+        \`\`\`
+        ${{ env.TEST_DESCRIPTION }}
+        \`\`\`
+        
+        ## Parsed Steps
+        \`\`\`json
+        $PARSED_STEPS
+        \`\`\`
+        
+        ## Generated Code
+        \`\`\`javascript
+        $GENERATED_CODE
+        \`\`\`
+        
+        ## Execution Results
+        \`\`\`json
+        $(cat execution-response.json)
+        \`\`\`
+        
+        ## Files Generated
+        - \`nlp-response.json\` - NLP parsing results
+        - \`code-response.json\` - Code generation results
+        - \`execution-response.json\` - Test execution results
+        
+        ---
+        *Generated by AI Test Automation Platform*
+        EOF
+        
+        echo "✅ Test report created: test-scenario-${{ github.run_id }}.md"
+
+    - name: Create test scenarios directory
+      run: |
+        mkdir -p test-scenarios
+        mv test-scenario-${{ github.run_id }}.md test-scenarios/
+        mv nlp-response.json test-scenarios/nlp-response-${{ github.run_id }}.json
+        mv code-response.json test-scenarios/code-response-${{ github.run_id }}.json
+        mv execution-response.json test-scenarios/execution-response-${{ github.run_id }}.json
+
+    - name: Upload test scenarios
+      uses: actions/upload-artifact@v4
+      with:
+        name: daily-test-scenarios-${{ github.run_id }}
+        path: test-scenarios/
+        retention-days: 30
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      with:
+        name: daily-test-results-${{ github.run_id }}
+        path: backend/test-results/
+        retention-days: 30
+
+    - name: Send Slack notification
+      if: env.ENABLE_SLACK == 'true'
+      run: |
+        echo "📱 Sending Slack notification..."
+        
+        # Create Slack message
+        SLACK_MESSAGE="🚀 *Daily AI Test Automation Completed*
+        
+        📅 *Date:* $(date)
+        ⏰ *Time:* 10:00 AM UTC
+        🆔 *Run ID:* ${{ github.run_id }}
+        
+        📊 *Results:*
+        • Test parsing: ✅
+        • Code generation: ✅
+        • Test execution: ✅
+        
+        📁 *Artifacts:*
+        • Test scenarios and reports uploaded
+        • Check GitHub Actions for details
+        
+        🔗 *View Results:* https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        
+        # Send to Slack
+        curl -X POST -H 'Content-type: application/json' \
+          --data "{\"text\":\"$SLACK_MESSAGE\"}" \
+          ${{ env.SLACK_WEBHOOK_URL }}
+
+    - name: Comment on workflow
+      run: |
+        echo "✅ Daily AI Test Automation completed successfully!"
+        echo ""
+        echo "⏰ Scheduled daily run at 10:00 AM UTC"
+        echo "📅 Date: $(date)"
+        echo ""
+        echo "📊 Pipeline Summary:"
+        echo "   • Natural language processing: ✅"
+        echo "   • Test code generation: ✅"
+        echo "   • Test creation in platform: ✅"
+        echo "   • Test execution: ✅"
+        echo "   • Slack notifications: ✅"
+        echo ""
+        echo "📁 Files uploaded as artifacts:"
+        echo "   - daily-test-scenarios-${{ github.run_id }} (comprehensive report)"
+        echo "   - daily-test-results-${{ github.run_id }} (execution results)"
+        echo ""
+        echo "🔄 Next scheduled run: Tomorrow at 10:00 AM UTC"
