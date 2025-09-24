@@ -36,6 +36,13 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+    - name: 📚 Documentation Link
+      run: |
+        echo "## 📚 Test Automation Documentation" >> $GITHUB_STEP_SUMMARY
+        echo "**Supported Commands**: [View Documentation](https://rapidcanvas.atlassian.net/wiki/spaces/RAPIDCANVA/pages/887554049/Test+Automation+Platform+-+Supported+Commands+Documentation)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "This documentation contains all supported commands and syntax for writing test descriptions." >> $GITHUB_STEP_SUMMARY
+
     - name: Checkout code
       uses: actions/checkout@v4
 
