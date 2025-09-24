@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       test_description:
-        description: 'Test description in plain English'
+        description: 'Test description in plain English. For supported commands, see: https://rapidcanvas.atlassian.net/wiki/spaces/RAPIDCANVA/pages/887554049/Test+Automation+Platform+-+Supported+Commands+Documentation'
         required: true
         type: string
       slack_channel:
