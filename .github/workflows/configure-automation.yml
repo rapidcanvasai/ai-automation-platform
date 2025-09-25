@@ -256,6 +256,9 @@ jobs:
         echo "📝 Test Description: $TEST_DESCRIPTION"
         echo "📁 Workflow File: $WORKFLOW_FILE"
         
+        # Switch to main branch first
+        git checkout main
+        
         # Create a simple workflow file that calls the main workflow
         echo "name: Daily AI Test Automation - $CONFIG_NAME" > "$WORKFLOW_FILE"
         echo "" >> "$WORKFLOW_FILE"
@@ -282,29 +285,10 @@ jobs:
         echo "    secrets: inherit" >> "$WORKFLOW_FILE"
 
         echo "✅ Scheduled workflow file created: $WORKFLOW_FILE"
-
-    - name: Copy workflow to main branch
-      if: (inputs.action == 'create' || inputs.action == 'update') && steps.process-action.outputs.config_name != 'list'
-      run: |
-        echo "📁 Copying workflow file to main branch..."
         
-        CONFIG_NAME="${{ steps.process-action.outputs.config_name }}"
-        SANITIZED_CONFIG_NAME=$(echo "$CONFIG_NAME" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
-        WORKFLOW_FILE=".github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml"
-        
-        # Switch to main branch
-        git checkout main
-        git pull origin main
-        
-        # Copy the workflow file
-        if [ -f "$WORKFLOW_FILE" ]; then
-          echo "✅ Workflow file exists: $WORKFLOW_FILE"
-          git add "$WORKFLOW_FILE"
-          echo "✅ Workflow file added to main branch"
-        else
-          echo "❌ Workflow file not found: $WORKFLOW_FILE"
-          exit 1
-        fi
+        # Add the workflow file to git
+        git add "$WORKFLOW_FILE"
+        echo "✅ Workflow file added to git staging"
 
     - name: Commit and push changes
       if: steps.process-action.outputs.config_name != 'list'
@@ -317,9 +301,6 @@ jobs:
         
         # Set up authentication for pushing
         git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-        
-        # Add all changes
-        git add .
         
         # Check if there are changes to commit
         if git diff --staged --quiet; then
@@ -353,20 +334,29 @@ jobs:
           echo "✅ Changes committed successfully"
         fi
         
-        # Push to both branches
+        # Push to main branch (where workflow files are created)
         echo "🚀 Pushing to main branch..."
         if git push origin main; then
           echo "✅ Successfully pushed to main branch"
         else
           echo "❌ Failed to push to main branch"
+          exit 1
         fi
         
-        echo "🚀 Pushing to config branch: ${{ env.CONFIG_BRANCH }}"
-        if git push origin ${{ env.CONFIG_BRANCH }}; then
-          echo "✅ Successfully pushed to config branch"
+        # Also push configuration to config branch
+        echo "🚀 Pushing configuration to config branch: ${{ env.CONFIG_BRANCH }}"
+        git checkout ${{ env.CONFIG_BRANCH }}
+        git add .github/automation-configs/
+        if git diff --staged --quiet; then
+          echo "No configuration changes to commit"
         else
-          echo "❌ Failed to push to config branch"
-          echo "This might be due to permissions or authentication issues"
+          git commit -m "🤖 Update automation configuration: ${{ steps.process-action.outputs.config_name }}"
+          if git push origin ${{ env.CONFIG_BRANCH }}; then
+            echo "✅ Successfully pushed to config branch"
+          else
+            echo "❌ Failed to push to config branch"
+            echo "This might be due to permissions or authentication issues"
+          fi
         fi
 
 
