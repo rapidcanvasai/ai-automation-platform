@@ -322,12 +322,24 @@ jobs:
         fi
         
         # Push to config branch
-        git push origin ${{ env.CONFIG_BRANCH }} || echo "Push failed, but continuing..."
+        echo "🚀 Pushing to config branch: ${{ env.CONFIG_BRANCH }}"
+        if git push origin ${{ env.CONFIG_BRANCH }}; then
+          echo "✅ Successfully pushed to config branch"
+        else
+          echo "❌ Failed to push to config branch"
+          echo "This might be due to permissions or authentication issues"
+        fi
 
     - name: Copy workflow files to main branch
       if: inputs.action == 'create' || inputs.action == 'update'
       run: |
         echo "📋 Copying workflow files to main branch..."
+        
+        # Debug: Show current git status
+        echo "🔍 Current git status:"
+        git status
+        echo "🔍 Current branch:"
+        git branch -a
         
         # Switch back to main branch
         git checkout main
@@ -355,9 +367,70 @@ jobs:
           fi
           
           # Push to main branch
-          git push origin main || echo "Push to main failed, but continuing..."
+          echo "🚀 Pushing to main branch..."
+          if git push origin main; then
+            echo "✅ Successfully pushed to main branch"
+          else
+            echo "❌ Failed to push to main branch"
+            echo "This might be due to permissions or authentication issues"
+          fi
         else
           echo "⚠️ Workflow file not found in config branch"
+          echo "Creating workflow file directly in main branch as fallback..."
+          
+          # Create the workflow file directly in main branch
+          CONFIG_PATH=".github/automation-configs/${{ env.CONFIG_FILE }}"
+          if [ -f "$CONFIG_PATH" ]; then
+            CONFIG_DATA=$(cat "$CONFIG_PATH" | jq --arg name "$CONFIG_NAME" '.[$name]')
+            CRON_SCHEDULE=$(echo "$CONFIG_DATA" | jq -r '.cron_schedule')
+            TEST_DESCRIPTION=$(echo "$CONFIG_DATA" | jq -r '.test_description')
+            
+            # Create workflow content
+            echo "name: Daily AI Test Automation - $CONFIG_NAME" > "$WORKFLOW_FILE"
+            echo "" >> "$WORKFLOW_FILE"
+            echo "on:" >> "$WORKFLOW_FILE"
+            echo "  schedule:" >> "$WORKFLOW_FILE"
+            echo "    - cron: '$CRON_SCHEDULE'" >> "$WORKFLOW_FILE"
+            echo "  workflow_dispatch:" >> "$WORKFLOW_FILE"
+            echo "    inputs:" >> "$WORKFLOW_FILE"
+            echo "      config_name:" >> "$WORKFLOW_FILE"
+            echo "        description: 'Configuration name to use'" >> "$WORKFLOW_FILE"
+            echo "        required: true" >> "$WORKFLOW_FILE"
+            echo "        type: string" >> "$WORKFLOW_FILE"
+            echo "" >> "$WORKFLOW_FILE"
+            echo "jobs:" >> "$WORKFLOW_FILE"
+            echo "  daily-test-automation:" >> "$WORKFLOW_FILE"
+            echo "    runs-on: ubuntu-latest" >> "$WORKFLOW_FILE"
+            echo "    steps:" >> "$WORKFLOW_FILE"
+            echo "    - name: Checkout code" >> "$WORKFLOW_FILE"
+            echo "      uses: actions/checkout@v4" >> "$WORKFLOW_FILE"
+            echo "      with:" >> "$WORKFLOW_FILE"
+            echo "        fetch-depth: 0" >> "$WORKFLOW_FILE"
+            echo "" >> "$WORKFLOW_FILE"
+            echo "    - name: Load and apply configuration" >> "$WORKFLOW_FILE"
+            echo "      run: |" >> "$WORKFLOW_FILE"
+            echo "        echo \"🔧 Loading configuration: \${{ inputs.config_name }}\"" >> "$WORKFLOW_FILE"
+            echo "        echo \"✅ Configuration loaded successfully!\"" >> "$WORKFLOW_FILE"
+            echo "        echo \"🔄 This workflow will use the configuration: \${{ inputs.config_name }}\"" >> "$WORKFLOW_FILE"
+            echo "        echo \"📋 Test will run with the configured parameters\"" >> "$WORKFLOW_FILE"
+            echo "        echo \"📅 Cron Schedule: $CRON_SCHEDULE\"" >> "$WORKFLOW_FILE"
+            echo "        echo \"📝 Test Description: $TEST_DESCRIPTION\"" >> "$WORKFLOW_FILE"
+            
+            # Add and commit the workflow file
+            git add "$WORKFLOW_FILE"
+            git commit -m "🤖 Add dynamic workflow (fallback): $CONFIG_NAME"
+            echo "✅ Workflow file created directly in main branch"
+            
+            # Push to main branch
+            echo "🚀 Pushing to main branch..."
+            if git push origin main; then
+              echo "✅ Successfully pushed to main branch"
+            else
+              echo "❌ Failed to push to main branch"
+            fi
+          else
+            echo "❌ Configuration file not found for fallback creation"
+          fi
         fi
 
     - name: Run test execution
