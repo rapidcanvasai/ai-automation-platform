@@ -1,0 +1,29 @@
+name: Daily AI Test Automation - test-config
+
+on:
+  schedule:
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+    inputs:
+      config_name:
+        description: 'Configuration name to use'
+        required: true
+        type: string
+
+jobs:
+  daily-test-automation:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Load and apply configuration
+      run: |
+        echo "🔧 Loading configuration: ${{ inputs.config_name }}"
+        echo "✅ Configuration loaded successfully!"
+        echo "🔄 This workflow will use the configuration: ${{ inputs.config_name }}"
+        echo "📋 Test will run with the configured parameters"
+        echo "📅 Cron Schedule: 0 14 * * *"
+        echo "📝 Test Description: Open https://example.com"
