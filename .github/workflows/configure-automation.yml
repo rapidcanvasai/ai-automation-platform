@@ -44,6 +44,10 @@ on:
         type: boolean
         default: true
 
+permissions:
+  contents: write
+  actions: write
+
 env:
   CONFIG_FILE: 'automation-config.json'
   CONFIG_BRANCH: 'automation-config'
@@ -252,6 +256,13 @@ jobs:
         SANITIZED_CONFIG_NAME=$(echo "$CONFIG_NAME" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
         WORKFLOW_FILE=".github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml"
         
+        # Check if workflow file already exists
+        if [ -f "$WORKFLOW_FILE" ]; then
+          echo "🔄 Updating existing workflow file: $WORKFLOW_FILE"
+        else
+          echo "🆕 Creating new workflow file: $WORKFLOW_FILE"
+        fi
+        
         # Create workflow content using echo commands to avoid YAML parsing issues
         echo "name: Daily AI Test Automation - $CONFIG_NAME" > "$WORKFLOW_FILE"
         echo "" >> "$WORKFLOW_FILE"
@@ -294,6 +305,9 @@ jobs:
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git config --global user.name "github-actions[bot]"
         
+        # Set up authentication for pushing
+        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        
         # Add all changes
         git add .
         
@@ -316,6 +330,14 @@ jobs:
               COMMIT_MSG="🧪 Test run for configuration: ${{ steps.process-action.outputs.config_name }}"
               ;;
           esac
+          
+          # Add workflow file info to commit message
+          SANITIZED_CONFIG_NAME=$(echo "${{ steps.process-action.outputs.config_name }}" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
+          WORKFLOW_FILE=".github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml"
+          
+          if [ -f "$WORKFLOW_FILE" ]; then
+            COMMIT_MSG="$COMMIT_MSG (workflow: daily-automation-$SANITIZED_CONFIG_NAME.yml)"
+          fi
           
           git commit -m "$COMMIT_MSG"
           echo "✅ Changes committed successfully"
@@ -341,6 +363,9 @@ jobs:
         echo "🔍 Current branch:"
         git branch -a
         
+        # Set up authentication for pushing
+        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        
         # Switch back to main branch
         git checkout main
         
@@ -362,7 +387,14 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit in main branch"
           else
-            git commit -m "🤖 Add dynamic workflow: $CONFIG_NAME"
+            # Check if this is an update or creation
+            if git log --oneline -1 | grep -q "Add dynamic workflow: $CONFIG_NAME"; then
+              COMMIT_MSG="🔄 Update dynamic workflow: $CONFIG_NAME"
+            else
+              COMMIT_MSG="🤖 Add dynamic workflow: $CONFIG_NAME"
+            fi
+            
+            git commit -m "$COMMIT_MSG"
             echo "✅ Workflow file committed to main branch"
           fi
           
@@ -373,6 +405,16 @@ jobs:
           else
             echo "❌ Failed to push to main branch"
             echo "This might be due to permissions or authentication issues"
+          fi
+          
+          # Verify the workflow file exists
+          echo "🔍 Verifying workflow file creation..."
+          if [ -f "$WORKFLOW_FILE" ]; then
+            echo "✅ Workflow file exists locally: $WORKFLOW_FILE"
+            echo "📄 Workflow file content preview:"
+            head -10 "$WORKFLOW_FILE"
+          else
+            echo "❌ Workflow file not found locally: $WORKFLOW_FILE"
           fi
         else
           echo "⚠️ Workflow file not found in config branch"
@@ -418,8 +460,16 @@ jobs:
             
             # Add and commit the workflow file
             git add "$WORKFLOW_FILE"
-            git commit -m "🤖 Add dynamic workflow (fallback): $CONFIG_NAME"
-            echo "✅ Workflow file created directly in main branch"
+            
+            # Check if this is an update or creation
+            if git log --oneline -1 | grep -q "Add dynamic workflow.*$CONFIG_NAME"; then
+              COMMIT_MSG="🔄 Update dynamic workflow (fallback): $CONFIG_NAME"
+            else
+              COMMIT_MSG="🤖 Add dynamic workflow (fallback): $CONFIG_NAME"
+            fi
+            
+            git commit -m "$COMMIT_MSG"
+            echo "✅ Workflow file created/updated directly in main branch"
             
             # Push to main branch
             echo "🚀 Pushing to main branch..."
