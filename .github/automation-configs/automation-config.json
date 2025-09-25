@@ -1,0 +1,15 @@
+{
+  "chlJa": {
+    "name": "chlJa",
+    "cron_schedule": "0 10 * * *",
+    "test_description": "Open https://qa.dev.rapidcanvas.net Enter surbhi@rapidcanvas.ai in email Enter Surbhi3@rapid in Password Click Sign In Verify Dashboard Open https://qa.dev.rapidcanvas.net/2bdcdab0-c9cc-46e9-a56c-7b2856cec586/projects/731d8303-9aba-4f13-aad6-0f298328e9fb/project-dataapps/Untitled%20DataApp%203 Wait 100sec Click on Artifact Data with AI Wait 30sec Verify no error is coming on UI with AI Click on Canvas Dataset with AI Wait 30sec Verify no error is coming on UI with AI",
+    "slack_channel": "test-automation-platform-alerts",
+    "headless": true,
+    "enable_slack": true,
+    "created_at": "2025-09-25T17:29:52Z",
+    "created_by": "Surbhiairan3",
+    "last_updated": "2025-09-25T17:29:52Z",
+    "updated_by": "Surbhiairan3",
+    "is_active": true
+  }
+}
