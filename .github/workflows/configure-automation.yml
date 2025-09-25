@@ -290,29 +290,75 @@ jobs:
       run: |
         echo "💾 Committing configuration changes..."
         
+        # Set git configuration
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git config --global user.name "github-actions[bot]"
+        
         # Add all changes
         git add .
         
-        # Commit with descriptive message
-        case "${{ inputs.action }}" in
-          "create")
-            COMMIT_MSG="🤖 Create automation configuration: ${{ steps.process-action.outputs.config_name }}"
-            ;;
-          "update")
-            COMMIT_MSG="🔄 Update automation configuration: ${{ steps.process-action.outputs.config_name }}"
-            ;;
-          "delete")
-            COMMIT_MSG="🗑️ Delete automation configuration: ${{ steps.process-action.outputs.config_name }}"
-            ;;
-          "test-run")
-            COMMIT_MSG="🧪 Test run for configuration: ${{ steps.process-action.outputs.config_name }}"
-            ;;
-        esac
-        
-        git commit -m "$COMMIT_MSG" || echo "No changes to commit"
+        # Check if there are changes to commit
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          # Commit with descriptive message
+          case "${{ inputs.action }}" in
+            "create")
+              COMMIT_MSG="🤖 Create automation configuration: ${{ steps.process-action.outputs.config_name }}"
+              ;;
+            "update")
+              COMMIT_MSG="🔄 Update automation configuration: ${{ steps.process-action.outputs.config_name }}"
+              ;;
+            "delete")
+              COMMIT_MSG="🗑️ Delete automation configuration: ${{ steps.process-action.outputs.config_name }}"
+              ;;
+            "test-run")
+              COMMIT_MSG="🧪 Test run for configuration: ${{ steps.process-action.outputs.config_name }}"
+              ;;
+          esac
+          
+          git commit -m "$COMMIT_MSG"
+          echo "✅ Changes committed successfully"
+        fi
         
         # Push to config branch
         git push origin ${{ env.CONFIG_BRANCH }} || echo "Push failed, but continuing..."
+
+    - name: Copy workflow files to main branch
+      if: inputs.action == 'create' || inputs.action == 'update'
+      run: |
+        echo "📋 Copying workflow files to main branch..."
+        
+        # Switch back to main branch
+        git checkout main
+        
+        # Copy the generated workflow file from config branch
+        CONFIG_NAME="${{ steps.process-action.outputs.config_name }}"
+        SANITIZED_CONFIG_NAME=$(echo "$CONFIG_NAME" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
+        WORKFLOW_FILE=".github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml"
+        
+        # Check if the workflow file exists in config branch
+        if git show ${{ env.CONFIG_BRANCH }}:$WORKFLOW_FILE > /dev/null 2>&1; then
+          echo "✅ Found workflow file in config branch, copying to main..."
+          
+          # Copy the file from config branch to main branch
+          git show ${{ env.CONFIG_BRANCH }}:$WORKFLOW_FILE > "$WORKFLOW_FILE"
+          
+          # Add and commit the workflow file to main branch
+          git add "$WORKFLOW_FILE"
+          
+          if git diff --staged --quiet; then
+            echo "No changes to commit in main branch"
+          else
+            git commit -m "🤖 Add dynamic workflow: $CONFIG_NAME"
+            echo "✅ Workflow file committed to main branch"
+          fi
+          
+          # Push to main branch
+          git push origin main || echo "Push to main failed, but continuing..."
+        else
+          echo "⚠️ Workflow file not found in config branch"
+        fi
 
     - name: Run test execution
       if: inputs.action == 'test-run'
