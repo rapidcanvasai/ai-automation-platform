@@ -248,7 +248,9 @@ jobs:
         echo "📝 Test Description: $TEST_DESCRIPTION"
         
         # Create a simple workflow file for this configuration
-        WORKFLOW_FILE=".github/workflows/daily-automation-$CONFIG_NAME.yml"
+        # Sanitize config name for filename (replace spaces with hyphens, remove special chars)
+        SANITIZED_CONFIG_NAME=$(echo "$CONFIG_NAME" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
+        WORKFLOW_FILE=".github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml"
         
         # Create workflow content using echo commands to avoid YAML parsing issues
         echo "name: Daily AI Test Automation - $CONFIG_NAME" > "$WORKFLOW_FILE"
@@ -329,6 +331,9 @@ jobs:
         echo "## 🎯 Configuration Management Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
+        # Calculate sanitized config name for display
+        SANITIZED_CONFIG_NAME=$(echo "${{ steps.process-action.outputs.config_name }}" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
+        
         case "${{ inputs.action }}" in
           "create"|"update")
             echo "✅ **Configuration ${{ inputs.action }}d successfully!**" >> $GITHUB_STEP_SUMMARY
@@ -340,7 +345,7 @@ jobs:
             echo "**Headless Mode:** ${{ inputs.headless }}" >> $GITHUB_STEP_SUMMARY
             echo "**Slack Notifications:** ${{ inputs.enable_slack }}" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "🔄 **Automated workflow created:** \`.github/workflows/daily-automation-${{ steps.process-action.outputs.config_name }}.yml\`" >> $GITHUB_STEP_SUMMARY
+            echo "🔄 **Automated workflow created:** \`.github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "📅 **Next Steps:**" >> $GITHUB_STEP_SUMMARY
             echo "1. The workflow will run automatically based on your cron schedule" >> $GITHUB_STEP_SUMMARY
