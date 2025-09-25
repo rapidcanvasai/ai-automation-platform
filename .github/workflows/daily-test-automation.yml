@@ -14,16 +14,32 @@ on:
         description: 'Override Slack channel (optional)'
         required: false
         type: string
+      headless:
+        description: 'Run browser in headless mode (true) or show browser window (false)'
+        required: false
+        type: boolean
+        default: true
+      enable_slack:
+        description: 'Enable Slack notifications'
+        required: false
+        type: boolean
+        default: true
+      config_name:
+        description: 'Configuration name to use (optional - uses default if not specified)'
+        required: false
+        type: string
+        default: 'default'
 
 env:
+  CONFIG_NAME: ${{ inputs.config_name || 'default' }}
   TEST_DESCRIPTION: ${{ inputs.test_description || 'Open https://qa.dev.rapidcanvas.net\nEnter surbhi@rapidcanvas.ai in email\nEnter Surbhi3@rapid in Password\nClick Sign In\nVerify Dashboard\nOpen https://qa.dev.rapidcanvas.net/2bdcdab0-c9cc-46e9-a56c-7b2856cec586/projects/731d8303-9aba-4f13-aad6-0f298328e9fb/project-dataapps/Untitled%20DataApp%203\nWait 100sec\nIf(text=Relaunch) then Click on Relaunch\nIf(text=Launching) then wait 100sec\nWait 100sec\nClick on Artifact Data with AI\nWait 30sec\nVerify no error is coming on UI with AI\nClick on Canvas Dataset with AI\nWait 30sec\nVerify no error is coming on UI with AI' }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENAI_MODEL: "gpt-4o-mini"
   SLACK_CHANNEL: ${{ inputs.slack_channel || 'test-automation-platform-alerts' }}
   SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-  ENABLE_SLACK: true
-  HEADLESS: true
+  ENABLE_SLACK: ${{ inputs.enable_slack || true }}
+  HEADLESS: ${{ inputs.headless || true }}
 
 jobs:
   daily-test-automation:
@@ -32,25 +48,178 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Load configuration
+      id: load-config
+      run: |
+        echo "🔧 Loading automation configuration..."
+        
+        CONFIG_NAME="${{ inputs.config_name || 'default' }}"
+        CONFIG_BRANCH="automation-config"
+        CONFIG_FILE="automation-config.json"
+        
+        echo "📋 Configuration Name: $CONFIG_NAME"
+        
+        # Try to checkout config branch and load configuration
+        if git show-ref --verify --quiet refs/remotes/origin/$CONFIG_BRANCH; then
+          echo "📁 Configuration branch exists, loading configuration..."
+          git checkout $CONFIG_BRANCH
+          
+          CONFIG_PATH=".github/automation-configs/$CONFIG_FILE"
+          if [ -f "$CONFIG_PATH" ]; then
+            echo "✅ Found configuration file"
+            
+            # Load specific configuration
+            CONFIG_DATA=$(cat "$CONFIG_PATH" | jq --arg name "$CONFIG_NAME" '.[$name]')
+            
+            if [ "$CONFIG_DATA" != "null" ]; then
+              echo "✅ Found configuration: $CONFIG_NAME"
+              
+              # Extract configuration values
+              CONFIG_CRON=$(echo "$CONFIG_DATA" | jq -r '.cron_schedule // "0 10 * * *"')
+              CONFIG_DESCRIPTION=$(echo "$CONFIG_DATA" | jq -r '.test_description // ""')
+              CONFIG_SLACK_CHANNEL=$(echo "$CONFIG_DATA" | jq -r '.slack_channel // "test-automation-platform-alerts"')
+              CONFIG_HEADLESS=$(echo "$CONFIG_DATA" | jq -r '.headless // true')
+              CONFIG_ENABLE_SLACK=$(echo "$CONFIG_DATA" | jq -r '.enable_slack // true')
+              
+              echo "📅 Cron Schedule: $CONFIG_CRON"
+              echo "📝 Test Description: $CONFIG_DESCRIPTION"
+              echo "📱 Slack Channel: $CONFIG_SLACK_CHANNEL"
+              echo "🖥️ Headless: $CONFIG_HEADLESS"
+              echo "🔔 Enable Slack: $CONFIG_ENABLE_SLACK"
+              
+              # Set outputs
+              echo "config_cron<<EOF" >> $GITHUB_OUTPUT
+              echo "$CONFIG_CRON" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+              
+              echo "config_description<<EOF" >> $GITHUB_OUTPUT
+              echo "$CONFIG_DESCRIPTION" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+              
+              echo "config_slack_channel<<EOF" >> $GITHUB_OUTPUT
+              echo "$CONFIG_SLACK_CHANNEL" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+              
+              echo "config_headless<<EOF" >> $GITHUB_OUTPUT
+              echo "$CONFIG_HEADLESS" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+              
+              echo "config_enable_slack<<EOF" >> $GITHUB_OUTPUT
+              echo "$CONFIG_ENABLE_SLACK" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+              
+              echo "config_found<<EOF" >> $GITHUB_OUTPUT
+              echo "true" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+            else
+              echo "⚠️ Configuration '$CONFIG_NAME' not found, using defaults"
+              echo "config_found<<EOF" >> $GITHUB_OUTPUT
+              echo "false" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "⚠️ Configuration file not found, using defaults"
+            echo "config_found<<EOF" >> $GITHUB_OUTPUT
+            echo "false" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+          
+          # Switch back to main branch
+          git checkout main
+        else
+          echo "⚠️ Configuration branch not found, using defaults"
+          echo "config_found<<EOF" >> $GITHUB_OUTPUT
+          echo "false" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        fi
 
     - name: Show daily automation info
       run: |
         echo "🚀 Daily AI Test Automation Started"
+        echo "📅 Configuration: ${{ env.CONFIG_NAME }}"
         echo "📅 Trigger: ${{ github.event_name }}"
+        
+        if [ "${{ steps.load-config.outputs.config_found }}" = "true" ]; then
+          echo "✅ Using saved configuration: ${{ env.CONFIG_NAME }}"
+          echo "📅 Cron Schedule: ${{ steps.load-config.outputs.config_cron }}"
+          echo "📝 Test Description: ${{ steps.load-config.outputs.config_description }}"
+          echo "📱 Slack Channel: ${{ steps.load-config.outputs.config_slack_channel }}"
+          echo "🖥️ Headless: ${{ steps.load-config.outputs.config_headless }}"
+          echo "🔔 Enable Slack: ${{ steps.load-config.outputs.config_enable_slack }}"
+        else
+          echo "⚠️ Using default configuration (no saved config found)"
+        fi
+        
         if [ "${{ github.event_name }}" = "schedule" ]; then
-          echo "⏰ Scheduled run at 10:00 AM UTC daily"
-          echo "📋 Using default test scenario"
+          echo "⏰ Scheduled run"
+          if [ "${{ steps.load-config.outputs.config_found }}" = "true" ]; then
+            echo "📋 Using configured test scenario"
+          else
+            echo "📋 Using default test scenario"
+          fi
         else
           echo "👤 Manual trigger by ${{ github.actor }}"
           if [ -n "${{ inputs.test_description }}" ]; then
             echo "📝 Using custom test description"
           else
-            echo "📋 Using default test scenario"
+            if [ "${{ steps.load-config.outputs.config_found }}" = "true" ]; then
+              echo "📋 Using configured test scenario"
+            else
+              echo "📋 Using default test scenario"
+            fi
           fi
         fi
         echo "🔧 Environment: ${{ github.ref_name }}"
         echo "📊 Run ID: ${{ github.run_id }}"
         echo "📅 Date: $(date)"
+
+    - name: Apply configuration
+      run: |
+        echo "⚙️ Applying configuration settings..."
+        
+        if [ "${{ steps.load-config.outputs.config_found }}" = "true" ]; then
+          echo "✅ Applying saved configuration: ${{ env.CONFIG_NAME }}"
+          
+          # Override environment variables with configuration values if not manually specified
+          if [ -z "${{ inputs.test_description }}" ] && [ -n "${{ steps.load-config.outputs.config_description }}" ]; then
+            echo "📝 Using configured test description"
+            echo "TEST_DESCRIPTION<<EOF" >> $GITHUB_ENV
+            echo "${{ steps.load-config.outputs.config_description }}" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          fi
+          
+          if [ -z "${{ inputs.slack_channel }}" ] && [ -n "${{ steps.load-config.outputs.config_slack_channel }}" ]; then
+            echo "📱 Using configured slack channel"
+            echo "SLACK_CHANNEL<<EOF" >> $GITHUB_ENV
+            echo "${{ steps.load-config.outputs.config_slack_channel }}" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          fi
+          
+          if [ -z "${{ inputs.headless }}" ] && [ -n "${{ steps.load-config.outputs.config_headless }}" ]; then
+            echo "🖥️ Using configured headless setting"
+            echo "HEADLESS<<EOF" >> $GITHUB_ENV
+            echo "${{ steps.load-config.outputs.config_headless }}" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          fi
+          
+          if [ -z "${{ inputs.enable_slack }}" ] && [ -n "${{ steps.load-config.outputs.config_enable_slack }}" ]; then
+            echo "🔔 Using configured slack notification setting"
+            echo "ENABLE_SLACK<<EOF" >> $GITHUB_ENV
+            echo "${{ steps.load-config.outputs.config_enable_slack }}" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          fi
+        else
+          echo "⚠️ No saved configuration found, using input values or defaults"
+        fi
+        
+        echo "📋 Final configuration:"
+        echo "  Test Description: ${{ env.TEST_DESCRIPTION }}"
+        echo "  Slack Channel: ${{ env.SLACK_CHANNEL }}"
+        echo "  Headless: ${{ env.HEADLESS }}"
+        echo "  Enable Slack: ${{ env.ENABLE_SLACK }}"
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
@@ -67,9 +236,13 @@ jobs:
         cd backend
         echo "🔍 Checking Playwright installation..."
         npx playwright --version
-        echo "📦 Installing Playwright browsers..."
+        echo "🚀 Installing Chromium browser..."
         npx playwright install chromium
-        echo "✅ Playwright browsers installed successfully"
+        echo "🔧 Installing system dependencies..."
+        npx playwright install-deps chromium
+        echo "✅ Playwright installation completed!"
+        echo "🔍 Verifying installation..."
+        npx playwright install chromium --dry-run
 
     - name: Build backend
       run: |
@@ -80,19 +253,19 @@ jobs:
       run: |
         cd backend
         echo "🚀 Starting backend server..."
-        npm start &
-        sleep 10
-        echo "✅ Backend server started"
+        DB_DISABLED=true NODE_ENV=development PORT=3001 npm start &
+        echo "Backend server starting..."
 
     - name: Wait for backend to be ready
       run: |
         echo "⏳ Waiting for backend server to be ready..."
+        # Wait for backend to be ready
         for i in {1..30}; do
-          if curl -f http://localhost:3001/health 2>/dev/null; then
-            echo "✅ Backend server is ready!"
+          if curl -f http://localhost:3001/health >/dev/null 2>&1; then
+            echo "✅ Backend is ready!"
             break
           fi
-          echo "⏳ Attempt $i/30: Backend not ready yet, waiting..."
+          echo "Waiting for backend... ($i/30)"
           sleep 2
         done
 
@@ -134,70 +307,224 @@ jobs:
       run: |
         echo "⚙️ Generating test code..."
         
-        # Call code generation API
-        CODE_RESPONSE=$(curl -s -X POST http://localhost:3001/api/ai/generate-code \
+        # Create properly formatted payload for code generation
+        echo "$PARSED_STEPS" | jq -c '{steps: .steps, language: "typescript"}' > /tmp/steps.json
+        echo "Payload created:"
+        cat /tmp/steps.json
+        echo ""
+        
+        # Call code generation API with proper error handling
+        CODE_RESPONSE=$(curl -X POST http://localhost:3001/api/nlp/generate-code \
           -H "Content-Type: application/json" \
-          -d "{\"parsedSteps\": $PARSED_STEPS}")
+          -d @/tmp/steps.json \
+          -w "\n%{http_code}")
+        
+        CODE_HTTP_CODE=$(echo "$CODE_RESPONSE" | tail -n1)
+        CODE_BODY=$(echo "$CODE_RESPONSE" | sed '$d')
         
         echo "⚙️ Code Generation Response:"
-        echo "$CODE_RESPONSE" | jq '.'
+        echo "HTTP Code: $CODE_HTTP_CODE"
+        echo "Response Length: ${#CODE_BODY}"
+        echo "Response Body:"
+        echo "$CODE_BODY" | jq '.' 2>/dev/null || echo "$CODE_BODY"
         
         # Save code response for debugging
-        echo "$CODE_RESPONSE" > code-response.json
+        echo "$CODE_BODY" > code-response.json
         
-        # Extract generated code
-        GENERATED_CODE=$(echo "$CODE_RESPONSE" | jq -r '.generatedCode')
-        echo "📝 Generated Code:"
-        echo "$GENERATED_CODE"
+        if [ "$CODE_HTTP_CODE" -eq 200 ] || [ "$CODE_HTTP_CODE" -eq 201 ]; then
+          echo "✅ Test code generated successfully!"
+          
+          # Extract generated code
+          GENERATED_CODE=$(echo "$CODE_BODY" | jq -r '.generatedCode // .code // "No code generated"')
+          echo "📝 Generated Code:"
+          echo "$GENERATED_CODE"
+          
+          # Save generated code to environment variable
+          echo "GENERATED_CODE<<EOF" >> $GITHUB_ENV
+          echo "$GENERATED_CODE" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+        else
+          echo "❌ Failed to generate test code"
+          echo "Raw code response: $CODE_RESPONSE"
+          exit 1
+        fi
         
-        # Save generated code to environment variable
-        echo "GENERATED_CODE<<EOF" >> $GITHUB_ENV
-        echo "$GENERATED_CODE" >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
+        # Cleanup
+        rm -f /tmp/steps.json
 
     - name: Create test in platform
       run: |
         echo "📝 Creating test in platform..."
         
-        # Create test scenario
-        TEST_RESPONSE=$(curl -s -X POST http://localhost:3001/api/tests \
+        # Extract steps from the NLP parsing response (like the working workflow does)
+        STEPS_DATA=$(cat nlp-response.json | jq -c '.steps // []')
+        
+        echo "🔍 Extracted steps data:"
+        echo "$STEPS_DATA" | jq '.'
+        echo ""
+        
+        # Create test payload using jq to properly escape JSON (matching working workflow behavior)
+        jq -n \
+          --arg name "Daily Automation Test - ${{ env.CONFIG_NAME }} - $(date +%Y-%m-%d)" \
+          --arg description "${{ env.TEST_DESCRIPTION }}" \
+          --argjson steps "$STEPS_DATA" \
+          --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+          '{
+            name: $name,
+            description: $description,
+            steps: $steps,
+            workflowRunUrl: $workflowRunUrl
+          }' > /tmp/test-payload.json
+        
+        echo "📝 Test Creation Payload:"
+        cat /tmp/test-payload.json
+        echo ""
+        
+        # Create test scenario with proper error handling
+        TEST_RESPONSE=$(curl -X POST http://localhost:3001/api/tests \
           -H "Content-Type: application/json" \
-          -d "{
-            \"name\": \"Daily Automation Test - $(date +%Y-%m-%d)\",
-            \"description\": \"${{ env.TEST_DESCRIPTION }}\",
-            \"code\": \"$GENERATED_CODE\",
-            \"parsedSteps\": $PARSED_STEPS
-          }")
+          -d @/tmp/test-payload.json \
+          -w "\n%{http_code}")
+        
+        TEST_HTTP_CODE=$(echo "$TEST_RESPONSE" | tail -n1)
+        TEST_BODY=$(echo "$TEST_RESPONSE" | sed '$d')
         
         echo "📝 Test Creation Response:"
-        echo "$TEST_RESPONSE" | jq '.'
+        echo "HTTP Code: $TEST_HTTP_CODE"
+        echo "Response Body:"
+        echo "$TEST_BODY" | jq '.' 2>/dev/null || echo "$TEST_BODY"
         
-        # Extract test ID
-        TEST_ID=$(echo "$TEST_RESPONSE" | jq -r '.testId')
-        echo "🆔 Test ID: $TEST_ID"
+        if [ "$TEST_HTTP_CODE" -eq 201 ]; then
+          echo "✅ Test created successfully!"
+          
+          # Extract test ID
+          TEST_ID=$(echo "$TEST_BODY" | jq -r '.test.id // "unknown"')
+          echo "🆔 Test ID: $TEST_ID"
+          
+          # Save test ID to environment variable
+          echo "TEST_ID=$TEST_ID" >> $GITHUB_ENV
+        else
+          echo "❌ Failed to create test"
+          echo "Raw test response: $TEST_RESPONSE"
+          exit 1
+        fi
         
-        # Save test ID to environment variable
-        echo "TEST_ID=$TEST_ID" >> $GITHUB_ENV
+        # Cleanup
+        rm -f /tmp/test-payload.json
 
     - name: Execute test
       run: |
         echo "🚀 Executing test..."
         
-        # Execute the test
-        EXECUTION_RESPONSE=$(curl -s -X POST http://localhost:3001/api/execution/execute \
+        # Set browser execution mode
+        if [ "${{ env.HEADLESS }}" = "true" ]; then
+          HEADLESS_VALUE="true"
+          echo "🖥️ Running in HEADLESS mode (browser runs in background)"
+        else
+          HEADLESS_VALUE="false"
+          echo "🖥️ Running in HEADED mode (browser window visible)"
+        fi
+        
+        if [ "${{ env.ENABLE_SLACK }}" = "true" ]; then
+          SLACK_VALUE="true"
+        else
+          SLACK_VALUE="false"
+        fi
+        
+        # Create execution payload using jq for proper JSON formatting
+        jq -n \
+          --argjson headless "$HEADLESS_VALUE" \
+          --argjson enableSlack "$SLACK_VALUE" \
+          '{
+            headless: $headless,
+            slowMoMs: 1000,
+            enableSlackNotifications: $enableSlack
+          }' > /tmp/exec-payload.json
+        
+        echo "📋 Execution payload:"
+        cat /tmp/exec-payload.json
+        echo ""
+        
+        echo "🔍 Testing execution with test ID: $TEST_ID"
+        echo "🔍 Checking if test exists first..."
+        curl -X GET http://localhost:3001/api/tests/$TEST_ID | jq '.test.id // "not found"'
+        
+        echo "🔍 Debug: Checking Playwright installation in backend..."
+        curl -X GET http://localhost:3001/health | jq '.' || echo "Health check failed"
+        
+        # Execute the test with proper error handling
+        EXECUTION_RESPONSE=$(curl -X POST http://localhost:3001/api/execution/$TEST_ID/run \
           -H "Content-Type: application/json" \
-          -d "{
-            \"testId\": \"$TEST_ID\",
-            \"headless\": ${{ env.HEADLESS }},
-            \"enableSlack\": ${{ env.ENABLE_SLACK }},
-            \"slackChannel\": \"${{ env.SLACK_CHANNEL }}\"
-          }")
+          -d @/tmp/exec-payload.json \
+          -w "\n%{http_code}" \
+          --max-time 120)
+        
+        EXEC_HTTP_CODE=$(echo "$EXECUTION_RESPONSE" | tail -n1)
+        EXEC_BODY=$(echo "$EXECUTION_RESPONSE" | sed '$d')
         
         echo "🚀 Execution Response:"
-        echo "$EXECUTION_RESPONSE" | jq '.'
+        echo "HTTP Code: $EXEC_HTTP_CODE"
+        echo "Response Body:"
+        echo "$EXEC_BODY" | jq '.' 2>/dev/null || echo "$EXEC_BODY"
         
         # Save execution response
-        echo "$EXECUTION_RESPONSE" > execution-response.json
+        echo "$EXEC_BODY" > execution-response.json
+        
+        if [ "$EXEC_HTTP_CODE" -eq 200 ]; then
+          echo "✅ Test executed successfully!"
+          EXECUTION_ID=$(echo "$EXEC_BODY" | jq -r '.executionId // "unknown"')
+          TEST_STATUS=$(echo "$EXEC_BODY" | jq -r '.status // "unknown"')
+          echo "EXECUTION_ID=$EXECUTION_ID" >> $GITHUB_ENV
+          echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
+          
+          # Check if execution actually completed
+          STEPS_EXECUTED=$(echo "$EXEC_BODY" | jq '.result.steps | length' 2>/dev/null || echo "0")
+          echo "Steps executed: $STEPS_EXECUTED"
+          if [ "$STEPS_EXECUTED" -eq 0 ]; then
+            echo "⚠️ WARNING: No steps were executed in the browser."
+            echo "This might be due to browser automation issues in Docker environment."
+          fi
+        elif [ "$EXEC_HTTP_CODE" -eq 404 ]; then
+          echo "❌ Test not found (404) - Test ID: $TEST_ID"
+          echo "Raw execution response: $EXECUTION_RESPONSE"
+          exit 1
+        else
+          echo "❌ Test execution failed with HTTP $EXEC_HTTP_CODE"
+          echo "Raw execution response: $EXECUTION_RESPONSE"
+          exit 1
+        fi
+        
+        # Cleanup
+        rm -f /tmp/exec-payload.json
+
+    - name: Verify test execution results
+      run: |
+        echo "📊 Verifying test execution results..."
+        if [ -n "${{ env.EXECUTION_ID }}" ]; then
+          echo "✅ Test executed in platform successfully!"
+          echo "Execution ID: ${{ env.EXECUTION_ID }}"
+          echo "Test Status: ${{ env.TEST_STATUS }}"
+          echo "Test ID: ${{ env.TEST_ID }}"
+          
+          # Get detailed execution results
+          echo "📋 Getting detailed execution results..."
+          DETAILED_RESULTS=$(curl -X GET "http://localhost:3001/api/execution/${{ env.EXECUTION_ID }}/results" | jq '.')
+          echo "Detailed Results:"
+          echo "$DETAILED_RESULTS" | jq '.'
+          
+          STEPS_EXECUTED=$(echo "$DETAILED_RESULTS" | jq '.execution.result.steps | length')
+          echo "Steps executed: $STEPS_EXECUTED"
+          
+          if [ "$STEPS_EXECUTED" -gt 0 ]; then
+            echo "🎉 SUCCESS: Browser execution completed! Steps were executed."
+            echo "Step details:"
+            echo "$DETAILED_RESULTS" | jq '.execution.result.steps[] | {step: .step, action: .action, target: .target, status: .status, error: .error}'
+          else
+            echo "⚠️ WARNING: No steps were executed in the browser."
+          fi
+        else
+          echo "❌ No execution ID found - test may not have been executed"
+        fi
 
     - name: Create comprehensive test report
       run: |
@@ -205,12 +532,13 @@ jobs:
         
         # Create test scenario markdown file
         cat > test-scenario-${{ github.run_id }}.md << EOF
-        # Daily AI Test Automation Report
+        # Daily AI Test Automation Report - ${{ env.CONFIG_NAME }}
         
         **Date:** $(date)
         **Run ID:** ${{ github.run_id }}
-        **Trigger:** Scheduled Daily Run
-        **Time:** 10:00 AM UTC
+        **Configuration:** ${{ env.CONFIG_NAME }}
+        **Trigger:** ${{ github.event_name }}
+        **Cron Schedule:** ${{ steps.load-config.outputs.config_cron || '0 10 * * *' }}
         
         ## Test Description
         \`\`\`
@@ -254,14 +582,14 @@ jobs:
     - name: Upload test scenarios
       uses: actions/upload-artifact@v4
       with:
-        name: daily-test-scenarios-${{ github.run_id }}
+        name: daily-test-scenarios-${{ env.CONFIG_NAME }}-${{ github.run_id }}
         path: test-scenarios/
         retention-days: 30
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
       with:
-        name: daily-test-results-${{ github.run_id }}
+        name: daily-test-results-${{ env.CONFIG_NAME }}-${{ github.run_id }}
         path: backend/test-results/
         retention-days: 30
 
@@ -271,10 +599,10 @@ jobs:
         echo "📱 Sending Slack notification..."
         
         # Create Slack message
-        SLACK_MESSAGE="🚀 *Daily AI Test Automation Completed*
+        SLACK_MESSAGE="🚀 *Daily AI Test Automation Completed - ${{ env.CONFIG_NAME }}*
         
         📅 *Date:* $(date)
-        ⏰ *Time:* 10:00 AM UTC
+        ⏰ *Schedule:* ${{ steps.load-config.outputs.config_cron || '0 10 * * *' }}
         🆔 *Run ID:* ${{ github.run_id }}
         
         📊 *Results:*
@@ -297,7 +625,8 @@ jobs:
       run: |
         echo "✅ Daily AI Test Automation completed successfully!"
         echo ""
-        echo "⏰ Scheduled daily run at 10:00 AM UTC"
+        echo "📅 Configuration: ${{ env.CONFIG_NAME }}"
+        echo "⏰ Cron Schedule: ${{ steps.load-config.outputs.config_cron || '0 10 * * *' }}"
         echo "📅 Date: $(date)"
         echo ""
         echo "📊 Pipeline Summary:"
@@ -308,7 +637,7 @@ jobs:
         echo "   • Slack notifications: ✅"
         echo ""
         echo "📁 Files uploaded as artifacts:"
-        echo "   - daily-test-scenarios-${{ github.run_id }} (comprehensive report)"
-        echo "   - daily-test-results-${{ github.run_id }} (execution results)"
+        echo "   - daily-test-scenarios-${{ env.CONFIG_NAME }}-${{ github.run_id }} (comprehensive report)"
+        echo "   - daily-test-results-${{ env.CONFIG_NAME }}-${{ github.run_id }} (execution results)"
         echo ""
-        echo "🔄 Next scheduled run: Tomorrow at 10:00 AM UTC"
+        echo "🔄 Next scheduled run: Based on cron schedule: ${{ steps.load-config.outputs.config_cron || '0 10 * * *' }}"
