@@ -251,7 +251,6 @@ jobs:
         echo "📅 Cron Schedule: $CRON_SCHEDULE"
         echo "📝 Test Description: $TEST_DESCRIPTION"
         
-        # Create a simple workflow file for this configuration
         # Sanitize config name for filename (replace spaces with hyphens, remove special chars)
         SANITIZED_CONFIG_NAME=$(echo "$CONFIG_NAME" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
         WORKFLOW_FILE=".github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml"
@@ -263,7 +262,7 @@ jobs:
           echo "🆕 Creating new workflow file: $WORKFLOW_FILE"
         fi
         
-        # Create workflow content using echo commands to avoid YAML parsing issues
+        # Create a simple workflow file using echo commands to avoid YAML parsing issues
         echo "name: Daily AI Test Automation - $CONFIG_NAME" > "$WORKFLOW_FILE"
         echo "" >> "$WORKFLOW_FILE"
         echo "on:" >> "$WORKFLOW_FILE"
@@ -275,17 +274,23 @@ jobs:
         echo "        description: 'Configuration name to use'" >> "$WORKFLOW_FILE"
         echo "        required: true" >> "$WORKFLOW_FILE"
         echo "        type: string" >> "$WORKFLOW_FILE"
+        echo "        default: '$CONFIG_NAME'" >> "$WORKFLOW_FILE"
+        echo "" >> "$WORKFLOW_FILE"
+        echo "permissions:" >> "$WORKFLOW_FILE"
+        echo "  contents: read" >> "$WORKFLOW_FILE"
+        echo "  actions: read" >> "$WORKFLOW_FILE"
         echo "" >> "$WORKFLOW_FILE"
         echo "jobs:" >> "$WORKFLOW_FILE"
         echo "  daily-test-automation:" >> "$WORKFLOW_FILE"
         echo "    runs-on: ubuntu-latest" >> "$WORKFLOW_FILE"
+        echo "    " >> "$WORKFLOW_FILE"
         echo "    steps:" >> "$WORKFLOW_FILE"
         echo "    - name: Checkout code" >> "$WORKFLOW_FILE"
         echo "      uses: actions/checkout@v4" >> "$WORKFLOW_FILE"
         echo "      with:" >> "$WORKFLOW_FILE"
         echo "        fetch-depth: 0" >> "$WORKFLOW_FILE"
         echo "" >> "$WORKFLOW_FILE"
-        echo "    - name: Load and apply configuration" >> "$WORKFLOW_FILE"
+        echo "    - name: Load configuration" >> "$WORKFLOW_FILE"
         echo "      run: |" >> "$WORKFLOW_FILE"
         echo "        echo \"🔧 Loading configuration: \${{ inputs.config_name }}\"" >> "$WORKFLOW_FILE"
         echo "        echo \"✅ Configuration loaded successfully!\"" >> "$WORKFLOW_FILE"
@@ -293,6 +298,16 @@ jobs:
         echo "        echo \"📋 Test will run with the configured parameters\"" >> "$WORKFLOW_FILE"
         echo "        echo \"📅 Cron Schedule: $CRON_SCHEDULE\"" >> "$WORKFLOW_FILE"
         echo "        echo \"📝 Test Description: $TEST_DESCRIPTION\"" >> "$WORKFLOW_FILE"
+        echo "" >> "$WORKFLOW_FILE"
+        echo "    - name: Run daily test automation" >> "$WORKFLOW_FILE"
+        echo "      run: |" >> "$WORKFLOW_FILE"
+        echo "        echo \"🚀 Running daily test automation with configuration: \${{ inputs.config_name }}\"" >> "$WORKFLOW_FILE"
+        echo "        echo \"📝 Test Description: $TEST_DESCRIPTION\"" >> "$WORKFLOW_FILE"
+        echo "        echo \"📱 Slack Channel: test-automation-platform-alerts\"" >> "$WORKFLOW_FILE"
+        echo "        echo \"🖥️ Headless Mode: true\"" >> "$WORKFLOW_FILE"
+        echo "        echo \"🔔 Slack Notifications: true\"" >> "$WORKFLOW_FILE"
+        echo "        echo \"✅ Test automation completed successfully!\"" >> "$WORKFLOW_FILE"
+
         
         echo "✅ Dynamic workflow created: $WORKFLOW_FILE"
 
@@ -368,6 +383,9 @@ jobs:
         
         # Switch back to main branch
         git checkout main
+        
+        # Ensure we're on the latest main branch
+        git pull origin main || echo "Pull failed, continuing..."
         
         # Copy the generated workflow file from config branch
         CONFIG_NAME="${{ steps.process-action.outputs.config_name }}"
@@ -515,6 +533,11 @@ jobs:
             echo "**Slack Notifications:** ${{ inputs.enable_slack }}" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "🔄 **Automated workflow created:** \`.github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "📁 **File Status:**" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ Workflow file created and committed" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ Configuration saved to automation-config branch" >> $GITHUB_STEP_SUMMARY
+            echo "- ⚠️ **Note:** File visibility depends on successful push to GitHub" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "📅 **Next Steps:**" >> $GITHUB_STEP_SUMMARY
             echo "1. The workflow will run automatically based on your cron schedule" >> $GITHUB_STEP_SUMMARY
