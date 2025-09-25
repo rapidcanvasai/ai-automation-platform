@@ -6,6 +6,11 @@ on:
     - cron: '0 10 * * *'
   workflow_dispatch:
     inputs:
+      config_name:
+        description: 'Configuration name to use (optional - uses default if not specified)'
+        required: false
+        type: string
+        default: 'default'
       test_description:
         description: 'Override test description (optional)'
         required: false
@@ -24,11 +29,6 @@ on:
         required: false
         type: boolean
         default: true
-      config_name:
-        description: 'Configuration name to use (optional - uses default if not specified)'
-        required: false
-        type: string
-        default: 'default'
 
 env:
   CONFIG_NAME: ${{ inputs.config_name || 'default' }}
