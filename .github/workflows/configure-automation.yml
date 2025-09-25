@@ -737,7 +737,7 @@ jobs:
         echo "   - daily-test-results-\${{ env.CONFIG_NAME }}-\${{ github.run_id }} (execution results)"
         echo ""
         echo "🔄 Next scheduled run: Based on cron schedule: $CRON_SCHEDULE"
-EOF
+        EOF
         
         echo "✅ Dynamic workflow created: $WORKFLOW_FILE"
 
