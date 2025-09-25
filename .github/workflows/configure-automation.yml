@@ -290,9 +290,22 @@ jobs:
 
         echo "✅ Scheduled workflow file created: $WORKFLOW_FILE"
         
+        # Verify the file was created
+        if [ -f "$WORKFLOW_FILE" ]; then
+          echo "✅ Workflow file exists: $WORKFLOW_FILE"
+          echo "📄 File content preview:"
+          head -5 "$WORKFLOW_FILE"
+        else
+          echo "❌ Workflow file not found: $WORKFLOW_FILE"
+          exit 1
+        fi
+        
         # Add the workflow file to git
         git add "$WORKFLOW_FILE"
         echo "✅ Workflow file added to git staging"
+        
+        # Show current branch
+        echo "📍 Current branch: $(git branch --show-current)"
 
     - name: Commit and push changes
       if: steps.process-action.outputs.config_name != 'list'
@@ -365,6 +378,10 @@ jobs:
             echo "This might be due to permissions or authentication issues"
           fi
         fi
+        
+        # Switch back to main branch for final status
+        git checkout main
+        echo "✅ Back on main branch - workflow file should be visible in GitHub Actions"
 
 
     - name: Run test execution
