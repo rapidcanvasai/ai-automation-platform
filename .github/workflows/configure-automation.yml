@@ -47,7 +47,6 @@ on:
 permissions:
   contents: write
   actions: write
-  workflows: write
 
 env:
   CONFIG_FILE: 'automation-config.json'
@@ -320,8 +319,15 @@ jobs:
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git config --global user.name "github-actions[bot]"
         
-        # Set up authentication for pushing
-        git remote set-url origin https://x-access-token:${{ secrets.PERSONAL_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        # Set up authentication for pushing (use PAT for workflow file creation)
+        if [ -n "${{ secrets.PERSONAL_ACCESS_TOKEN }}" ]; then
+          echo "🔑 Using Personal Access Token for workflow file creation"
+          git remote set-url origin https://x-access-token:${{ secrets.PERSONAL_ACCESS_TOKEN }}@github.com/${{ github.repository }}.git
+        else
+          echo "⚠️ No Personal Access Token found - workflow file creation may fail"
+          echo "💡 Please add a PAT with 'workflow' scope as PERSONAL_ACCESS_TOKEN secret"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        fi
         
         # Check if there are changes to commit
         echo "🔍 Debug: Checking for staged changes..."
