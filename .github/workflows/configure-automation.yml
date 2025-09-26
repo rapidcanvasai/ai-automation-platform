@@ -274,6 +274,7 @@ jobs:
         sed -i "s/name: AI Test Automation Pipeline/name: Daily AI Test Automation - $CONFIG_NAME/" "$WORKFLOW_FILE"
         
         # Add schedule trigger after the existing workflow_dispatch section
+        # Add schedule trigger after the existing workflow_dispatch section
         sed -i "/^on:/a\\
   schedule:\\
     - cron: '$CRON_SCHEDULE'\\
