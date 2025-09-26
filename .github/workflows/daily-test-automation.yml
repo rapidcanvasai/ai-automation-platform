@@ -29,6 +29,19 @@ on:
         required: false
         type: boolean
         default: true
+  workflow_call:
+    inputs:
+      config_name:
+        description: 'Configuration name to use'
+        required: true
+        type: string
+    secrets:
+      OPENAI_API_KEY:
+        required: true
+      SLACK_BOT_TOKEN:
+        required: false
+      SLACK_WEBHOOK_URL:
+        required: false
 
 env:
   CONFIG_NAME: ${{ inputs.config_name || 'default' }}
