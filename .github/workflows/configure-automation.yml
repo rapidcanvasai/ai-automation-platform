@@ -57,7 +57,7 @@ jobs:
     permissions:
       contents: write
       actions: write
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -67,29 +67,29 @@ jobs:
 
     - name: Setup configuration directory
       run: |
-        echo "🔧 Setting up configuration management..."
-        
+        echo " Setting up configuration management..."
+
         # Create config directory if it doesn't exist
         mkdir -p .github/automation-configs
 
     - name: Load existing configuration
       id: load-config
       run: |
-        echo "📋 Loading existing configuration..."
-        
+        echo " Loading existing configuration..."
+
         CONFIG_PATH=".github/automation-configs/${{ env.CONFIG_FILE }}"
-        
+
         if [ -f "$CONFIG_PATH" ]; then
-          echo "✅ Found existing configuration file"
+          echo " Found existing configuration file"
           cat "$CONFIG_PATH"
-          
+
           # Extract existing configurations
           EXISTING_CONFIGS=$(cat "$CONFIG_PATH" | jq '.' 2>/dev/null || echo '{}')
           echo "existing_configs<<EOF" >> $GITHUB_OUTPUT
           echo "$EXISTING_CONFIGS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
         else
-          echo "📝 No existing configuration found, creating new one"
+          echo " No existing configuration found, creating new one"
           echo "existing_configs<<EOF" >> $GITHUB_OUTPUT
           echo '{}' >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -98,30 +98,30 @@ jobs:
     - name: Process configuration action
       id: process-action
       run: |
-        echo "⚙️ Processing action: ${{ inputs.action }}"
-        
+        echo " Processing action: ${{ inputs.action }}"
+
         CONFIG_PATH=".github/automation-configs/${{ env.CONFIG_FILE }}"
         CONFIG_NAME="${{ inputs.config_name }}"
-        
+
         # Parse existing configs
         EXISTING_CONFIGS='${{ steps.load-config.outputs.existing_configs }}'
-        
+
         case "${{ inputs.action }}" in
           "create"|"update")
-            echo "📝 Creating/Updating configuration: $CONFIG_NAME"
-            
+            echo " Creating/Updating configuration: $CONFIG_NAME"
+
             # Validate cron schedule
             if [ -z "${{ inputs.cron_schedule }}" ]; then
-              echo "❌ Cron schedule is required for create/update"
+              echo " Cron schedule is required for create/update"
               exit 1
             fi
-            
+
             # Validate test description
             if [ -z "${{ inputs.test_description }}" ]; then
-              echo "❌ Test description is required for create/update"
+              echo " Test description is required for create/update"
               exit 1
             fi
-            
+
             # Create new configuration
             NEW_CONFIG=$(jq -n \
               --arg name "$CONFIG_NAME" \
@@ -145,69 +145,69 @@ jobs:
                 updated_by: $created_by,
                 is_active: true
               }')
-            
+
             # Update existing configs
             UPDATED_CONFIGS=$(echo "$EXISTING_CONFIGS" | jq --arg name "$CONFIG_NAME" --argjson config "$NEW_CONFIG" '. + {($name): $config}')
-            
-            echo "✅ Configuration created/updated successfully"
+
+            echo " Configuration created/updated successfully"
             echo "config_name<<EOF" >> $GITHUB_OUTPUT
             echo "$CONFIG_NAME" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
             ;;
-            
+
           "delete")
-            echo "🗑️ Deleting configuration: $CONFIG_NAME"
-            
+            echo " Deleting configuration: $CONFIG_NAME"
+
             if [ "$CONFIG_NAME" = "default" ]; then
-              echo "❌ Cannot delete default configuration"
+              echo " Cannot delete default configuration"
               exit 1
             fi
-            
+
             # Remove configuration
             UPDATED_CONFIGS=$(echo "$EXISTING_CONFIGS" | jq --arg name "$CONFIG_NAME" 'del(.[$name])')
-            
-            echo "✅ Configuration deleted successfully"
+
+            echo " Configuration deleted successfully"
             echo "config_name<<EOF" >> $GITHUB_OUTPUT
             echo "$CONFIG_NAME" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
             ;;
-            
+
           "list")
-            echo "📋 Listing all configurations:"
+            echo " Listing all configurations:"
             echo "$EXISTING_CONFIGS" | jq '.'
-            
+
             CONFIG_COUNT=$(echo "$EXISTING_CONFIGS" | jq 'length')
             echo "Total configurations: $CONFIG_COUNT"
-            
+
             echo "config_name<<EOF" >> $GITHUB_OUTPUT
             echo "list" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
             UPDATED_CONFIGS="$EXISTING_CONFIGS"
             ;;
-            
+
           "test-run")
-            echo "🧪 Running test with configuration: $CONFIG_NAME"
-            
+            echo " Running test with configuration: $CONFIG_NAME"
+
             # Get configuration
             SELECTED_CONFIG=$(echo "$EXISTING_CONFIGS" | jq --arg name "$CONFIG_NAME" '.[$name]')
-            
+
             if [ "$SELECTED_CONFIG" = "null" ]; then
-              echo "❌ Configuration '$CONFIG_NAME' not found"
+              echo " Configuration '$CONFIG_NAME' not found"
               exit 1
             fi
-            
+
             echo "config_name<<EOF" >> $GITHUB_OUTPUT
             echo "$CONFIG_NAME" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
             UPDATED_CONFIGS="$EXISTING_CONFIGS"
             ;;
-            
+
           *)
-            echo "❌ Unknown action: ${{ inputs.action }}"
+            echo " Unknown action: ${{ inputs.action }}"
             exit 1
             ;;
         esac
-        
+
         # Save updated configs
         echo "updated_configs<<EOF" >> $GITHUB_OUTPUT
         echo "$UPDATED_CONFIGS" >> $GITHUB_OUTPUT
@@ -216,211 +216,210 @@ jobs:
     - name: Save configuration
       if: steps.process-action.outputs.config_name != 'list'
       run: |
-        echo "💾 Saving configuration..."
-        
+        echo " Saving configuration..."
+
         CONFIG_PATH=".github/automation-configs/${{ env.CONFIG_FILE }}"
         UPDATED_CONFIGS='${{ steps.process-action.outputs.updated_configs }}'
-        
+
         # Save to file
         echo "$UPDATED_CONFIGS" | jq '.' > "$CONFIG_PATH"
-        
-        echo "✅ Configuration saved to: $CONFIG_PATH"
-        echo "📄 Configuration content:"
+
+        echo " Configuration saved to: $CONFIG_PATH"
+        echo " Configuration content:"
         cat "$CONFIG_PATH"
 
     - name: Create scheduled workflow file
       if: inputs.action == 'create' || inputs.action == 'update'
       run: |
-        echo "🔄 Creating scheduled workflow file..."
-        echo "🔍 Debug: inputs.action = ${{ inputs.action }}"
-        echo "🔍 Debug: steps.process-action.outputs.config_name = ${{ steps.process-action.outputs.config_name }}"
-        echo "🔍 Debug: steps.process-action.outputs.updated_configs = ${{ steps.process-action.outputs.updated_configs }}"
-        
+        echo " Creating scheduled workflow file..."
+        echo " Debug: inputs.action = ${{ inputs.action }}"
+        echo " Debug: steps.process-action.outputs.config_name = ${{ steps.process-action.outputs.config_name }}"
+        echo " Debug: steps.process-action.outputs.updated_configs = ${{ steps.process-action.outputs.updated_configs }}"
+
         CONFIG_NAME="${{ steps.process-action.outputs.config_name }}"
-        
+
         if [ -z "$CONFIG_NAME" ]; then
-          echo "❌ CONFIG_NAME is empty! This step will fail."
+          echo " CONFIG_NAME is empty! This step will fail."
           exit 1
         fi
-        
+
         # Get the configuration data from the step output instead of file
         CONFIG_DATA='${{ steps.process-action.outputs.updated_configs }}'
         SELECTED_CONFIG=$(echo "$CONFIG_DATA" | jq --arg name "$CONFIG_NAME" '.[$name]')
-        
+
         if [ "$SELECTED_CONFIG" = "null" ]; then
-          echo "❌ SELECTED_CONFIG is null! This step will fail."
+          echo " SELECTED_CONFIG is null! This step will fail."
           echo "CONFIG_DATA: $CONFIG_DATA"
           exit 1
         fi
-        
+
         CRON_SCHEDULE=$(echo "$SELECTED_CONFIG" | jq -r '.cron_schedule')
         TEST_DESCRIPTION=$(echo "$SELECTED_CONFIG" | jq -r '.test_description')
-        
+
         # Sanitize config name for filename
         SANITIZED_CONFIG_NAME=$(echo "$CONFIG_NAME" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
         WORKFLOW_FILE=".github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml"
-        
-        echo "📅 Cron Schedule: $CRON_SCHEDULE"
-        echo "📝 Test Description: $TEST_DESCRIPTION"
-        echo "📁 Workflow File: $WORKFLOW_FILE"
-        
+
+        echo " Cron Schedule: $CRON_SCHEDULE"
+        echo " Test Description: $TEST_DESCRIPTION"
+        echo " Workflow File: $WORKFLOW_FILE"
+
         # We're already on main branch
-        
+
         # Create a self-contained workflow based on create-test-scenario.yml
         # Copy the working create-test-scenario.yml and modify it for scheduled runs
         cp .github/workflows/create-test-scenario.yml "$WORKFLOW_FILE"
-        
+
         # Update the workflow name and add schedule trigger
         sed -i "s/name: AI Test Automation Pipeline/name: Daily AI Test Automation - $CONFIG_NAME/" "$WORKFLOW_FILE"
-        
+
         # Add schedule trigger after the existing workflow_dispatch section
-        # Add schedule trigger after the existing workflow_dispatch section
-        sed -i "/^on:/a\\
-  schedule:\\
-    - cron: '$CRON_SCHEDULE'\\
-" "$WORKFLOW_FILE"
-        
+        echo "  schedule:" > /tmp/schedule.txt
+        echo "    - cron: '$CRON_SCHEDULE'" >> /tmp/schedule.txt
+        sed -i "/^on:/r /tmp/schedule.txt" "$WORKFLOW_FILE"
+        rm /tmp/schedule.txt
         # Update environment variables with default values from configuration
         # Get config values
         SLACK_CHANNEL=$(echo "$SELECTED_CONFIG" | jq -r '.slack_channel // "general"')
         ENABLE_SLACK=$(echo "$SELECTED_CONFIG" | jq -r '.enable_slack // true')
         HEADLESS=$(echo "$SELECTED_CONFIG" | jq -r '.headless // true')
-        
+
         # Replace environment variables with hardcoded values from user configuration
         # This ensures scheduled workflows have fixed values, no dependency on inputs
         sed -i "s|TEST_DESCRIPTION: \${{ inputs.test_description }}|TEST_DESCRIPTION: '$TEST_DESCRIPTION'|g" "$WORKFLOW_FILE"
         sed -i "s|SLACK_CHANNEL: \${{ inputs.slack_channel }}|SLACK_CHANNEL: '$SLACK_CHANNEL'|g" "$WORKFLOW_FILE"
         sed -i "s|ENABLE_SLACK: \${{ inputs.enable_slack }}|ENABLE_SLACK: $ENABLE_SLACK|g" "$WORKFLOW_FILE"
-        
-        # Add HEADLESS environment variable after ENABLE_SLACK
-        sed -i "/ENABLE_SLACK: $ENABLE_SLACK/a\\
-  HEADLESS: $HEADLESS" "$WORKFLOW_FILE"
 
-        echo "✅ Scheduled workflow file created: $WORKFLOW_FILE"
-        
+        # Add HEADLESS environment variable after ENABLE_SLACK
+        echo "  HEADLESS: $HEADLESS" > /tmp/headless.txt
+        sed -i "/ENABLE_SLACK: $ENABLE_SLACK/r /tmp/headless.txt" "$WORKFLOW_FILE"
+        rm /tmp/headless.txt
+
+        echo " Scheduled workflow file created: $WORKFLOW_FILE"
+
         # Verify the file was created
         if [ -f "$WORKFLOW_FILE" ]; then
-          echo "✅ Workflow file exists: $WORKFLOW_FILE"
-          echo "📄 File content preview:"
+          echo " Workflow file exists: $WORKFLOW_FILE"
+          echo " File content preview:"
           head -5 "$WORKFLOW_FILE"
         else
-          echo "❌ Workflow file not found: $WORKFLOW_FILE"
+          echo " Workflow file not found: $WORKFLOW_FILE"
           exit 1
         fi
-        
+
         # Add the workflow file to git
         git add "$WORKFLOW_FILE"
-        echo "✅ Workflow file added to git staging"
-        
+        echo " Workflow file added to git staging"
+
         # Show current branch
-        echo "📍 Current branch: $(git branch --show-current)"
+        echo " Current branch: $(git branch --show-current)"
 
     - name: Commit and push changes
       if: steps.process-action.outputs.config_name != 'list'
       run: |
-        echo "💾 Committing configuration changes..."
-        
+        echo " Committing configuration changes..."
+
         # Set git configuration
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git config --global user.name "github-actions[bot]"
-        
+
         # Set up authentication for pushing (use PAT for workflow file creation)
         if [ -n "${{ secrets.PERSONAL_ACCESS_TOKEN }}" ]; then
-          echo "🔑 Using Personal Access Token for workflow file creation"
+          echo " Using Personal Access Token for workflow file creation"
           git remote set-url origin https://x-access-token:${{ secrets.PERSONAL_ACCESS_TOKEN }}@github.com/${{ github.repository }}.git
         else
-          echo "⚠️ No Personal Access Token found - workflow file creation may fail"
-          echo "💡 Please add a PAT with 'workflow' scope as PERSONAL_ACCESS_TOKEN secret"
+          echo " No Personal Access Token found - workflow file creation may fail"
+          echo " Please add a PAT with 'workflow' scope as PERSONAL_ACCESS_TOKEN secret"
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
         fi
-        
+
         # Check if there are changes to commit
-        echo "🔍 Debug: Checking for staged changes..."
+        echo " Debug: Checking for staged changes..."
         git status
-        echo "🔍 Debug: Staged changes:"
+        echo " Debug: Staged changes:"
         git diff --staged
-        
+
         if git diff --staged --quiet; then
-          echo "⚠️ No changes to commit - this might be normal for some operations"
-          echo "🔍 Debug: Let's check what files exist:"
+          echo " No changes to commit - this might be normal for some operations"
+          echo " Debug: Let's check what files exist:"
           ls -la .github/workflows/
-          echo "🔍 Debug: Let's check if config file exists:"
+          echo " Debug: Let's check if config file exists:"
           ls -la .github/automation-configs/ || echo "No automation-configs directory"
           # Don't exit with error, just continue
         else
           # Commit with descriptive message
           case "${{ inputs.action }}" in
             "create")
-              COMMIT_MSG="🤖 Create automation configuration: ${{ steps.process-action.outputs.config_name }}"
+              COMMIT_MSG=" Create automation configuration: ${{ steps.process-action.outputs.config_name }}"
               ;;
             "update")
-              COMMIT_MSG="🔄 Update automation configuration: ${{ steps.process-action.outputs.config_name }}"
+              COMMIT_MSG=" Update automation configuration: ${{ steps.process-action.outputs.config_name }}"
               ;;
             "delete")
-              COMMIT_MSG="🗑️ Delete automation configuration: ${{ steps.process-action.outputs.config_name }}"
+              COMMIT_MSG=" Delete automation configuration: ${{ steps.process-action.outputs.config_name }}"
               ;;
             "test-run")
-              COMMIT_MSG="🧪 Test run for configuration: ${{ steps.process-action.outputs.config_name }}"
+              COMMIT_MSG=" Test run for configuration: ${{ steps.process-action.outputs.config_name }}"
               ;;
           esac
-          
+
           # Add workflow file info to commit message
           SANITIZED_CONFIG_NAME=$(echo "${{ steps.process-action.outputs.config_name }}" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
           WORKFLOW_FILE=".github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml"
-          
+
           if [ -f "$WORKFLOW_FILE" ]; then
             COMMIT_MSG="$COMMIT_MSG (workflow: daily-automation-$SANITIZED_CONFIG_NAME.yml)"
           fi
-          
+
           git commit -m "$COMMIT_MSG"
-          echo "✅ Changes committed successfully"
+          echo " Changes committed successfully"
         fi
-        
+
         # Push to main branch (where workflow files are created)
-        echo "🚀 Pushing to main branch..."
+        echo " Pushing to main branch..."
         if git push origin main; then
-          echo "✅ Successfully pushed to main branch"
+          echo " Successfully pushed to main branch"
         else
-          echo "❌ Failed to push to main branch"
-          echo "⚠️ This might be due to workflow file creation restrictions"
-          echo "💡 Try enabling 'Read and write permissions' in repository settings"
-          echo "💡 Or use a Personal Access Token with workflow permissions"
+          echo " Failed to push to main branch"
+          echo " This might be due to workflow file creation restrictions"
+          echo " Try enabling 'Read and write permissions' in repository settings"
+          echo " Or use a Personal Access Token with workflow permissions"
           # Don't exit with error, just warn
         fi
-        
+
         # Add configuration file to the same commit (if not already staged)
         if [ -d ".github/automation-configs" ]; then
           git add .github/automation-configs/
-          echo "✅ Configuration files added to main branch"
+          echo " Configuration files added to main branch"
         else
-          echo "⚠️ No automation-configs directory found"
+          echo " No automation-configs directory found"
         fi
 
 
     - name: Run test execution
       if: inputs.action == 'test-run'
       run: |
-        echo "🧪 Running test execution for configuration: ${{ steps.process-action.outputs.config_name }}"
-        
+        echo " Running test execution for configuration: ${{ steps.process-action.outputs.config_name }}"
+
         # Trigger the specific workflow
         SANITIZED_CONFIG_NAME=$(echo "${{ steps.process-action.outputs.config_name }}" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
         WORKFLOW_FILE=".github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml"
-        
-        echo "🚀 Triggering workflow: $WORKFLOW_FILE"
+
+        echo " Triggering workflow: $WORKFLOW_FILE"
         echo "This will run the automation with the configured parameters"
         echo "Check the Actions tab to see the execution results"
 
     - name: Summary
       run: |
-        echo "## 🎯 Configuration Management Summary" >> $GITHUB_STEP_SUMMARY
+        echo "##  Configuration Management Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        
+
         # Calculate sanitized config name for display
         SANITIZED_CONFIG_NAME=$(echo "${{ steps.process-action.outputs.config_name }}" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
-        
+
         case "${{ inputs.action }}" in
           "create"|"update")
-            echo "✅ **Configuration ${{ inputs.action }}d successfully!**" >> $GITHUB_STEP_SUMMARY
+            echo " **Configuration ${{ inputs.action }}d successfully!**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Configuration Name:** ${{ steps.process-action.outputs.config_name }}" >> $GITHUB_STEP_SUMMARY
             echo "**Cron Schedule:** ${{ inputs.cron_schedule }}" >> $GITHUB_STEP_SUMMARY
@@ -429,47 +428,47 @@ jobs:
             echo "**Headless Mode:** ${{ inputs.headless }}" >> $GITHUB_STEP_SUMMARY
             echo "**Slack Notifications:** ${{ inputs.enable_slack }}" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "🔄 **Configuration saved:** \`$SANITIZED_CONFIG_NAME\`" >> $GITHUB_STEP_SUMMARY
-            echo "🔄 **Automated workflow created:** \`.github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml\`" >> $GITHUB_STEP_SUMMARY
+            echo " **Configuration saved:** \`$SANITIZED_CONFIG_NAME\`" >> $GITHUB_STEP_SUMMARY
+            echo " **Automated workflow created:** \`.github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "📁 **Configuration Status:**" >> $GITHUB_STEP_SUMMARY
-            echo "- ✅ Configuration saved to main branch" >> $GITHUB_STEP_SUMMARY
-            echo "- ✅ Scheduled workflow created in main branch" >> $GITHUB_STEP_SUMMARY
-            echo "- ✅ Ready to run automatically based on cron schedule" >> $GITHUB_STEP_SUMMARY
+            echo " **Configuration Status:**" >> $GITHUB_STEP_SUMMARY
+            echo "-  Configuration saved to main branch" >> $GITHUB_STEP_SUMMARY
+            echo "-  Scheduled workflow created in main branch" >> $GITHUB_STEP_SUMMARY
+            echo "-  Ready to run automatically based on cron schedule" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "📅 **Next Steps:**" >> $GITHUB_STEP_SUMMARY
+            echo " **Next Steps:**" >> $GITHUB_STEP_SUMMARY
             echo "The workflow will run automatically based on your cron schedule" >> $GITHUB_STEP_SUMMARY
             echo "You can manually trigger it anytime from the Actions tab" >> $GITHUB_STEP_SUMMARY
             echo "Use 'Configure AI Test Automation' workflow to modify settings" >> $GITHUB_STEP_SUMMARY
             ;;
-            
+
           "delete")
-            echo "🗑️ **Configuration deleted successfully!**" >> $GITHUB_STEP_SUMMARY
+            echo " **Configuration deleted successfully!**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Deleted Configuration:** ${{ steps.process-action.outputs.config_name }}" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "⚠️ **Note:** The corresponding workflow file has been removed" >> $GITHUB_STEP_SUMMARY
+            echo " **Note:** The corresponding workflow file has been removed" >> $GITHUB_STEP_SUMMARY
             ;;
-            
+
           "list")
-            echo "📋 **All Configurations:**" >> $GITHUB_STEP_SUMMARY
+            echo " **All Configurations:**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
             echo '${{ steps.process-action.outputs.updated_configs }}' | jq '.' >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             ;;
-            
+
           "test-run")
-            echo "🧪 **Test Run Initiated!**" >> $GITHUB_STEP_SUMMARY
+            echo " **Test Run Initiated!**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Configuration:** ${{ steps.process-action.outputs.config_name }}" >> $GITHUB_STEP_SUMMARY
             echo "**Status:** Test execution triggered" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "📊 **Check the Actions tab to monitor the test execution**" >> $GITHUB_STEP_SUMMARY
+            echo " **Check the Actions tab to monitor the test execution**" >> $GITHUB_STEP_SUMMARY
             ;;
         esac
-        
+
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "🔗 **Useful Links:**" >> $GITHUB_STEP_SUMMARY
+        echo " **Useful Links:**" >> $GITHUB_STEP_SUMMARY
         echo "- [Actions Dashboard](https://github.com/${{ github.repository }}/actions)" >> $GITHUB_STEP_SUMMARY
         echo "- [Configuration Files](https://github.com/${{ github.repository }}/tree/main/.github/automation-configs)" >> $GITHUB_STEP_SUMMARY
