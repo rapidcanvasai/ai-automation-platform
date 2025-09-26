@@ -277,12 +277,18 @@ jobs:
         sed -i "/^on:/a\\  schedule:\\n    - cron: '$CRON_SCHEDULE'" "$WORKFLOW_FILE"
         
         # Update environment variables with default values from configuration
-        sed -i "s|TEST_DESCRIPTION: \${{ inputs.test_description }}|TEST_DESCRIPTION: \${{ inputs.test_description || '$TEST_DESCRIPTION' }}|" "$WORKFLOW_FILE"
-        sed -i "s|SLACK_CHANNEL: \${{ inputs.slack_channel }}|SLACK_CHANNEL: \${{ inputs.slack_channel || '$SLACK_CHANNEL' }}|" "$WORKFLOW_FILE"
-        sed -i "s|ENABLE_SLACK: \${{ inputs.enable_slack }}|ENABLE_SLACK: \${{ inputs.enable_slack || true }}|" "$WORKFLOW_FILE"
+        # Get config values
+        SLACK_CHANNEL=$(echo "$SELECTED_CONFIG" | jq -r '.slack_channel // "general"')
+        ENABLE_SLACK=$(echo "$SELECTED_CONFIG" | jq -r '.enable_slack // true')
+        HEADLESS=$(echo "$SELECTED_CONFIG" | jq -r '.headless // true')
+        
+        # Use a different delimiter for sed to avoid conflicts with special characters
+        sed -i "s#TEST_DESCRIPTION: \${{ inputs.test_description }}#TEST_DESCRIPTION: \${{ inputs.test_description || '$TEST_DESCRIPTION' }}#g" "$WORKFLOW_FILE"
+        sed -i "s#SLACK_CHANNEL: \${{ inputs.slack_channel }}#SLACK_CHANNEL: \${{ inputs.slack_channel || '$SLACK_CHANNEL' }}#g" "$WORKFLOW_FILE"
+        sed -i "s#ENABLE_SLACK: \${{ inputs.enable_slack }}#ENABLE_SLACK: \${{ inputs.enable_slack || $ENABLE_SLACK }}#g" "$WORKFLOW_FILE"
         
         # Add HEADLESS environment variable  
-        sed -i "/ENABLE_SLACK:/a\\  HEADLESS: \${{ inputs.headless || true }}" "$WORKFLOW_FILE"
+        sed -i "/ENABLE_SLACK:/a\\  HEADLESS: \${{ inputs.headless || $HEADLESS }}" "$WORKFLOW_FILE"
 
         echo "✅ Scheduled workflow file created: $WORKFLOW_FILE"
         
