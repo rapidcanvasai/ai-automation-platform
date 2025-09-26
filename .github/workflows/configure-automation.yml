@@ -50,7 +50,6 @@ permissions:
 
 env:
   CONFIG_FILE: 'automation-config.json'
-  CONFIG_BRANCH: 'automation-config'
 
 jobs:
   configure-automation:
@@ -66,18 +65,9 @@ jobs:
         fetch-depth: 0
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Setup configuration branch
+    - name: Setup configuration directory
       run: |
         echo "🔧 Setting up configuration management..."
-        
-        # Create or switch to config branch
-        if git show-ref --verify --quiet refs/heads/${{ env.CONFIG_BRANCH }}; then
-          echo "📁 Configuration branch exists, switching to it..."
-          git checkout ${{ env.CONFIG_BRANCH }}
-        else
-          echo "📁 Creating new configuration branch..."
-          git checkout -b ${{ env.CONFIG_BRANCH }}
-        fi
         
         # Create config directory if it doesn't exist
         mkdir -p .github/automation-configs
@@ -242,12 +232,26 @@ jobs:
       if: inputs.action == 'create' || inputs.action == 'update'
       run: |
         echo "🔄 Creating scheduled workflow file..."
+        echo "🔍 Debug: inputs.action = ${{ inputs.action }}"
+        echo "🔍 Debug: steps.process-action.outputs.config_name = ${{ steps.process-action.outputs.config_name }}"
+        echo "🔍 Debug: steps.process-action.outputs.updated_configs = ${{ steps.process-action.outputs.updated_configs }}"
         
         CONFIG_NAME="${{ steps.process-action.outputs.config_name }}"
+        
+        if [ -z "$CONFIG_NAME" ]; then
+          echo "❌ CONFIG_NAME is empty! This step will fail."
+          exit 1
+        fi
         
         # Get the configuration data from the step output instead of file
         CONFIG_DATA='${{ steps.process-action.outputs.updated_configs }}'
         SELECTED_CONFIG=$(echo "$CONFIG_DATA" | jq --arg name "$CONFIG_NAME" '.[$name]')
+        
+        if [ "$SELECTED_CONFIG" = "null" ]; then
+          echo "❌ SELECTED_CONFIG is null! This step will fail."
+          echo "CONFIG_DATA: $CONFIG_DATA"
+          exit 1
+        fi
         
         CRON_SCHEDULE=$(echo "$SELECTED_CONFIG" | jq -r '.cron_schedule')
         TEST_DESCRIPTION=$(echo "$SELECTED_CONFIG" | jq -r '.test_description')
@@ -260,8 +264,7 @@ jobs:
         echo "📝 Test Description: $TEST_DESCRIPTION"
         echo "📁 Workflow File: $WORKFLOW_FILE"
         
-        # Switch to main branch first
-        git checkout main
+        # We're already on main branch
         
         # Create a simple workflow file that calls the main workflow
         echo "name: Daily AI Test Automation - $CONFIG_NAME" > "$WORKFLOW_FILE"
@@ -320,8 +323,16 @@ jobs:
         git remote set-url origin https://x-access-token:${{ secrets.PERSONAL_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
         
         # Check if there are changes to commit
+        echo "🔍 Debug: Checking for staged changes..."
+        git status
+        echo "🔍 Debug: Staged changes:"
+        git diff --staged
+        
         if git diff --staged --quiet; then
-          echo "No changes to commit"
+          echo "❌ No changes to commit - this is the problem!"
+          echo "🔍 Debug: Let's check what files exist:"
+          ls -la .github/workflows/
+          exit 1
         else
           # Commit with descriptive message
           case "${{ inputs.action }}" in
@@ -363,25 +374,9 @@ jobs:
           # Don't exit with error, just warn
         fi
         
-        # Also push configuration to config branch
-        echo "🚀 Pushing configuration to config branch: ${{ env.CONFIG_BRANCH }}"
-        git checkout ${{ env.CONFIG_BRANCH }}
+        # Add configuration file to the same commit
         git add .github/automation-configs/
-        if git diff --staged --quiet; then
-          echo "No configuration changes to commit"
-        else
-          git commit -m "🤖 Update automation configuration: ${{ steps.process-action.outputs.config_name }}"
-          if git push origin ${{ env.CONFIG_BRANCH }}; then
-            echo "✅ Successfully pushed to config branch"
-          else
-            echo "❌ Failed to push to config branch"
-            echo "This might be due to permissions or authentication issues"
-          fi
-        fi
-        
-        # Switch back to main branch for final status
-        git checkout main
-        echo "✅ Back on main branch - workflow file should be visible in GitHub Actions"
+        echo "✅ Configuration and workflow files added to main branch"
 
 
     - name: Run test execution
@@ -419,7 +414,7 @@ jobs:
             echo "🔄 **Automated workflow created:** \`.github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "📁 **Configuration Status:**" >> $GITHUB_STEP_SUMMARY
-            echo "- ✅ Configuration saved to automation-config branch" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ Configuration saved to main branch" >> $GITHUB_STEP_SUMMARY
             echo "- ✅ Scheduled workflow created in main branch" >> $GITHUB_STEP_SUMMARY
             echo "- ✅ Ready to run automatically based on cron schedule" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -458,4 +453,4 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "🔗 **Useful Links:**" >> $GITHUB_STEP_SUMMARY
         echo "- [Actions Dashboard](https://github.com/${{ github.repository }}/actions)" >> $GITHUB_STEP_SUMMARY
-        echo "- [Configuration Branch](https://github.com/${{ github.repository }}/tree/${{ env.CONFIG_BRANCH }})" >> $GITHUB_STEP_SUMMARY
+        echo "- [Configuration Files](https://github.com/${{ github.repository }}/tree/main/.github/automation-configs)" >> $GITHUB_STEP_SUMMARY
