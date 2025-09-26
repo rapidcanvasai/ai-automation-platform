@@ -285,10 +285,10 @@ jobs:
         # Use a different delimiter for sed to avoid conflicts with special characters
         sed -i "s#TEST_DESCRIPTION: \${{ inputs.test_description }}#TEST_DESCRIPTION: \${{ inputs.test_description || '$TEST_DESCRIPTION' }}#g" "$WORKFLOW_FILE"
         sed -i "s#SLACK_CHANNEL: \${{ inputs.slack_channel }}#SLACK_CHANNEL: \${{ inputs.slack_channel || '$SLACK_CHANNEL' }}#g" "$WORKFLOW_FILE"
-        sed -i "s#ENABLE_SLACK: \${{ inputs.enable_slack }}#ENABLE_SLACK: \${{ inputs.enable_slack || $ENABLE_SLACK }}#g" "$WORKFLOW_FILE"
+        sed -i "s#ENABLE_SLACK: \${{ inputs.enable_slack }}#ENABLE_SLACK: \${{ inputs.enable_slack || true }}#g" "$WORKFLOW_FILE"
         
         # Add HEADLESS environment variable  
-        sed -i "/ENABLE_SLACK:/a\\  HEADLESS: \${{ inputs.headless || $HEADLESS }}" "$WORKFLOW_FILE"
+        sed -i "/ENABLE_SLACK:/a\\  HEADLESS: \${{ inputs.headless || true }}" "$WORKFLOW_FILE"
 
         echo "✅ Scheduled workflow file created: $WORKFLOW_FILE"
         
