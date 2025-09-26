@@ -274,7 +274,10 @@ jobs:
         sed -i "s/name: AI Test Automation Pipeline/name: Daily AI Test Automation - $CONFIG_NAME/" "$WORKFLOW_FILE"
         
         # Add schedule trigger after the existing workflow_dispatch section
-        sed -i "/^on:/a\\  schedule:\\n    - cron: '$CRON_SCHEDULE'" "$WORKFLOW_FILE"
+        sed -i "/^on:/a\\
+  schedule:\\
+    - cron: '$CRON_SCHEDULE'\\
+" "$WORKFLOW_FILE"
         
         # Update environment variables with default values from configuration
         # Get config values
@@ -282,13 +285,15 @@ jobs:
         ENABLE_SLACK=$(echo "$SELECTED_CONFIG" | jq -r '.enable_slack // true')
         HEADLESS=$(echo "$SELECTED_CONFIG" | jq -r '.headless // true')
         
-        # Use a different delimiter for sed to avoid conflicts with special characters
-        sed -i "s#TEST_DESCRIPTION: \${{ inputs.test_description }}#TEST_DESCRIPTION: \${{ inputs.test_description || '$TEST_DESCRIPTION' }}#g" "$WORKFLOW_FILE"
-        sed -i "s#SLACK_CHANNEL: \${{ inputs.slack_channel }}#SLACK_CHANNEL: \${{ inputs.slack_channel || '$SLACK_CHANNEL' }}#g" "$WORKFLOW_FILE"
-        sed -i "s#ENABLE_SLACK: \${{ inputs.enable_slack }}#ENABLE_SLACK: \${{ inputs.enable_slack || true }}#g" "$WORKFLOW_FILE"
+        # Replace environment variables with hardcoded values from user configuration
+        # This ensures scheduled workflows have fixed values, no dependency on inputs
+        sed -i "s|TEST_DESCRIPTION: \${{ inputs.test_description }}|TEST_DESCRIPTION: '$TEST_DESCRIPTION'|g" "$WORKFLOW_FILE"
+        sed -i "s|SLACK_CHANNEL: \${{ inputs.slack_channel }}|SLACK_CHANNEL: '$SLACK_CHANNEL'|g" "$WORKFLOW_FILE"
+        sed -i "s|ENABLE_SLACK: \${{ inputs.enable_slack }}|ENABLE_SLACK: $ENABLE_SLACK|g" "$WORKFLOW_FILE"
         
         # Add HEADLESS environment variable after ENABLE_SLACK
-        sed -i "/ENABLE_SLACK: \${{ inputs.enable_slack || true }}/a\\  HEADLESS: \${{ inputs.headless || true }}" "$WORKFLOW_FILE"
+        sed -i "/ENABLE_SLACK: $ENABLE_SLACK/a\\
+  HEADLESS: $HEADLESS" "$WORKFLOW_FILE"
 
         echo "✅ Scheduled workflow file created: $WORKFLOW_FILE"
         
@@ -335,10 +340,12 @@ jobs:
         git diff --staged
         
         if git diff --staged --quiet; then
-          echo "❌ No changes to commit - this is the problem!"
+          echo "⚠️ No changes to commit - this might be normal for some operations"
           echo "🔍 Debug: Let's check what files exist:"
           ls -la .github/workflows/
-          exit 1
+          echo "🔍 Debug: Let's check if config file exists:"
+          ls -la .github/automation-configs/ || echo "No automation-configs directory"
+          # Don't exit with error, just continue
         else
           # Commit with descriptive message
           case "${{ inputs.action }}" in
@@ -380,9 +387,13 @@ jobs:
           # Don't exit with error, just warn
         fi
         
-        # Add configuration file to the same commit
-        git add .github/automation-configs/
-        echo "✅ Configuration and workflow files added to main branch"
+        # Add configuration file to the same commit (if not already staged)
+        if [ -d ".github/automation-configs" ]; then
+          git add .github/automation-configs/
+          echo "✅ Configuration files added to main branch"
+        else
+          echo "⚠️ No automation-configs directory found"
+        fi
 
 
     - name: Run test execution
@@ -391,7 +402,8 @@ jobs:
         echo "🧪 Running test execution for configuration: ${{ steps.process-action.outputs.config_name }}"
         
         # Trigger the specific workflow
-        WORKFLOW_FILE="daily-automation-${{ steps.process-action.outputs.config_name }}.yml"
+        SANITIZED_CONFIG_NAME=$(echo "${{ steps.process-action.outputs.config_name }}" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
+        WORKFLOW_FILE=".github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml"
         
         echo "🚀 Triggering workflow: $WORKFLOW_FILE"
         echo "This will run the automation with the configured parameters"

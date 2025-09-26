@@ -19,7 +19,7 @@ on:
       enable_slack:
         description: 'Enable Slack notifications'
         required: false
-        type: booleans
+        type: boolean
         default: true
 
 env:
