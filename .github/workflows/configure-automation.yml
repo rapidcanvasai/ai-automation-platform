@@ -273,8 +273,8 @@ jobs:
         # Update the workflow name and add schedule trigger
         sed -i "s/name: AI Test Automation Pipeline/name: Daily AI Test Automation - $CONFIG_NAME/" "$WORKFLOW_FILE"
         
-        # Add schedule trigger after the existing workflow_dispatch
-        sed -i "/on:/a\\  schedule:\\n    - cron: '$CRON_SCHEDULE'" "$WORKFLOW_FILE"
+        # Add schedule trigger after the existing workflow_dispatch section
+        sed -i "/^on:/a\\  schedule:\\n    - cron: '$CRON_SCHEDULE'" "$WORKFLOW_FILE"
         
         # Update environment variables with default values from configuration
         sed -i "s|TEST_DESCRIPTION: \${{ inputs.test_description }}|TEST_DESCRIPTION: \${{ inputs.test_description || '$TEST_DESCRIPTION' }}|" "$WORKFLOW_FILE"
