@@ -318,15 +318,34 @@ jobs:
 
         # Update the workflow name (Cross-platform compatible)
         echo "Debug: Updating workflow name..."
+        echo "Debug: CONFIG_NAME = $CONFIG_NAME"
+        echo "Debug: WORKFLOW_FILE = $WORKFLOW_FILE"
+        echo "Debug: Checking if workflow file exists..."
+        if [ -f "$WORKFLOW_FILE" ]; then
+          echo "✅ Workflow file exists"
+          echo "Debug: First line of workflow file:"
+          head -1 "$WORKFLOW_FILE"
+        else
+          echo "❌ Workflow file does not exist: $WORKFLOW_FILE"
+          exit 1
+        fi
         
         # Use cross-platform sed approach - create temp file and replace
+        echo "Debug: Running sed command..."
         sed "s/name: AI Test Automation Pipeline/name: Daily AI Test Automation - $CONFIG_NAME/" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
+        echo "Debug: Sed command completed"
         
         # Verify workflow name update
+        echo "Debug: Verifying workflow name update..."
         if grep -q "name: Daily AI Test Automation - $CONFIG_NAME" "$WORKFLOW_FILE"; then
           echo "✅ Workflow name updated successfully"
+          echo "Debug: New workflow name:"
+          head -1 "$WORKFLOW_FILE"
         else
           echo "❌ Failed to update workflow name"
+          echo "Debug: Current first line:"
+          head -1 "$WORKFLOW_FILE"
+          echo "Debug: Looking for pattern: name: Daily AI Test Automation - $CONFIG_NAME"
           exit 1
         fi
 
@@ -347,16 +366,25 @@ jobs:
           exit 1
         fi
         # Update environment variables with default values from configuration
+        echo "Debug: Starting environment variable replacement..."
+        echo "Debug: SELECTED_CONFIG = $SELECTED_CONFIG"
+        
         # Get config values
         SLACK_CHANNEL=$(echo "$SELECTED_CONFIG" | jq -r '.slack_channel // "general"')
         ENABLE_SLACK=$(echo "$SELECTED_CONFIG" | jq -r '.enable_slack // true')
         HEADLESS=$(echo "$SELECTED_CONFIG" | jq -r '.headless // true')
+
+        echo "Debug: Extracted config values:"
+        echo "  SLACK_CHANNEL: $SLACK_CHANNEL"
+        echo "  ENABLE_SLACK: $ENABLE_SLACK"
+        echo "  HEADLESS: $HEADLESS"
 
         # Replace environment variables with hardcoded values from user configuration
         # This ensures scheduled workflows have fixed values, no dependency on inputs
         
         echo "Debug: Original TEST_DESCRIPTION: '$TEST_DESCRIPTION'"
         echo "Debug: TEST_DESCRIPTION length: ${#TEST_DESCRIPTION}"
+        echo "Debug: WORKFLOW_FILE: $WORKFLOW_FILE"
         
         # Use a simple and reliable replacement method
         # Create a temporary file with the replacement
