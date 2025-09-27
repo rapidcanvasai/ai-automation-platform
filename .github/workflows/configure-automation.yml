@@ -262,7 +262,16 @@ jobs:
 
         echo " Cron Schedule: $CRON_SCHEDULE"
         echo " Test Description: $TEST_DESCRIPTION"
+        echo " Test Description Length: ${#TEST_DESCRIPTION}"
         echo " Workflow File: $WORKFLOW_FILE"
+        
+        # Debug: Check if TEST_DESCRIPTION is empty
+        if [ -z "$TEST_DESCRIPTION" ]; then
+          echo " ERROR: TEST_DESCRIPTION is empty!"
+          echo " SELECTED_CONFIG content:"
+          echo "$SELECTED_CONFIG" | jq '.'
+          exit 1
+        fi
 
         # We're already on main branch
 
@@ -286,7 +295,22 @@ jobs:
 
         # Replace environment variables with hardcoded values from user configuration
         # This ensures scheduled workflows have fixed values, no dependency on inputs
-        sed -i "s|TEST_DESCRIPTION: \${{ inputs.test_description }}|TEST_DESCRIPTION: '$TEST_DESCRIPTION'|g" "$WORKFLOW_FILE"
+        
+        echo "Debug: Original TEST_DESCRIPTION: '$TEST_DESCRIPTION'"
+        echo "Debug: TEST_DESCRIPTION length: ${#TEST_DESCRIPTION}"
+        
+        # Use a more reliable replacement method with awk to avoid sed escaping issues
+        awk -v test_desc="$TEST_DESCRIPTION" '
+        /TEST_DESCRIPTION: \${{ inputs.test_description }}/ {
+            print "  TEST_DESCRIPTION: '\''" test_desc "'\''"
+            next
+        }
+        { print }
+        ' "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
+        
+        # Debug: Check if the replacement worked
+        echo "Debug: Checking TEST_DESCRIPTION replacement..."
+        grep "TEST_DESCRIPTION:" "$WORKFLOW_FILE" || echo "TEST_DESCRIPTION not found in workflow file"
         sed -i "s|SLACK_CHANNEL: \${{ inputs.slack_channel }}|SLACK_CHANNEL: '$SLACK_CHANNEL'|g" "$WORKFLOW_FILE"
         sed -i "s|ENABLE_SLACK: \${{ inputs.enable_slack }}|ENABLE_SLACK: $ENABLE_SLACK|g" "$WORKFLOW_FILE"
 
