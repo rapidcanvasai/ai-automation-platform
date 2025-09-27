@@ -414,16 +414,16 @@ jobs:
         echo "🔧 CRITICAL: Creating sed script..."
         echo "Debug: About to create sed script file: /tmp/replace_env.sed"
         
-        echo "s|TEST_DESCRIPTION: \${{ inputs.test_description }}|TEST_DESCRIPTION: '$TEST_DESCRIPTION'|g" > /tmp/replace_env.sed
+        echo "s|TEST_DESCRIPTION: \\\${{ inputs.test_description }}|TEST_DESCRIPTION: '$TEST_DESCRIPTION'|g" > /tmp/replace_env.sed
         echo "Debug: Added TEST_DESCRIPTION replacement to sed script"
         
-        echo "s|SLACK_CHANNEL: \${{ inputs.slack_channel }}|SLACK_CHANNEL: '$SLACK_CHANNEL'|g" >> /tmp/replace_env.sed
+        echo "s|SLACK_CHANNEL: \\\${{ inputs.slack_channel }}|SLACK_CHANNEL: '$SLACK_CHANNEL'|g" >> /tmp/replace_env.sed
         echo "Debug: Added SLACK_CHANNEL replacement to sed script"
         
-        echo "s|ENABLE_SLACK: \${{ inputs.enable_slack }}|ENABLE_SLACK: $ENABLE_SLACK|g" >> /tmp/replace_env.sed
+        echo "s|ENABLE_SLACK: \\\${{ inputs.enable_slack }}|ENABLE_SLACK: $ENABLE_SLACK|g" >> /tmp/replace_env.sed
         echo "Debug: Added ENABLE_SLACK replacement to sed script"
         
-        echo "s|\${{ inputs.headless }}|$HEADLESS|g" >> /tmp/replace_env.sed
+        echo "s|\\\${{ inputs.headless }}|$HEADLESS|g" >> /tmp/replace_env.sed
         echo "Debug: Added inputs.headless replacement to sed script"
         
         echo "🔧 CRITICAL: Sed script created. Content:"
