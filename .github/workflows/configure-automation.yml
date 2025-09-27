@@ -316,15 +316,27 @@ jobs:
           exit 1
         fi
 
-        # Update the workflow name (macOS compatible)
+        # Update the workflow name (Cross-platform compatible)
         echo "Debug: Updating workflow name..."
-        sed -i '' "s/name: AI Test Automation Pipeline/name: Daily AI Test Automation - $CONFIG_NAME/" "$WORKFLOW_FILE"
+        
+        # Use cross-platform sed approach - create temp file and replace
+        sed "s/name: AI Test Automation Pipeline/name: Daily AI Test Automation - $CONFIG_NAME/" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
+        
+        # Verify workflow name update
+        if grep -q "name: Daily AI Test Automation - $CONFIG_NAME" "$WORKFLOW_FILE"; then
+          echo "✅ Workflow name updated successfully"
+        else
+          echo "❌ Failed to update workflow name"
+          exit 1
+        fi
 
-        # Add schedule trigger after the existing workflow_dispatch section (macOS compatible)
+        # Add schedule trigger after the existing workflow_dispatch section (Cross-platform compatible)
         echo "Debug: Adding schedule trigger..."
         echo "  schedule:" > /tmp/schedule.txt
         echo "    - cron: '$CRON_SCHEDULE'" >> /tmp/schedule.txt
-        sed -i '' "/^on:/r /tmp/schedule.txt" "$WORKFLOW_FILE"
+        
+        # Use cross-platform sed approach - create temp file and replace
+        sed "/^on:/r /tmp/schedule.txt" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
         rm /tmp/schedule.txt
         
         # Verify schedule was added
