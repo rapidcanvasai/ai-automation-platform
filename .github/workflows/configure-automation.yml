@@ -366,8 +366,14 @@ jobs:
           exit 1
         fi
         # Update environment variables with default values from configuration
-        echo "Debug: Starting environment variable replacement..."
+        echo "🔧 CRITICAL: Starting environment variable replacement..."
         echo "Debug: SELECTED_CONFIG = $SELECTED_CONFIG"
+        echo "Debug: WORKFLOW_FILE = $WORKFLOW_FILE"
+        echo "Debug: Current working directory: $(pwd)"
+        echo "Debug: Files in current directory:"
+        ls -la
+        echo "Debug: Files in .github/workflows/:"
+        ls -la .github/workflows/
         
         # Get config values
         SLACK_CHANNEL=$(echo "$SELECTED_CONFIG" | jq -r '.slack_channel // "general"')
@@ -386,28 +392,46 @@ jobs:
         echo "Debug: TEST_DESCRIPTION length: ${#TEST_DESCRIPTION}"
         echo "Debug: WORKFLOW_FILE: $WORKFLOW_FILE"
         
+        # Verify the workflow file exists before replacement
+        if [ ! -f "$WORKFLOW_FILE" ]; then
+          echo "❌ CRITICAL ERROR: Workflow file does not exist: $WORKFLOW_FILE"
+          exit 1
+        fi
+        
+        echo "Debug: Workflow file exists, size: $(wc -c < "$WORKFLOW_FILE") bytes"
+        echo "Debug: First 10 lines of workflow file:"
+        head -10 "$WORKFLOW_FILE"
+        
         # Use a simple and reliable replacement method
         # Create a temporary file with the replacement
+        echo "🔧 CRITICAL: Running TEST_DESCRIPTION replacement..."
         sed "s|TEST_DESCRIPTION: \${{ inputs.test_description }}|TEST_DESCRIPTION: '$TEST_DESCRIPTION'|g" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
+        echo "Debug: TEST_DESCRIPTION replacement completed"
         
         # Debug: Check if the replacement worked
         echo "Debug: Checking TEST_DESCRIPTION replacement..."
         grep "TEST_DESCRIPTION:" "$WORKFLOW_FILE" || echo "TEST_DESCRIPTION not found in workflow file"
         
         # Replace other environment variables using simple sed
-        echo "Debug: Replacing SLACK_CHANNEL and ENABLE_SLACK..."
+        echo "🔧 CRITICAL: Running SLACK_CHANNEL replacement..."
         sed "s|SLACK_CHANNEL: \${{ inputs.slack_channel }}|SLACK_CHANNEL: '$SLACK_CHANNEL'|g" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
+        echo "Debug: SLACK_CHANNEL replacement completed"
+        
+        echo "🔧 CRITICAL: Running ENABLE_SLACK replacement..."
         sed "s|ENABLE_SLACK: \${{ inputs.enable_slack }}|ENABLE_SLACK: $ENABLE_SLACK|g" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
+        echo "Debug: ENABLE_SLACK replacement completed"
 
         # Add HEADLESS environment variable after ENABLE_SLACK
-        echo "Debug: Adding HEADLESS environment variable..."
+        echo "🔧 CRITICAL: Adding HEADLESS environment variable..."
         echo "  HEADLESS: $HEADLESS" > /tmp/headless.txt
         sed "/ENABLE_SLACK: $ENABLE_SLACK/r /tmp/headless.txt" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
         rm /tmp/headless.txt
-        
+        echo "Debug: HEADLESS addition completed"
+
         # Replace inputs.headless references in the workflow steps
-        echo "Debug: Replacing inputs.headless references..."
+        echo "🔧 CRITICAL: Replacing inputs.headless references..."
         sed "s|\${{ inputs.headless }}|$HEADLESS|g" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
+        echo "Debug: inputs.headless replacement completed"
 
         echo " Scheduled workflow file created: $WORKFLOW_FILE"
 
