@@ -301,23 +301,58 @@ jobs:
         
         # Use a more reliable replacement method with awk to avoid sed escaping issues
         awk -v test_desc="$TEST_DESCRIPTION" '
-        /TEST_DESCRIPTION: \${{ inputs.test_description }}/ {
+        /TEST_DESCRIPTION: \${{ inputs\.test_description }}/ {
             print "  TEST_DESCRIPTION: '\''" test_desc "'\''"
             next
         }
         { print }
         ' "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
         
+        # Alternative method using sed with proper escaping
+        if ! grep -q "TEST_DESCRIPTION: '$TEST_DESCRIPTION'" "$WORKFLOW_FILE"; then
+          echo "Awk method failed, trying sed method..."
+          # Escape special characters for sed
+          ESCAPED_DESC=$(printf '%s\n' "$TEST_DESCRIPTION" | sed 's/[[\.*^$()+?{|]/\\&/g')
+          sed -i "s|TEST_DESCRIPTION: \${{ inputs\.test_description }}|TEST_DESCRIPTION: '$ESCAPED_DESC'|g" "$WORKFLOW_FILE"
+        fi
+        
         # Debug: Check if the replacement worked
         echo "Debug: Checking TEST_DESCRIPTION replacement..."
         grep "TEST_DESCRIPTION:" "$WORKFLOW_FILE" || echo "TEST_DESCRIPTION not found in workflow file"
-        sed -i "s|SLACK_CHANNEL: \${{ inputs.slack_channel }}|SLACK_CHANNEL: '$SLACK_CHANNEL'|g" "$WORKFLOW_FILE"
-        sed -i "s|ENABLE_SLACK: \${{ inputs.enable_slack }}|ENABLE_SLACK: $ENABLE_SLACK|g" "$WORKFLOW_FILE"
+        
+        # Replace other environment variables using awk (more reliable than sed)
+        echo "Debug: Replacing SLACK_CHANNEL and ENABLE_SLACK..."
+        awk -v slack_channel="$SLACK_CHANNEL" -v enable_slack="$ENABLE_SLACK" '
+        /SLACK_CHANNEL: \${{ inputs\.slack_channel }}/ {
+            print "  SLACK_CHANNEL: '\''" slack_channel "'\''"
+            next
+        }
+        /ENABLE_SLACK: \${{ inputs\.enable_slack }}/ {
+            print "  ENABLE_SLACK: " enable_slack
+            next
+        }
+        { print }
+        ' "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
 
         # Add HEADLESS environment variable after ENABLE_SLACK
-        echo "  HEADLESS: $HEADLESS" > /tmp/headless.txt
-        sed -i "/ENABLE_SLACK: $ENABLE_SLACK/r /tmp/headless.txt" "$WORKFLOW_FILE"
-        rm /tmp/headless.txt
+        echo "Debug: Adding HEADLESS environment variable..."
+        awk -v headless="$HEADLESS" '
+        /ENABLE_SLACK: true/ {
+            print $0
+            print "  HEADLESS: " headless
+            next
+        }
+        { print }
+        ' "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
+        
+        # Replace inputs.headless references in the workflow steps
+        echo "Debug: Replacing inputs.headless references..."
+        awk -v headless="$HEADLESS" '
+        /\${{ inputs\.headless }}/ {
+            gsub(/\${{ inputs\.headless }}/, headless)
+        }
+        { print }
+        ' "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
 
         echo " Scheduled workflow file created: $WORKFLOW_FILE"
 
