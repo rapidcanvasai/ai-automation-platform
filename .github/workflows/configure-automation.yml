@@ -405,8 +405,23 @@ jobs:
         # Use a simple and reliable replacement method
         # Create a temporary file with the replacement
         echo "🔧 CRITICAL: Running TEST_DESCRIPTION replacement..."
-        sed "s|TEST_DESCRIPTION: \${{ inputs.test_description }}|TEST_DESCRIPTION: '$TEST_DESCRIPTION'|g" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
-        echo "Debug: TEST_DESCRIPTION replacement completed"
+        echo "Debug: About to run sed command..."
+        echo "Debug: WORKFLOW_FILE = $WORKFLOW_FILE"
+        echo "Debug: TEST_DESCRIPTION = '$TEST_DESCRIPTION'"
+        
+        # Run sed with error checking
+        if sed "s|TEST_DESCRIPTION: \${{ inputs.test_description }}|TEST_DESCRIPTION: '$TEST_DESCRIPTION'|g" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp"; then
+            echo "Debug: sed command succeeded, moving temp file..."
+            if mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"; then
+                echo "Debug: TEST_DESCRIPTION replacement completed successfully"
+            else
+                echo "❌ ERROR: Failed to move temp file"
+                exit 1
+            fi
+        else
+            echo "❌ ERROR: sed command failed"
+            exit 1
+        fi
         
         # Debug: Check if the replacement worked
         echo "Debug: Checking TEST_DESCRIPTION replacement..."
