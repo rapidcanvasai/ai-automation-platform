@@ -277,16 +277,63 @@ jobs:
 
         # Create a self-contained workflow based on create-test-scenario.yml
         # Copy the working create-test-scenario.yml and modify it for scheduled runs
-        cp .github/workflows/create-test-scenario.yml "$WORKFLOW_FILE"
+        
+        # Debug: Check if template file exists (try multiple possible paths)
+        echo "Debug: Checking for template file..."
+        TEMPLATE_FILE=""
+        
+        # Try different possible paths
+        for path in ".github/workflows/create-test-scenario.yml" "$GITHUB_WORKSPACE/.github/workflows/create-test-scenario.yml" "/github/workspace/.github/workflows/create-test-scenario.yml"; do
+          if [ -f "$path" ]; then
+            TEMPLATE_FILE="$path"
+            echo "✅ Template file found: $path"
+            break
+          else
+            echo "❌ Template file not found: $path"
+          fi
+        done
+        
+        if [ -z "$TEMPLATE_FILE" ]; then
+          echo "❌ Template file not found in any expected location"
+          echo "Current directory: $(pwd)"
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          echo "Files in current directory:"
+          ls -la
+          echo "Files in .github/workflows/:"
+          ls -la .github/workflows/ || echo "No .github/workflows directory"
+          exit 1
+        fi
+        
+        # Copy the template file
+        echo "Debug: Copying template file from: $TEMPLATE_FILE"
+        cp "$TEMPLATE_FILE" "$WORKFLOW_FILE"
+        
+        # Verify the copy worked
+        if [ -f "$WORKFLOW_FILE" ]; then
+          echo "✅ Template file copied successfully to: $WORKFLOW_FILE"
+        else
+          echo "❌ Failed to copy template file to: $WORKFLOW_FILE"
+          exit 1
+        fi
 
         # Update the workflow name (macOS compatible)
+        echo "Debug: Updating workflow name..."
         sed -i '' "s/name: AI Test Automation Pipeline/name: Daily AI Test Automation - $CONFIG_NAME/" "$WORKFLOW_FILE"
 
         # Add schedule trigger after the existing workflow_dispatch section (macOS compatible)
+        echo "Debug: Adding schedule trigger..."
         echo "  schedule:" > /tmp/schedule.txt
         echo "    - cron: '$CRON_SCHEDULE'" >> /tmp/schedule.txt
         sed -i '' "/^on:/r /tmp/schedule.txt" "$WORKFLOW_FILE"
         rm /tmp/schedule.txt
+        
+        # Verify schedule was added
+        if grep -q "schedule:" "$WORKFLOW_FILE"; then
+          echo "✅ Schedule trigger added successfully"
+        else
+          echo "❌ Failed to add schedule trigger"
+          exit 1
+        fi
         # Update environment variables with default values from configuration
         # Get config values
         SLACK_CHANNEL=$(echo "$SELECTED_CONFIG" | jq -r '.slack_channel // "general"')
