@@ -402,53 +402,64 @@ jobs:
         echo "Debug: First 10 lines of workflow file:"
         head -10 "$WORKFLOW_FILE"
         
-        # Use a simple and reliable replacement method
-        # Create a temporary file with the replacement
-        echo "🔧 CRITICAL: Running TEST_DESCRIPTION replacement..."
-        echo "Debug: About to run sed command..."
+        # SINGLE COMPREHENSIVE REPLACEMENT: Replace all environment variables at once
+        echo "🔧 CRITICAL: Running comprehensive environment variable replacement..."
         echo "Debug: WORKFLOW_FILE = $WORKFLOW_FILE"
         echo "Debug: TEST_DESCRIPTION = '$TEST_DESCRIPTION'"
+        echo "Debug: SLACK_CHANNEL = '$SLACK_CHANNEL'"
+        echo "Debug: ENABLE_SLACK = $ENABLE_SLACK"
+        echo "Debug: HEADLESS = $HEADLESS"
         
-        # Run sed with error checking
-        if sed "s|TEST_DESCRIPTION: \${{ inputs.test_description }}|TEST_DESCRIPTION: '$TEST_DESCRIPTION'|g" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp"; then
-            echo "Debug: sed command succeeded, moving temp file..."
+        # Create a comprehensive sed script that replaces all variables at once
+        echo "s|TEST_DESCRIPTION: \${{ inputs.test_description }}|TEST_DESCRIPTION: '$TEST_DESCRIPTION'|g" > /tmp/replace_env.sed
+        echo "s|SLACK_CHANNEL: \${{ inputs.slack_channel }}|SLACK_CHANNEL: '$SLACK_CHANNEL'|g" >> /tmp/replace_env.sed
+        echo "s|ENABLE_SLACK: \${{ inputs.enable_slack }}|ENABLE_SLACK: $ENABLE_SLACK|g" >> /tmp/replace_env.sed
+        echo "s|\${{ inputs.headless }}|$HEADLESS|g" >> /tmp/replace_env.sed
+        
+        # Add HEADLESS environment variable after ENABLE_SLACK
+        echo "  HEADLESS: $HEADLESS" >> /tmp/replace_env.sed
+        
+        # Run the comprehensive replacement
+        if sed -f /tmp/replace_env.sed "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp"; then
+            echo "Debug: Comprehensive sed command succeeded, moving temp file..."
             if mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"; then
-                echo "Debug: TEST_DESCRIPTION replacement completed successfully"
+                echo "✅ SUCCESS: All environment variables replaced successfully"
             else
                 echo "❌ ERROR: Failed to move temp file"
                 exit 1
             fi
         else
-            echo "❌ ERROR: sed command failed"
+            echo "❌ ERROR: Comprehensive sed command failed"
             exit 1
         fi
         
-        # Debug: Check if the replacement worked
-        echo "Debug: Checking TEST_DESCRIPTION replacement..."
-        grep "TEST_DESCRIPTION:" "$WORKFLOW_FILE" || echo "TEST_DESCRIPTION not found in workflow file"
+        # Clean up
+        rm -f /tmp/replace_env.sed
         
-        # Replace other environment variables using simple sed
-        echo "🔧 CRITICAL: Running SLACK_CHANNEL replacement..."
-        sed "s|SLACK_CHANNEL: \${{ inputs.slack_channel }}|SLACK_CHANNEL: '$SLACK_CHANNEL'|g" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
-        echo "Debug: SLACK_CHANNEL replacement completed"
+        # Verify the replacements worked
+        echo "🔍 VERIFICATION: Checking all environment variables..."
+        echo "Debug: TEST_DESCRIPTION:"
+        grep "TEST_DESCRIPTION:" "$WORKFLOW_FILE" || echo "TEST_DESCRIPTION not found"
+        echo "Debug: SLACK_CHANNEL:"
+        grep "SLACK_CHANNEL:" "$WORKFLOW_FILE" || echo "SLACK_CHANNEL not found"
+        echo "Debug: ENABLE_SLACK:"
+        grep "ENABLE_SLACK:" "$WORKFLOW_FILE" || echo "ENABLE_SLACK not found"
+        echo "Debug: HEADLESS:"
+        grep "HEADLESS:" "$WORKFLOW_FILE" || echo "HEADLESS not found"
         
-        echo "🔧 CRITICAL: Running ENABLE_SLACK replacement..."
-        sed "s|ENABLE_SLACK: \${{ inputs.enable_slack }}|ENABLE_SLACK: $ENABLE_SLACK|g" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
-        echo "Debug: ENABLE_SLACK replacement completed"
-
-        # Add HEADLESS environment variable after ENABLE_SLACK
-        echo "🔧 CRITICAL: Adding HEADLESS environment variable..."
-        echo "  HEADLESS: $HEADLESS" > /tmp/headless.txt
-        sed "/ENABLE_SLACK: $ENABLE_SLACK/r /tmp/headless.txt" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
-        rm /tmp/headless.txt
-        echo "Debug: HEADLESS addition completed"
-
-        # Replace inputs.headless references in the workflow steps
-        echo "🔧 CRITICAL: Replacing inputs.headless references..."
-        sed "s|\${{ inputs.headless }}|$HEADLESS|g" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
-        echo "Debug: inputs.headless replacement completed"
-
-        echo " Scheduled workflow file created: $WORKFLOW_FILE"
+        # FINAL VERIFICATION: Check all environment variables after all replacements
+        echo "🔍 FINAL VERIFICATION: Checking all environment variables..."
+        echo "Debug: Final TEST_DESCRIPTION line:"
+        grep "TEST_DESCRIPTION:" "$WORKFLOW_FILE" || echo "TEST_DESCRIPTION not found"
+        echo "Debug: Final SLACK_CHANNEL line:"
+        grep "SLACK_CHANNEL:" "$WORKFLOW_FILE" || echo "SLACK_CHANNEL not found"
+        echo "Debug: Final ENABLE_SLACK line:"
+        grep "ENABLE_SLACK:" "$WORKFLOW_FILE" || echo "ENABLE_SLACK not found"
+        echo "Debug: Final HEADLESS line:"
+        grep "HEADLESS:" "$WORKFLOW_FILE" || echo "HEADLESS not found"
+        
+        echo "🔍 FINAL VERIFICATION: Complete env section:"
+        sed -n '/^env:/,/^jobs:/p' "$WORKFLOW_FILE" | head -10
 
         # Verify the file was created
         if [ -f "$WORKFLOW_FILE" ]; then
