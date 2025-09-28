@@ -402,67 +402,58 @@ jobs:
         echo "Debug: First 10 lines of workflow file:"
         head -10 "$WORKFLOW_FILE"
         
-        # SINGLE COMPREHENSIVE REPLACEMENT: Replace all environment variables at once
-        echo "🔧 CRITICAL: Running comprehensive environment variable replacement..."
+        # DIRECT REPLACEMENT: Replace the entire env section with hardcoded values
+        echo "🔧 CRITICAL: Running direct environment variable replacement..."
         echo "Debug: WORKFLOW_FILE = $WORKFLOW_FILE"
         echo "Debug: TEST_DESCRIPTION = '$TEST_DESCRIPTION'"
         echo "Debug: SLACK_CHANNEL = '$SLACK_CHANNEL'"
         echo "Debug: ENABLE_SLACK = $ENABLE_SLACK"
         echo "Debug: HEADLESS = $HEADLESS"
         
-        # Create a comprehensive sed script that replaces all variables at once
-        echo "🔧 CRITICAL: Creating sed script..."
-        echo "Debug: About to create sed script file: /tmp/replace_env.sed"
+        # Create the new env section with hardcoded values
+        echo "🔧 CRITICAL: Creating new env section with hardcoded values..."
+        printf "env:\n" > /tmp/new_env_section.txt
+        printf "  TEST_DESCRIPTION: '%s'\n" "$TEST_DESCRIPTION" >> /tmp/new_env_section.txt
+        printf "  OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}\n" >> /tmp/new_env_section.txt
+        printf "  OPENAI_MODEL: gpt-4o-mini\n" >> /tmp/new_env_section.txt
+        printf "  SLACK_CHANNEL: '%s'\n" "$SLACK_CHANNEL" >> /tmp/new_env_section.txt
+        printf "  SLACK_BOT_TOKEN: \${{ secrets.SLACK_BOT_TOKEN }}\n" >> /tmp/new_env_section.txt
+        printf "  SLACK_WEBHOOK_URL: \${{ secrets.SLACK_WEBHOOK_URL }}\n" >> /tmp/new_env_section.txt
+        printf "  ENABLE_SLACK: %s\n" "$ENABLE_SLACK" >> /tmp/new_env_section.txt
+        printf "  HEADLESS: %s\n" "$HEADLESS" >> /tmp/new_env_section.txt
+        printf "\n" >> /tmp/new_env_section.txt
         
-        echo "s|TEST_DESCRIPTION: \\\${{ inputs.test_description }}|TEST_DESCRIPTION: '$TEST_DESCRIPTION'|g" > /tmp/replace_env.sed
-        echo "Debug: Added TEST_DESCRIPTION replacement to sed script"
+        echo "🔧 CRITICAL: New env section created:"
+        cat /tmp/new_env_section.txt
         
-        echo "s|SLACK_CHANNEL: \\\${{ inputs.slack_channel }}|SLACK_CHANNEL: '$SLACK_CHANNEL'|g" >> /tmp/replace_env.sed
-        echo "Debug: Added SLACK_CHANNEL replacement to sed script"
+        # Replace the entire env section
+        echo "🔧 CRITICAL: Replacing env section in workflow file..."
+        # Find the line number where 'env:' starts and where 'jobs:' starts
+        ENV_START=$(grep -n "^env:" "$WORKFLOW_FILE" | cut -d: -f1)
+        JOBS_START=$(grep -n "^jobs:" "$WORKFLOW_FILE" | cut -d: -f1)
         
-        echo "s|ENABLE_SLACK: \\\${{ inputs.enable_slack }}|ENABLE_SLACK: $ENABLE_SLACK|g" >> /tmp/replace_env.sed
-        echo "Debug: Added ENABLE_SLACK replacement to sed script"
+        echo "Debug: ENV_START line: $ENV_START"
+        echo "Debug: JOBS_START line: $JOBS_START"
         
-        echo "s|\\\${{ inputs.headless }}|$HEADLESS|g" >> /tmp/replace_env.sed
-        echo "Debug: Added inputs.headless replacement to sed script"
-        
-        echo "🔧 CRITICAL: Sed script created. Content:"
-        cat /tmp/replace_env.sed
-        echo "🔧 CRITICAL: End of sed script content"
-        
-        # Run the comprehensive replacement
-        echo "🔧 CRITICAL: About to run sed command..."
-        echo "Debug: WORKFLOW_FILE before sed: $WORKFLOW_FILE"
-        echo "Debug: First 5 lines of workflow file before sed:"
-        head -5 "$WORKFLOW_FILE"
-        echo "Debug: TEST_DESCRIPTION line before sed:"
-        grep "TEST_DESCRIPTION:" "$WORKFLOW_FILE" || echo "TEST_DESCRIPTION not found"
-        
-        if sed -f /tmp/replace_env.sed "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp"; then
-            echo "Debug: Comprehensive sed command succeeded, moving temp file..."
-            echo "Debug: TEST_DESCRIPTION line after sed (in temp file):"
-            grep "TEST_DESCRIPTION:" "$WORKFLOW_FILE.tmp" || echo "TEST_DESCRIPTION not found in temp file"
+        if [ -n "$ENV_START" ] && [ -n "$JOBS_START" ]; then
+            # Create new file with hardcoded env section
+            head -n $((ENV_START - 1)) "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp"
+            cat /tmp/new_env_section.txt >> "$WORKFLOW_FILE.tmp"
+            tail -n +$JOBS_START "$WORKFLOW_FILE" >> "$WORKFLOW_FILE.tmp"
             
             if mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"; then
-                echo "✅ SUCCESS: All environment variables replaced successfully"
-                
-                # Add HEADLESS environment variable after ENABLE_SLACK
-                echo "🔧 CRITICAL: Adding HEADLESS environment variable..."
-                echo "  HEADLESS: $HEADLESS" > /tmp/headless.txt
-                sed "/ENABLE_SLACK: $ENABLE_SLACK/r /tmp/headless.txt" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
-                rm /tmp/headless.txt
-                echo "Debug: HEADLESS addition completed"
+                echo "✅ SUCCESS: Environment section replaced with hardcoded values"
             else
                 echo "❌ ERROR: Failed to move temp file"
                 exit 1
             fi
         else
-            echo "❌ ERROR: Comprehensive sed command failed"
+            echo "❌ ERROR: Could not find env: or jobs: sections"
             exit 1
         fi
         
         # Clean up
-        rm -f /tmp/replace_env.sed
+        rm -f /tmp/new_env_section.txt
         
         # Verify the replacements worked
         echo "🔍 VERIFICATION: Checking all environment variables..."
