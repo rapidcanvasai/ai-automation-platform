@@ -580,32 +580,9 @@ jobs:
         # Clean up
         rm -f /tmp/new_env_section.txt
         
-        # CRITICAL: Replace all inputs.* references with env.* references for scheduled workflows
-        echo "🔧 CRITICAL: Replacing inputs.* references with env.* references..."
-        
-        # Use a more robust replacement method to avoid YAML parsing issues
-        # Create a temporary script to handle the replacements
-        cat > /tmp/replace_inputs.sh << 'REPLACE_EOF'
-        #!/bin/bash
-        WORKFLOW_FILE="$1"
-        # Use perl for more robust pattern replacement
-        perl -i -pe 's/\$\{\{\s*inputs\.headless\s*\}\}/\${{ env.HEADLESS }}/g' "$WORKFLOW_FILE"
-        perl -i -pe 's/\$\{\{\s*inputs\.slack_channel\s*\}\}/\${{ env.SLACK_CHANNEL }}/g' "$WORKFLOW_FILE"
-        perl -i -pe 's/\$\{\{\s*inputs\.enable_slack\s*\}\}/\${{ env.ENABLE_SLACK }}/g' "$WORKFLOW_FILE"
-        perl -i -pe 's/\$\{\{\s*inputs\.test_description\s*\}\}/\${{ env.TEST_DESCRIPTION }}/g' "$WORKFLOW_FILE"
-        REPLACE_EOF
-        chmod +x /tmp/replace_inputs.sh
-        /tmp/replace_inputs.sh "$WORKFLOW_FILE"
-        rm -f /tmp/replace_inputs.sh
-        
-        # Verify the input replacements worked
-        echo "🔍 VERIFICATION: Checking for remaining inputs.* references..."
-        if grep -q "\${{ inputs." "$WORKFLOW_FILE"; then
-          echo "❌ WARNING: Found remaining inputs.* references:"
-          grep "\${{ inputs." "$WORKFLOW_FILE"
-        else
-          echo "✅ SUCCESS: All inputs.* references replaced with env.* references"
-        fi
+        # NOTE: The inputs.headless replacement is handled by the environment variable replacement above
+        # The generated workflow will use env.HEADLESS instead of inputs.headless
+        echo "✅ Environment variables configured for scheduled execution"
         
         # Verify the replacements worked
         echo "🔍 VERIFICATION: Checking all environment variables..."
