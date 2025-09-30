@@ -580,9 +580,19 @@ jobs:
         # Clean up
         rm -f /tmp/new_env_section.txt
         
-        # NOTE: The inputs.headless replacement is handled by the environment variable replacement above
-        # The generated workflow will use env.HEADLESS instead of inputs.headless
-        echo "✅ Environment variables configured for scheduled execution"
+        # CRITICAL: Replace inputs.headless with env.HEADLESS for scheduled workflows
+        echo "🔧 CRITICAL: Replacing inputs.headless with env.HEADLESS..."
+        # Use perl for robust replacement
+        perl -i -pe 's/\$\{\{ inputs\.headless \}\}/\$\{\{ env\.HEADLESS \}\}/g' "$WORKFLOW_FILE"
+        
+        # Verify the replacement worked
+        echo "🔍 VERIFICATION: Checking for remaining inputs.headless references..."
+        if grep -q "\${{ inputs.headless }}" "$WORKFLOW_FILE"; then
+          echo "❌ WARNING: Found remaining inputs.headless references:"
+          grep "\${{ inputs.headless }}" "$WORKFLOW_FILE"
+        else
+          echo "✅ SUCCESS: inputs.headless replaced with env.HEADLESS"
+        fi
         
         # Verify the replacements worked
         echo "🔍 VERIFICATION: Checking all environment variables..."
