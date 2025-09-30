@@ -516,16 +516,24 @@ jobs:
         
         # Create the new env section with hardcoded values
         echo "🔧 CRITICAL: Creating new env section with hardcoded values..."
-        printf "env:\n" > /tmp/new_env_section.txt
-        printf "  TEST_DESCRIPTION: '%s'\n" "$TEST_DESCRIPTION" >> /tmp/new_env_section.txt
-        printf "  OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}\n" >> /tmp/new_env_section.txt
-        printf "  OPENAI_MODEL: gpt-4o-mini\n" >> /tmp/new_env_section.txt
-        printf "  SLACK_CHANNEL: '%s'\n" "$SLACK_CHANNEL" >> /tmp/new_env_section.txt
-        printf "  SLACK_BOT_TOKEN: \${{ secrets.SLACK_BOT_TOKEN }}\n" >> /tmp/new_env_section.txt
-        printf "  SLACK_WEBHOOK_URL: \${{ secrets.SLACK_WEBHOOK_URL }}\n" >> /tmp/new_env_section.txt
-        printf "  ENABLE_SLACK: %s\n" "$ENABLE_SLACK" >> /tmp/new_env_section.txt
-        printf "  HEADLESS: %s\n" "$HEADLESS" >> /tmp/new_env_section.txt
-        printf "\n" >> /tmp/new_env_section.txt
+        {
+          echo "env:"
+          echo "  TEST_DESCRIPTION: 'TEST_DESCRIPTION_PLACEHOLDER'"
+          echo "  OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}"
+          echo "  OPENAI_MODEL: gpt-4o-mini"
+          echo "  SLACK_CHANNEL: 'SLACK_CHANNEL_PLACEHOLDER'"
+          echo "  SLACK_BOT_TOKEN: \${{ secrets.SLACK_BOT_TOKEN }}"
+          echo "  SLACK_WEBHOOK_URL: \${{ secrets.SLACK_WEBHOOK_URL }}"
+          echo "  ENABLE_SLACK: ENABLE_SLACK_PLACEHOLDER"
+          echo "  HEADLESS: HEADLESS_PLACEHOLDER"
+          echo ""
+        } > /tmp/new_env_section.txt
+        
+        # Replace placeholders with actual values
+        sed -i "s/TEST_DESCRIPTION_PLACEHOLDER/$TEST_DESCRIPTION/g" /tmp/new_env_section.txt
+        sed -i "s/SLACK_CHANNEL_PLACEHOLDER/$SLACK_CHANNEL/g" /tmp/new_env_section.txt
+        sed -i "s/ENABLE_SLACK_PLACEHOLDER/$ENABLE_SLACK/g" /tmp/new_env_section.txt
+        sed -i "s/HEADLESS_PLACEHOLDER/$HEADLESS/g" /tmp/new_env_section.txt
         
         echo "🔧 CRITICAL: New env section created:"
         cat /tmp/new_env_section.txt
