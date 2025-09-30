@@ -529,9 +529,15 @@ jobs:
           echo ""
         } > /tmp/new_env_section.txt
         
-        # Replace placeholders with actual values
-        sed -i "s/TEST_DESCRIPTION_PLACEHOLDER/$TEST_DESCRIPTION/g" /tmp/new_env_section.txt
-        sed -i "s/SLACK_CHANNEL_PLACEHOLDER/$SLACK_CHANNEL/g" /tmp/new_env_section.txt
+        # Replace placeholders with actual values (using safer sed approach)
+        # Escape special characters in TEST_DESCRIPTION for sed
+        ESCAPED_TEST_DESC=$(printf '%s\n' "$TEST_DESCRIPTION" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        sed -i "s/TEST_DESCRIPTION_PLACEHOLDER/$ESCAPED_TEST_DESC/g" /tmp/new_env_section.txt
+        
+        # Escape special characters in SLACK_CHANNEL for sed
+        ESCAPED_SLACK_CHANNEL=$(printf '%s\n' "$SLACK_CHANNEL" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        sed -i "s/SLACK_CHANNEL_PLACEHOLDER/$ESCAPED_SLACK_CHANNEL/g" /tmp/new_env_section.txt
+        
         sed -i "s/ENABLE_SLACK_PLACEHOLDER/$ENABLE_SLACK/g" /tmp/new_env_section.txt
         sed -i "s/HEADLESS_PLACEHOLDER/$HEADLESS/g" /tmp/new_env_section.txt
         
