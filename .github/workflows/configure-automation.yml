@@ -543,8 +543,8 @@ jobs:
             }' /tmp/new_env_section.txt > /tmp/new_env_section_final.txt
         
         # Convert escaped GitHub Actions expressions back to proper format
-        sed -i.bak 's/\$\\{\\{/\${{/g' /tmp/new_env_section_final.txt
-        sed -i.bak2 's/\\}\\}/}}/g' /tmp/new_env_section_final.txt
+        tr -d '\\' < /tmp/new_env_section_final.txt > /tmp/new_env_section_converted.txt
+        mv /tmp/new_env_section_converted.txt /tmp/new_env_section_final.txt
         
         mv /tmp/new_env_section_final.txt /tmp/new_env_section.txt
         
