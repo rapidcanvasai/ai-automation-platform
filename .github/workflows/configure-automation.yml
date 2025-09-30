@@ -580,6 +580,22 @@ jobs:
         # Clean up
         rm -f /tmp/new_env_section.txt
         
+        # CRITICAL: Replace all inputs.* references with env.* references for scheduled workflows
+        echo "🔧 CRITICAL: Replacing inputs.* references with env.* references..."
+        sed -i 's/\${{ inputs\.headless }}/\${{ env.HEADLESS }}/g' "$WORKFLOW_FILE"
+        sed -i 's/\${{ inputs\.slack_channel }}/\${{ env.SLACK_CHANNEL }}/g' "$WORKFLOW_FILE"
+        sed -i 's/\${{ inputs\.enable_slack }}/\${{ env.ENABLE_SLACK }}/g' "$WORKFLOW_FILE"
+        sed -i 's/\${{ inputs\.test_description }}/\${{ env.TEST_DESCRIPTION }}/g' "$WORKFLOW_FILE"
+        
+        # Verify the input replacements worked
+        echo "🔍 VERIFICATION: Checking for remaining inputs.* references..."
+        if grep -q "\${{ inputs\." "$WORKFLOW_FILE"; then
+          echo "❌ WARNING: Found remaining inputs.* references:"
+          grep "\${{ inputs\." "$WORKFLOW_FILE"
+        else
+          echo "✅ SUCCESS: All inputs.* references replaced with env.* references"
+        fi
+        
         # Verify the replacements worked
         echo "🔍 VERIFICATION: Checking all environment variables..."
         echo "Debug: TEST_DESCRIPTION:"
