@@ -135,6 +135,7 @@ jobs:
         fi
 
         # Validate test description length
+        TEST_DESCRIPTION="${{ inputs.test_description }}"
         if [ ${#TEST_DESCRIPTION} -lt 10 ]; then
           echo " Test description too short (minimum 10 characters)"
           echo " Please provide more detailed test steps"
