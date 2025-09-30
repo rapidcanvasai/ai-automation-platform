@@ -529,17 +529,19 @@ jobs:
           echo ""
         } > /tmp/new_env_section.txt
         
-        # Replace placeholders with actual values (using safer sed approach)
-        # Escape special characters in TEST_DESCRIPTION for sed
-        ESCAPED_TEST_DESC=$(printf '%s\n' "$TEST_DESCRIPTION" | sed 's/[[\.*^$()+?{|]/\\&/g')
-        sed -i "s/TEST_DESCRIPTION_PLACEHOLDER/$ESCAPED_TEST_DESC/g" /tmp/new_env_section.txt
-        
-        # Escape special characters in SLACK_CHANNEL for sed
-        ESCAPED_SLACK_CHANNEL=$(printf '%s\n' "$SLACK_CHANNEL" | sed 's/[[\.*^$()+?{|]/\\&/g')
-        sed -i "s/SLACK_CHANNEL_PLACEHOLDER/$ESCAPED_SLACK_CHANNEL/g" /tmp/new_env_section.txt
-        
-        sed -i "s/ENABLE_SLACK_PLACEHOLDER/$ENABLE_SLACK/g" /tmp/new_env_section.txt
-        sed -i "s/HEADLESS_PLACEHOLDER/$HEADLESS/g" /tmp/new_env_section.txt
+        # Replace placeholders with actual values (using awk for safer replacement)
+        awk -v test_desc="$TEST_DESCRIPTION" \
+            -v slack_chan="$SLACK_CHANNEL" \
+            -v enable_slack="$ENABLE_SLACK" \
+            -v headless="$HEADLESS" \
+            '{
+              gsub(/TEST_DESCRIPTION_PLACEHOLDER/, test_desc)
+              gsub(/SLACK_CHANNEL_PLACEHOLDER/, slack_chan)
+              gsub(/ENABLE_SLACK_PLACEHOLDER/, enable_slack)
+              gsub(/HEADLESS_PLACEHOLDER/, headless)
+              print
+            }' /tmp/new_env_section.txt > /tmp/new_env_section_final.txt
+        mv /tmp/new_env_section_final.txt /tmp/new_env_section.txt
         
         echo "🔧 CRITICAL: New env section created:"
         cat /tmp/new_env_section.txt
