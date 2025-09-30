@@ -519,11 +519,11 @@ jobs:
         {
           echo "env:"
           echo "  TEST_DESCRIPTION: 'TEST_DESCRIPTION_PLACEHOLDER'"
-          echo "  OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}"
+          echo "  OPENAI_API_KEY: \$\{\{ secrets.OPENAI_API_KEY \}\}"
           echo "  OPENAI_MODEL: gpt-4o-mini"
           echo "  SLACK_CHANNEL: 'SLACK_CHANNEL_PLACEHOLDER'"
-          echo "  SLACK_BOT_TOKEN: \${{ secrets.SLACK_BOT_TOKEN }}"
-          echo "  SLACK_WEBHOOK_URL: \${{ secrets.SLACK_WEBHOOK_URL }}"
+          echo "  SLACK_BOT_TOKEN: \$\{\{ secrets.SLACK_BOT_TOKEN \}\}"
+          echo "  SLACK_WEBHOOK_URL: \$\{\{ secrets.SLACK_WEBHOOK_URL \}\}"
           echo "  ENABLE_SLACK: ENABLE_SLACK_PLACEHOLDER"
           echo "  HEADLESS: HEADLESS_PLACEHOLDER"
           echo ""
@@ -541,6 +541,11 @@ jobs:
               gsub(/HEADLESS_PLACEHOLDER/, headless)
               print
             }' /tmp/new_env_section.txt > /tmp/new_env_section_final.txt
+        
+        # Convert escaped GitHub Actions expressions back to proper format
+        sed -i.bak 's/\$\\{\\{/\${{/g' /tmp/new_env_section_final.txt
+        sed -i.bak2 's/\\}\\}/}}/g' /tmp/new_env_section_final.txt
+        
         mv /tmp/new_env_section_final.txt /tmp/new_env_section.txt
         
         echo "🔧 CRITICAL: New env section created:"
