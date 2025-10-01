@@ -12,7 +12,7 @@ on:
         required: false
         type: string
       headless:
-        description: 'Run browser in headless mode (true) or show browser window (false)'
+        description: 'Run browser in headless mode (true) or show browser window (false) - GitHub Actions default is headless'
         required: false
         type: boolean
         default: true
@@ -267,13 +267,14 @@ jobs:
             echo "$CREATE_BODY" | jq '.'
           echo "🚀 Executing test..."
           
-          # Set browser execution mode
+          # Set browser execution mode for GitHub Actions
+          # GitHub Actions default is headless: true (no GUI available)
           if [ "${{ inputs.headless }}" = "true" ]; then
             HEADLESS_VALUE="true"
-            echo "🖥️ Running in HEADLESS mode (browser runs in background)"
+            echo "🖥️ Running in HEADLESS mode (GitHub Actions - no GUI available)"
           else
             HEADLESS_VALUE="false"
-            echo "🖥️ Running in HEADED mode (browser window visible)"
+            echo "🖥️ Running in HEADED mode (browser window visible) - not recommended for GitHub Actions"
           fi
           
           if [ "${{ env.ENABLE_SLACK }}" = "true" ]; then
@@ -282,6 +283,7 @@ jobs:
             SLACK_VALUE="false"
           fi
           
+          # Match web interface execution parameters exactly
           jq -n \
             --argjson headless "$HEADLESS_VALUE" \
             --argjson enableSlack "$SLACK_VALUE" \
@@ -302,7 +304,8 @@ jobs:
           echo "🔍 Debug: Checking Playwright installation in backend..."
           curl -X GET ${BACKEND_URL:-http://localhost:3001}/health | jq '.' || echo "Health check failed"
           
-          EXEC_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}" --max-time 120)
+          echo "🚀 Executing test..."
+          EXEC_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}" --max-time 600)
           EXEC_HTTP_CODE=$(echo "$EXEC_RESPONSE" | tail -n1)
           EXEC_BODY=$(echo "$EXEC_RESPONSE" | sed '$d')
           echo "Execution HTTP Code: $EXEC_HTTP_CODE"
