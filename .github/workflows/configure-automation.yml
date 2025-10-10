@@ -135,7 +135,8 @@ jobs:
         fi
 
         # Validate test description length
-        TEST_DESCRIPTION="${{ inputs.test_description }}"
+        # Use printf to safely handle special characters in test description
+        TEST_DESCRIPTION=$(printf '%s' "${{ inputs.test_description }}")
         if [ ${#TEST_DESCRIPTION} -lt 10 ]; then
           echo " Test description too short (minimum 10 characters)"
           echo " Please provide more detailed test steps"
@@ -159,7 +160,7 @@ jobs:
             NEW_CONFIG=$(jq -n \
               --arg name "$CONFIG_NAME" \
               --arg cron "${{ inputs.cron_schedule }}" \
-              --arg description "${{ inputs.test_description }}" \
+              --arg description "$TEST_DESCRIPTION" \
               --arg slack_channel "${{ inputs.slack_channel }}" \
               --argjson headless "${{ inputs.headless }}" \
               --argjson enable_slack "${{ inputs.enable_slack }}" \
