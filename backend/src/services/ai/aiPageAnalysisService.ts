@@ -14,6 +14,8 @@ export interface ElementStrategy {
   confidence: number;
   reasoning: string;
   priority: number;
+  targetText?: string;
+  elementText?: string;
 }
 
 export class AIPageAnalysisService {
@@ -289,6 +291,8 @@ export class AIPageAnalysisService {
 
   private prioritizeClickableStrategies(strategies: ElementStrategy[], target: string): ElementStrategy[] {
     return strategies.map(strategy => {
+      const targetLower = target.toLowerCase();
+      
       // Check if this strategy targets clickable elements
       const isClickableStrategy = 
         strategy.selector.includes('a[') || 
@@ -305,16 +309,43 @@ export class AIPageAnalysisService {
         strategy.reasoning.includes('button') ||
         strategy.reasoning.includes('tab');
       
-      if (isClickableStrategy) {
-        return {
-          ...strategy,
-          priority: strategy.priority + 10, // Boost priority for clickable elements
-          confidence: Math.min(0.99, strategy.confidence + 0.05), // Boost confidence slightly
-          reasoning: strategy.reasoning + ' (prioritized as clickable)'
-        };
+      // Check for exact text match
+      const isExactMatch = strategy.elementText && 
+        strategy.elementText.toLowerCase().trim() === targetLower.trim();
+      
+      // Check for partial text match
+      const isPartialMatch = strategy.elementText && 
+        strategy.elementText.toLowerCase().includes(targetLower);
+      
+      let priorityBoost = 0;
+      let confidenceBoost = 0;
+      let reasoningAddition = '';
+      
+      // Prioritize exact text matches highest
+      if (isExactMatch) {
+        priorityBoost = 20;
+        confidenceBoost = 0.1;
+        reasoningAddition = ' (exact text match)';
+      }
+      // Then partial text matches
+      else if (isPartialMatch) {
+        priorityBoost = 10;
+        confidenceBoost = 0.05;
+        reasoningAddition = ' (partial text match)';
+      }
+      // Then clickable elements
+      else if (isClickableStrategy) {
+        priorityBoost = 5;
+        confidenceBoost = 0.02;
+        reasoningAddition = ' (prioritized as clickable)';
       }
       
-      return strategy;
+      return {
+        ...strategy,
+        priority: strategy.priority + priorityBoost,
+        confidence: Math.min(0.99, strategy.confidence + confidenceBoost),
+        reasoning: strategy.reasoning + reasoningAddition
+      };
     });
   }
 
@@ -353,7 +384,9 @@ export class AIPageAnalysisService {
           selector: `//*[normalize-space(text())="${target}"]`,
           confidence: confidence,
           reasoning: `Exact text match found in ${match.tagName} element${isClickable ? ' (clickable)' : ''}`,
-          priority: priority
+          priority: priority,
+          targetText: target,
+          elementText: match.textContent
         });
         
         if (match.id) {
@@ -362,7 +395,9 @@ export class AIPageAnalysisService {
             selector: `#${match.id}`,
             confidence: isClickable ? 0.95 : 0.9,
             reasoning: `Element with exact text has ID: ${match.id}${isClickable ? ' (clickable)' : ''}`,
-            priority: isClickable ? 14 : 9
+            priority: isClickable ? 14 : 9,
+            targetText: target,
+            elementText: match.textContent
           });
         }
       });
@@ -390,7 +425,9 @@ export class AIPageAnalysisService {
           selector: `//*[contains(text(), "${target}")]`,
           confidence: confidence,
           reasoning: `Partial text match found in ${match.tagName} element${isClickable ? ' (clickable)' : ''}`,
-          priority: priority
+          priority: priority,
+          targetText: target,
+          elementText: match.textContent
         });
       });
     }
@@ -641,7 +678,21 @@ export class AIPageAnalysisService {
               return true;
             }
           } catch (error) {
-            console.log(`❌ Strategy failed: ${(error as Error).message}`);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.log(`❌ Strategy failed: ${errorMessage}`);
+            
+            // If page closed during execution, don't retry
+            if (errorMessage.includes('Target page, context or browser has been closed')) {
+              console.log(`⚠️ Page closed during execution - stopping retry attempts`);
+              return false;
+            }
+            
+            // If timeout occurred, don't retry the same strategy
+            if (errorMessage.includes('timeout') || errorMessage.includes('Timeout')) {
+              console.log(`⚠️ Timeout occurred - skipping remaining strategies for this attempt`);
+              break;
+            }
+            
             continue;
           }
         }
@@ -717,14 +768,27 @@ export class AIPageAnalysisService {
           await clickApproaches[i]();
           console.log(`   ✅ Click action completed with approach ${i + 1}`);
           
-          // For navigation elements, consider the click successful if it completed without error
-          // The page refresh/navigation indicates the click was effective
-          if (strategy.reasoning.includes('nav') || strategy.reasoning.includes('link') || strategy.reasoning.includes('tab') || 
-              strategy.reasoning.includes('li element') || strategy.reasoning.includes('a element') ||
-              strategy.selector.includes('nav') || strategy.selector.includes('li') || strategy.selector.includes('a') ||
-              strategy.selector.includes('href')) {
-            console.log(`   ✅ Navigation click successful - page refresh indicates effective click`);
+          // Only consider clicks successful if they actually match the target text
+          // Check if the clicked element contains the target text or if it's a clear navigation element
+          const targetText = strategy.targetText || '';
+          const elementText = strategy.elementText || '';
+          const isExactMatch = elementText.toLowerCase().includes(targetText.toLowerCase()) || 
+                              targetText.toLowerCase().includes(elementText.toLowerCase());
+          
+          // For navigation elements, be more strict about success criteria
+          const isNavigationElement = strategy.reasoning.includes('nav') || 
+                                     strategy.reasoning.includes('link') || 
+                                     strategy.reasoning.includes('tab') ||
+                                     strategy.selector.includes('nav') || 
+                                     strategy.selector.includes('a') ||
+                                     strategy.selector.includes('href');
+          
+          // Only mark as successful if it's an exact text match OR a clear navigation with URL change
+          if (isExactMatch || (isNavigationElement && beforeUrl !== page.url())) {
+            console.log(`   ✅ Click successful - ${isExactMatch ? 'exact text match' : 'navigation with URL change'}`);
             return true;
+          } else {
+            console.log(`   ⚠️ Click completed but no exact match or navigation detected`);
           }
           
           // For other elements, try validation but don't fail if page closes
@@ -781,6 +845,17 @@ export class AIPageAnalysisService {
       if (afterTitle !== beforeTitle) {
         console.log(`   ✅ Page title changed: "${beforeTitle}" → "${afterTitle}"`);
         return true;
+      }
+      
+      // For exact text matches, be more lenient - if we clicked the right element, consider it successful
+      if (strategy.elementText && strategy.targetText) {
+        const elementTextLower = strategy.elementText.toLowerCase().trim();
+        const targetTextLower = strategy.targetText.toLowerCase().trim();
+        
+        if (elementTextLower === targetTextLower) {
+          console.log(`   ✅ Exact text match clicked - considering successful`);
+          return true;
+        }
       }
       
       // Check for loading indicators disappearing

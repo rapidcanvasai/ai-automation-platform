@@ -1340,14 +1340,32 @@ export class TestExecutorService {
             role: string | null;
             index: number;
           }> = [];
-          const elements = document.querySelectorAll('button, a, [role="button"], [onclick], input[type="button"], input[type="submit"]');
+          
+          // Get all potentially clickable elements
+          const elements = document.querySelectorAll('button, a, [role="button"], [role="tab"], [role="link"], [onclick], input[type="button"], input[type="submit"], li, div[class*="nav"], div[class*="tab"]');
           
           elements.forEach((el, index) => {
             const rect = el.getBoundingClientRect();
             const isVisible = rect.width > 0 && rect.height > 0;
-            if (isVisible) {
+            const text = el.textContent?.trim() || '';
+            
+            // Filter out generic elements that are likely not the target
+            const isGenericElement = /^(all|select|choose|ok|cancel|yes|no|submit|reset|close|open|edit|delete|save|load|refresh|reload|back|next|previous|first|last|more|less|show|hide|toggle|expand|collapse)$/i.test(text);
+            
+            // Filter out very short or empty text
+            const hasMeaningfulText = text.length > 1 && text.length < 100;
+            
+            // Prioritize navigation elements
+            const isNavigationElement = el.tagName === 'A' || 
+                                      el.getAttribute('role') === 'tab' || 
+                                      el.getAttribute('role') === 'link' ||
+                                      el.className.includes('nav') ||
+                                      el.className.includes('tab') ||
+                                      el.className.includes('menu');
+            
+            if (isVisible && hasMeaningfulText && (!isGenericElement || isNavigationElement)) {
               clickableElements.push({
-                text: el.textContent?.trim() || '',
+                text: text,
                 tagName: el.tagName,
                 className: el.className,
                 id: el.id,
@@ -1356,6 +1374,16 @@ export class TestExecutorService {
                 index: index
               });
             }
+          });
+          
+          // Sort by relevance: exact matches first, then navigation elements, then others
+          clickableElements.sort((a, b) => {
+            const aIsNav = a.tagName === 'A' || a.role === 'tab' || a.role === 'link' || a.className.includes('nav') || a.className.includes('tab');
+            const bIsNav = b.tagName === 'A' || b.role === 'tab' || b.role === 'link' || b.className.includes('nav') || b.className.includes('tab');
+            
+            if (aIsNav && !bIsNav) return -1;
+            if (!aIsNav && bIsNav) return 1;
+            return 0;
           });
           
           return {
@@ -1375,12 +1403,18 @@ PAGE INFORMATION:
 AVAILABLE CLICKABLE ELEMENTS:
 ${pageInfo.clickableElements.map((el, i) => `${i + 1}. ${el.tagName} - Text: "${el.text}" - Class: "${el.className}" - ID: "${el.id}" - Type: "${el.type}" - Role: "${el.role}"`).join('\n')}
 
+IMPORTANT INSTRUCTIONS:
+1. PRIORITIZE EXACT TEXT MATCHES: Look for elements where the text exactly matches "${target}"
+2. AVOID GENERIC ELEMENTS: Do not select generic elements like "All", "Select", "Choose", etc. unless they exactly match the target
+3. PREFER NAVIGATION ELEMENTS: If multiple elements match, prefer navigation elements (links, buttons, tabs)
+4. EXACT MATCH FIRST: If you find an element with text exactly matching "${target}", select that element
+
 Please respond with JSON:
 {
   "elementFound": boolean,
   "bestMatch": {
     "index": number,
-    "reasoning": "why this element matches the target"
+    "reasoning": "why this element matches the target - mention if it's an exact text match"
   },
   "alternativeMatches": [{"index": number, "reasoning": "why this could work"}]
 }`;
@@ -1416,6 +1450,50 @@ Please respond with JSON:
               if (element) {
                 console.log(`🎯 AI selected element: ${element.tagName} - "${element.text}"`);
                 console.log(`💡 Reasoning: ${result.bestMatch.reasoning}`);
+                
+                // Validate that the selected element makes sense
+                const targetLower = target.toLowerCase();
+                const elementTextLower = element.text.toLowerCase();
+                const isExactMatch = elementTextLower === targetLower;
+                const isPartialMatch = elementTextLower.includes(targetLower) || targetLower.includes(elementTextLower);
+                
+                if (!isExactMatch && !isPartialMatch) {
+                  console.log(`⚠️ AI selected element doesn't match target text - this might be wrong`);
+                  console.log(`   Target: "${target}"`);
+                  console.log(`   Selected: "${element.text}"`);
+                  
+                  // Look for exact matches in the available elements
+                  const exactMatches = pageInfo.clickableElements.filter(el => 
+                    el.text.toLowerCase() === targetLower
+                  );
+                  
+                  if (exactMatches.length > 0) {
+                    console.log(`✅ Found exact match: ${exactMatches[0].tagName} - "${exactMatches[0].text}"`);
+                    const exactElement = exactMatches[0];
+                    
+                    // Use the exact match instead
+                    let selector = '';
+                    if (exactElement.id) {
+                      selector = `#${exactElement.id}`;
+                    } else if (exactElement.className) {
+                      const classes = exactElement.className.split(' ').filter((c: string) => c.length > 0);
+                      if (classes.length > 0) {
+                        selector = `.${classes.join('.')}`;
+                      }
+                    } else if (exactElement.text) {
+                      selector = `${exactElement.tagName.toLowerCase()}:has-text("${exactElement.text}")`;
+                    } else {
+                      selector = exactElement.tagName.toLowerCase();
+                    }
+                    
+                    const locator = page.locator(selector).first();
+                    await locator.waitFor({ state: 'visible', timeout: 10000 });
+                    await locator.click({ timeout: 10000 });
+                    
+                    console.log(`✅ Clicked exact match for: "${target}"`);
+                    return;
+                  }
+                }
                 
                 // Try to click the AI-selected element using simple selectors
                 let selector = '';
