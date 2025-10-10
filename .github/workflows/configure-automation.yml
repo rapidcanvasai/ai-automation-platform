@@ -330,7 +330,7 @@ jobs:
         echo " Creating scheduled workflow file..."
         echo " Debug: inputs.action = ${{ inputs.action }}"
         echo " Debug: steps.process-action.outputs.config_name = ${{ steps.process-action.outputs.config_name }}"
-        echo " Debug: steps.process-action.outputs.updated_configs = ${{ steps.process-action.outputs.updated_configs }}"
+        echo " Debug: steps.process-action.outputs.updated_configs = [JSON data provided]"
 
         CONFIG_NAME="${{ steps.process-action.outputs.config_name }}"
 
@@ -341,7 +341,9 @@ jobs:
 
         # Get the configuration data from the step output instead of file
         CONFIG_DATA='${{ steps.process-action.outputs.updated_configs }}'
-        SELECTED_CONFIG=$(echo "$CONFIG_DATA" | jq --arg name "$CONFIG_NAME" '.[$name]')
+        # Use temporary file to avoid shell syntax issues with special characters in JSON
+        echo "$CONFIG_DATA" > /tmp/config_data.json
+        SELECTED_CONFIG=$(cat /tmp/config_data.json | jq --arg name "$CONFIG_NAME" '.[$name]')
 
         if [ "$SELECTED_CONFIG" = "null" ]; then
           echo " SELECTED_CONFIG is null! This step will fail."
@@ -593,7 +595,7 @@ jobs:
         fi
         
         # Clean up
-        rm -f /tmp/new_env_section.txt /tmp/test_description.txt /tmp/test_desc_from_json.txt
+        rm -f /tmp/new_env_section.txt /tmp/test_description.txt /tmp/test_desc_from_json.txt /tmp/config_data.json
         
         # CRITICAL: Replace inputs.headless with env.HEADLESS for scheduled workflows
         echo "🔧 CRITICAL: Replacing inputs.headless with env.HEADLESS..."
@@ -860,7 +862,7 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Configuration Name:** ${{ steps.process-action.outputs.config_name }}" >> $GITHUB_STEP_SUMMARY
             echo "**Cron Schedule:** ${{ inputs.cron_schedule }}" >> $GITHUB_STEP_SUMMARY
-            echo "**Test Description:** ${{ inputs.test_description }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Test Description:** [Provided successfully]" >> $GITHUB_STEP_SUMMARY
             echo "**Slack Channel:** ${{ inputs.slack_channel }}" >> $GITHUB_STEP_SUMMARY
             echo "**Headless Mode:** ${{ inputs.headless }}" >> $GITHUB_STEP_SUMMARY
             echo "**Slack Notifications:** ${{ inputs.enable_slack }}" >> $GITHUB_STEP_SUMMARY
