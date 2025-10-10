@@ -20,7 +20,9 @@ export class NLPService {
     verify: /(?:verify|check|assert|confirm)\s+(.+)/i,
     navigate: /(?:go to|navigate to|visit|open)\s+(.+)/i,
     wait: /(?:wait|pause)\s+(?:for\s+)?(.+)/i,
-    waitSeconds: /(?:wait|pause)\s+(?:for\s+)?(\d+)\s*(?:sec|second|seconds)/i,
+    waitSeconds: /(?:wait|pause)\s+(?:for\s+)?(\d+)\s*(?:sec|second|seconds|s)/i,
+    waitMinutes: /(?:wait|pause)\s+(?:for\s+)?(\d+)\s*(?:min|minute|minutes|m)/i,
+    waitMilliseconds: /(?:wait|pause)\s+(?:for\s+)?(\d+)\s*(?:ms|millisecond|milliseconds)/i,
     back: /(?:go\s+back|navigate\s+back|back)/i,
     refresh: /(?:refresh|reload)/i,
     // Conditional patterns - proper if-else logic
@@ -164,6 +166,10 @@ export class NLPService {
     if (backMatch) return this.createParsedStep('back', backMatch, stepNumber, sentence);
     const refreshMatch = sentence.match(this.actionPatterns.refresh);
     if (refreshMatch) return this.createParsedStep('refresh', refreshMatch, stepNumber, sentence);
+    const waitMillisecondsMatch = sentence.match(this.actionPatterns.waitMilliseconds);
+    if (waitMillisecondsMatch) return this.createParsedStep('waitMilliseconds', waitMillisecondsMatch, stepNumber, sentence);
+    const waitMinutesMatch = sentence.match(this.actionPatterns.waitMinutes);
+    if (waitMinutesMatch) return this.createParsedStep('waitMinutes', waitMinutesMatch, stepNumber, sentence);
     const waitSecondsMatch = sentence.match(this.actionPatterns.waitSeconds);
     if (waitSecondsMatch) return this.createParsedStep('waitSeconds', waitSecondsMatch, stepNumber, sentence);
     const waitMatch = sentence.match(this.actionPatterns.wait);
@@ -303,6 +309,24 @@ export class NLPService {
           confidence: 0.7,
           description: originalText,
         };
+      case 'waitMilliseconds': {
+        const ms = parseInt(clean(match[1]));
+        return {
+          action: 'wait',
+          target: `${ms}ms`,
+          confidence: 0.95,
+          description: originalText,
+        };
+      }
+      case 'waitMinutes': {
+        const minutes = parseInt(clean(match[1]));
+        return {
+          action: 'wait',
+          target: `${minutes * 60 * 1000}ms`,
+          confidence: 0.9,
+          description: originalText,
+        };
+      }
       case 'waitSeconds': {
         const seconds = parseInt(clean(match[1]));
         return {

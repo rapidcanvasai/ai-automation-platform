@@ -4,6 +4,7 @@ import path from 'path';
 import type { ParsedTestStep, Test } from '../../types/shared';
 import { logger } from '../../utils/logger';
 import { AIPageAnalysisService } from '../ai/aiPageAnalysisService';
+import OpenAI from 'openai';
 
 export interface ExecutionResult {
   status: 'passed' | 'failed';
@@ -15,9 +16,19 @@ export interface ExecutionResult {
 
 export class TestExecutorService {
   private aiPageAnalysisService: AIPageAnalysisService;
+  private openai: OpenAI | null = null;
 
   constructor() {
     this.aiPageAnalysisService = new AIPageAnalysisService();
+    
+    // Initialize OpenAI client if API key is available
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (apiKey) {
+      this.openai = new OpenAI({ apiKey });
+      logger.info('OpenAI client initialized for AI-powered test steps');
+    } else {
+      logger.warn('OPENAI_API_KEY not found, AI-powered steps will use fallback methods');
+    }
   }
 
   private async detectLoginPage(page: Page): Promise<boolean> {
@@ -288,17 +299,117 @@ export class TestExecutorService {
         }
         return;
       case 'click': {
+        console.log(`\n🚀 CLICK STEP STARTED: "${target}"`);
+        console.log(`🔍 useAI flag: ${(step as any).useAI}`);
+        
         // Check if AI-powered discovery is requested
         if ((step as any).useAI) {
+          console.log(`🤖 Using AI click for: "${target}"`);
           await this.performAIClick(page, target);
           return;
         }
         
+        console.log(`🔧 Using regular click for: "${target}"`);
+        console.log(`🆕 IFRAME SUPPORT: Testing new iframe detection for "${target}"`);
+        console.error(`🆕 IFRAME SUPPORT: Testing new iframe detection for "${target}"`);
+        
+        // Immediate page state check
+        try {
+          console.log(`📄 Page is closed: ${page.isClosed()}`);
+          if (page.isClosed()) {
+            console.log(`❌ Page is closed - cannot proceed with click`);
+            throw new Error('Page has been closed');
+          }
+          console.log(`✅ Page is valid - proceeding with click`);
+        } catch (error) {
+          console.log(`❌ Page state check failed: ${(error as Error).message}`);
+          throw error;
+        }
+        
+        // Check if this is a DataApp and wait for it to load
+        const currentUrl = page.url();
+        if (currentUrl.includes('dataapps') || currentUrl.includes('DataApp')) {
+          console.log(`🔄 DataApp detected - waiting for full load before click...`);
+          await this.waitForDataAppFullLoad(page);
+        }
         
         // Add debugging for regular clicks too
         console.log(`\n=== REGULAR CLICK DEBUG FOR: "${target}" ===`);
+        try {
+          const currentUrl = page.url();
+          const pageTitle = await page.title();
         const pageText = await page.textContent('body');
+          console.log(`Current URL: ${currentUrl}`);
+          console.log(`Page Title: ${pageTitle}`);
         console.log(`Page contains "${target}": ${pageText?.includes(target) || false}`);
+          console.log(`Page text length: ${pageText?.length || 0}`);
+          
+          // Additional debugging for navigation elements
+          if (this.isNavigationElement(target)) {
+            console.log(`🔍 Additional debugging for navigation element "${target}":`);
+            
+            // Check main page
+            const navElements = await page.evaluate((targetText: string) => {
+              const elements = document.querySelectorAll('nav *, [role="tab"], .tab, .nav-item, .nav-link, button, a');
+              const results: string[] = [];
+              elements.forEach((el, index) => {
+                const text = el.textContent?.trim() || '';
+                if (text.toLowerCase().includes(targetText.toLowerCase())) {
+                  results.push(`${index}: ${el.tagName} - "${text}" - Classes: "${el.className}" - Role: "${el.getAttribute('role')}"`);
+                }
+              });
+              return results;
+            }, target);
+            
+            if (navElements.length > 0) {
+              console.log(`Found ${navElements.length} navigation elements on main page:`);
+              navElements.forEach(el => console.log(`  - ${el}`));
+            } else {
+              console.log(`No navigation elements found on main page for "${target}"`);
+              
+              // Check iframes
+              const iframeElements = await page.evaluate((targetText: string) => {
+                const iframes = document.querySelectorAll('iframe');
+                const results: string[] = [];
+                
+                iframes.forEach((iframe, iframeIndex) => {
+                  try {
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+                    if (iframeDoc) {
+                      const elements = iframeDoc.querySelectorAll('nav *, [role="tab"], .tab, .nav-item, .nav-link, button, a');
+                      elements.forEach((el, index) => {
+                        const text = el.textContent?.trim() || '';
+                        if (text.toLowerCase().includes(targetText.toLowerCase())) {
+                          results.push(`iframe${iframeIndex}-${index}: ${el.tagName} - "${text}" - Classes: "${el.className}" - Role: "${el.getAttribute('role')}"`);
+                        }
+                      });
+                    }
+                  } catch (e) {
+                    // Cross-origin iframe, can't access
+                  }
+                });
+                
+                return results;
+              }, target);
+              
+              if (iframeElements.length > 0) {
+                console.log(`Found ${iframeElements.length} navigation elements in iframes:`);
+                iframeElements.forEach(el => console.log(`  - ${el}`));
+              } else {
+                console.log(`No navigation elements found in iframes for "${target}"`);
+              }
+            }
+          }
+          
+          // Check if page is still valid
+          if (page.isClosed()) {
+            console.log(`❌ Page is closed - cannot proceed with click`);
+            throw new Error('Page has been closed');
+          }
+        } catch (error) {
+          console.log(`❌ Page state check failed: ${(error as Error).message}`);
+          throw error;
+        }
         console.log(`=== END REGULAR CLICK DEBUG ===\n`);
         
         // Special handling for dropdown elements that appear after UI expansion
@@ -307,9 +418,22 @@ export class TestExecutorService {
           await this.waitForDynamicElementToAppear(page, target);
         }
         
-        // Special handling for project creation elements that may cause navigation
-        if (this.isProjectCreationElement(target)) {
-          console.log(`🔄 Detected project creation element: "${target}" - may cause navigation`);
+        // Special handling for navigation elements that might close the page
+        if (this.isNavigationElement(target)) {
+          console.log(`🔄 Detected navigation element: "${target}" - may cause page navigation`);
+          
+          // First, try to find the element without clicking to see if it exists
+          console.log(`🔍 Checking if "${target}" element exists and is clickable...`);
+          const elementInfo = await this.checkNavigationElementState(page, target);
+          
+          if (elementInfo.exists && elementInfo.isActive) {
+            console.log(`✅ Navigation element "${target}" exists and is already active - skipping click`);
+            return;
+          } else if (elementInfo.exists && !elementInfo.isActive) {
+            console.log(`ℹ️ Navigation element "${target}" exists but is not active - proceeding with click`);
+          } else {
+            console.log(`⚠️ Navigation element "${target}" not found - proceeding with normal click logic`);
+          }
         }
         
         // Special handling for dropdown/select elements that might already be selected
@@ -510,11 +634,40 @@ export class TestExecutorService {
         // End of conditional block - no action needed
         return;
       }
-      case 'wait':
-        await page.waitForTimeout(2000);
+      case 'wait': {
+        // Parse wait time from target (e.g., "1000ms", "5sec", "2min")
+        const waitTime = this.parseWaitTime(target);
+        console.log(`⏰ Waiting for ${waitTime}ms (${target})`);
+        
+        // Wait steps should not be subject to step timeout - they handle their own timing
+        await page.waitForTimeout(waitTime);
         return;
+      }
       default:
         return;
+    }
+  }
+
+  private parseWaitTime(target: string): number {
+    const timeStr = target.toLowerCase().trim();
+    
+    // Handle different time formats
+    if (timeStr.includes('ms')) {
+      const ms = parseInt(timeStr.replace('ms', '').trim());
+      return isNaN(ms) ? 2000 : Math.min(ms, 300000); // Max 5 minutes
+    } else if (timeStr.includes('sec')) {
+      const sec = parseInt(timeStr.replace('sec', '').trim());
+      return isNaN(sec) ? 2000 : Math.min(sec * 1000, 300000); // Max 5 minutes
+    } else if (timeStr.includes('min')) {
+      const min = parseInt(timeStr.replace('min', '').trim());
+      return isNaN(min) ? 2000 : Math.min(min * 60 * 1000, 300000); // Max 5 minutes
+    } else if (timeStr.includes('hour')) {
+      const hour = parseInt(timeStr.replace('hour', '').trim());
+      return isNaN(hour) ? 2000 : Math.min(hour * 60 * 60 * 1000, 300000); // Max 5 minutes
+    } else {
+      // Try to parse as number (assume milliseconds)
+      const num = parseInt(timeStr);
+      return isNaN(num) ? 2000 : Math.min(num, 300000); // Max 5 minutes
     }
   }
 
@@ -597,10 +750,47 @@ export class TestExecutorService {
         page.locator(`[test-id="${target}"]`),
         page.locator(`[data-testid*="${slug}" i]`),
         
+        // Sign In specific locators
+        ...(target.toLowerCase().includes('sign in') ? [
+          page.locator('button[type="submit"]'),
+          page.locator('input[type="submit"]'),
+          page.locator('[data-testid*="sign" i]'),
+          page.locator('[data-testid*="login" i]'),
+          page.locator('[data-testid*="submit" i]'),
+          page.locator('button:has-text("Sign In")'),
+          page.locator('button:has-text("Sign in")'),
+          page.locator('button:has-text("Login")'),
+          page.locator('button:has-text("Log in")'),
+          page.locator('input[value*="Sign In" i]'),
+          page.locator('input[value*="Sign in" i]'),
+          page.locator('input[value*="Login" i]'),
+          page.locator('input[value*="Log in" i]'),
+        ] : []),
+        
         // Enhanced link and button patterns for DataApps
         page.locator(`a[role="button"][aria-label*="${target}" i]`),
         page.locator(`a:has-text("${target}")`),
         page.locator(`a[title*="${target}" i]`),
+        
+        // Tab-specific locators for navigation elements
+        page.locator(`[role="tab"]:has-text("${target}")`),
+        page.locator(`[role="tab"][aria-label*="${target}" i]`),
+        page.locator(`[role="tabpanel"]:has-text("${target}")`),
+        page.locator(`nav a:has-text("${target}")`),
+        page.locator(`nav button:has-text("${target}")`),
+        page.locator(`.tab:has-text("${target}")`),
+        page.locator(`.nav-item:has-text("${target}")`),
+        page.locator(`.nav-link:has-text("${target}")`),
+        
+        // Iframe-specific locators for DataApps
+        page.locator(`iframe [role="tab"]:has-text("${target}")`),
+        page.locator(`iframe nav a:has-text("${target}")`),
+        page.locator(`iframe nav button:has-text("${target}")`),
+        page.locator(`iframe .tab:has-text("${target}")`),
+        page.locator(`iframe .nav-item:has-text("${target}")`),
+        page.locator(`iframe .nav-link:has-text("${target}")`),
+        page.locator(`iframe button:has-text("${target}")`),
+        page.locator(`iframe a:has-text("${target}")`),
         page.getByRole('button', { name: nameRe }),
         page.getByRole('tab', { name: nameRe }),
         page.getByRole('link', { name: nameRe }),
@@ -785,8 +975,8 @@ export class TestExecutorService {
         
         // Wait for potential DataApp navigation/loading (with graceful error handling)
         try {
-          // For navigation buttons like "Next", use a more lenient stability check
-          if (target?.toLowerCase().includes('next') || target?.toLowerCase().includes('continue') || target?.toLowerCase().includes('proceed')) {
+          // For navigation elements, use a more lenient stability check
+          if (this.isNavigationElement(target || '') || target?.toLowerCase().includes('next') || target?.toLowerCase().includes('continue') || target?.toLowerCase().includes('proceed')) {
             await this.waitForNavigationStability(page);
           } else {
             await this.waitForDataAppStability(page);
@@ -809,6 +999,13 @@ export class TestExecutorService {
     
     // Scroll-sweep retry pass with moderate timeouts
     console.log('Scroll-sweep retry pass...');
+    
+    // Check if page is still valid before scroll-sweep
+    if (page.isClosed()) {
+      console.log(`❌ Page is closed - skipping scroll-sweep retry`);
+      throw new Error('Page has been closed');
+    }
+    
     await this.scrollSweep(page);
     for (let i = 0; i < locators.length; i++) {
       const loc = locators[i];
@@ -1126,7 +1323,136 @@ export class TestExecutorService {
     console.log(`\n🤖 AI-POWERED CLICK for: "${target}"`);
     console.log('=' .repeat(50));
     
-    // Lightweight wait for DataApp to load (reduced timeout for AI clicks)
+    // Try GPT-4 first if available
+    if (this.openai) {
+      console.log('✅ OpenAI client is available, proceeding with AI analysis...');
+      try {
+        console.log('🔍 Using GPT-4 for intelligent element discovery...');
+        
+        // Get page information for AI analysis
+        const pageInfo = await page.evaluate(() => {
+          const clickableElements: Array<{
+            text: string;
+            tagName: string;
+            className: string;
+            id: string;
+            type: string | null;
+            role: string | null;
+            index: number;
+          }> = [];
+          const elements = document.querySelectorAll('button, a, [role="button"], [onclick], input[type="button"], input[type="submit"]');
+          
+          elements.forEach((el, index) => {
+            const rect = el.getBoundingClientRect();
+            const isVisible = rect.width > 0 && rect.height > 0;
+            if (isVisible) {
+              clickableElements.push({
+                text: el.textContent?.trim() || '',
+                tagName: el.tagName,
+                className: el.className,
+                id: el.id,
+                type: el.getAttribute('type'),
+                role: el.getAttribute('role'),
+                index: index
+              });
+            }
+          });
+          
+          return {
+            url: window.location.href,
+            title: document.title,
+            clickableElements: clickableElements.slice(0, 20) // Limit to first 20
+          };
+        });
+        
+        // Create AI prompt for element discovery
+        const prompt = `Please analyze this web page and find the best clickable element for: "${target}"
+
+PAGE INFORMATION:
+- URL: ${pageInfo.url}
+- Title: ${pageInfo.title}
+
+AVAILABLE CLICKABLE ELEMENTS:
+${pageInfo.clickableElements.map((el, i) => `${i + 1}. ${el.tagName} - Text: "${el.text}" - Class: "${el.className}" - ID: "${el.id}" - Type: "${el.type}" - Role: "${el.role}"`).join('\n')}
+
+Please respond with JSON:
+{
+  "elementFound": boolean,
+  "bestMatch": {
+    "index": number,
+    "reasoning": "why this element matches the target"
+  },
+  "alternativeMatches": [{"index": number, "reasoning": "why this could work"}]
+}`;
+
+        const response = await this.openai.chat.completions.create({
+          model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert web automation tester. Analyze pages and find the best clickable elements. Respond with JSON.'
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 800
+        });
+
+        const aiResponse = response.choices[0]?.message?.content || '';
+        console.log(`📊 AI Analysis Response: ${aiResponse}`);
+
+        // Parse AI response and try to click
+        try {
+          const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const result = JSON.parse(jsonMatch[0]);
+            if (result.elementFound && result.bestMatch) {
+              const elementIndex = result.bestMatch.index - 1; // Convert to 0-based index
+              const element = pageInfo.clickableElements[elementIndex];
+              
+              if (element) {
+                console.log(`🎯 AI selected element: ${element.tagName} - "${element.text}"`);
+                console.log(`💡 Reasoning: ${result.bestMatch.reasoning}`);
+                
+                // Try to click the AI-selected element using simple selectors
+                let selector = '';
+                if (element.id) {
+                  selector = `#${element.id}`;
+                } else if (element.className) {
+                  const classes = element.className.split(' ').filter((c: string) => c.length > 0);
+                  if (classes.length > 0) {
+                    selector = `.${classes.join('.')}`;
+                  }
+                } else if (element.text) {
+                  selector = `${element.tagName.toLowerCase()}:has-text("${element.text}")`;
+                } else {
+                  selector = element.tagName.toLowerCase();
+                }
+                
+                const locator = page.locator(selector).first();
+                await locator.waitFor({ state: 'visible', timeout: 10000 });
+                await locator.click({ timeout: 10000 });
+                
+                console.log(`✅ AI click successful for: "${target}"`);
+                return;
+              }
+            }
+          }
+        } catch (parseError) {
+          console.log('⚠️ Could not parse AI response, falling back to pattern matching');
+        }
+      } catch (error) {
+        console.log(`⚠️ AI click failed: ${(error as Error).message}, falling back to pattern matching`);
+      }
+    } else {
+      console.log('❌ OpenAI client is NOT available, using fallback pattern matching');
+    }
+    
+    // Fallback to existing pattern-based approach
+    console.log('🔍 Using pattern-based element discovery...');
     try {
       await page.waitForLoadState('domcontentloaded', { timeout: 5000 });
       console.log('✅ DataApp loading complete');
@@ -1325,7 +1651,148 @@ export class TestExecutorService {
   }
 
   private async performAIInput(page: Page, target: string, value: string): Promise<void> {
-    console.log(`AI-powered input discovery for target: "${target}"`);
+    console.log(`🤖 AI-POWERED INPUT for: "${target}" with value: "${value}"`);
+    console.log('=' .repeat(60));
+    
+    // Try GPT-4 first if available
+    if (this.openai) {
+      try {
+        console.log('🔍 Using GPT-4 for intelligent input field discovery...');
+        
+        // Get page information for AI analysis
+        const pageInfo = await page.evaluate(() => {
+          const inputElements: Array<{
+            text: string;
+            tagName: string;
+            className: string;
+            id: string;
+            type: string | null;
+            placeholder: string | null;
+            name: string | null;
+            label: string;
+            index: number;
+          }> = [];
+          const elements = document.querySelectorAll('input, textarea, select, [contenteditable="true"], [role="textbox"]');
+          
+          elements.forEach((el, index) => {
+            const rect = el.getBoundingClientRect();
+            const isVisible = rect.width > 0 && rect.height > 0;
+            if (isVisible) {
+              inputElements.push({
+                text: el.textContent?.trim() || '',
+                tagName: el.tagName,
+                className: el.className,
+                id: el.id,
+                type: el.getAttribute('type'),
+                placeholder: el.getAttribute('placeholder'),
+                name: el.getAttribute('name'),
+                label: (() => {
+                  // Try to find associated label
+                  const label = document.querySelector(`label[for="${el.id}"]`);
+                  return label ? label.textContent?.trim() : '';
+                })(),
+                index: index
+              });
+            }
+          });
+          
+          return {
+            url: window.location.href,
+            title: document.title,
+            inputElements: inputElements.slice(0, 15) // Limit to first 15
+          };
+        });
+        
+        // Create AI prompt for input field discovery
+        const prompt = `Please analyze this web page and find the best input field for: "${target}" to enter the value: "${value}"
+
+PAGE INFORMATION:
+- URL: ${pageInfo.url}
+- Title: ${pageInfo.title}
+
+AVAILABLE INPUT FIELDS:
+${pageInfo.inputElements.map((el, i) => `${i + 1}. ${el.tagName} - Type: "${el.type}" - ID: "${el.id}" - Name: "${el.name}" - Placeholder: "${el.placeholder}" - Label: "${el.label}" - Class: "${el.className}"`).join('\n')}
+
+Please respond with JSON:
+{
+  "fieldFound": boolean,
+  "bestMatch": {
+    "index": number,
+    "reasoning": "why this field matches the target"
+  },
+  "alternativeMatches": [{"index": number, "reasoning": "why this could work"}]
+}`;
+
+        const response = await this.openai.chat.completions.create({
+          model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert web automation tester. Analyze pages and find the best input fields. Respond with JSON.'
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 800
+        });
+
+        const aiResponse = response.choices[0]?.message?.content || '';
+        console.log(`📊 AI Analysis Response: ${aiResponse}`);
+
+        // Parse AI response and try to fill
+        try {
+          const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const result = JSON.parse(jsonMatch[0]);
+            if (result.fieldFound && result.bestMatch) {
+              const elementIndex = result.bestMatch.index - 1; // Convert to 0-based index
+              const element = pageInfo.inputElements[elementIndex];
+              
+              if (element) {
+                console.log(`🎯 AI selected field: ${element.tagName} - "${element.type}" - "${element.placeholder || element.label}"`);
+                console.log(`💡 Reasoning: ${result.bestMatch.reasoning}`);
+                
+                // Try to fill the AI-selected field using simple selectors
+                let selector = '';
+                if (element.id) {
+                  selector = `#${element.id}`;
+                } else if (element.name) {
+                  selector = `[name="${element.name}"]`;
+                } else if (element.className) {
+                  const classes = element.className.split(' ').filter((c: string) => c.length > 0);
+                  if (classes.length > 0) {
+                    selector = `${element.tagName.toLowerCase()}.${classes.join('.')}`;
+                  }
+                } else if (element.placeholder) {
+                  selector = `${element.tagName.toLowerCase()}[placeholder="${element.placeholder}"]`;
+                } else {
+                  selector = element.tagName.toLowerCase();
+                }
+                
+                const locator = page.locator(selector).first();
+                await locator.waitFor({ state: 'visible', timeout: 10000 });
+                await locator.fill(value, { timeout: 10000 });
+                
+                console.log(`✅ AI input successful for: "${target}"`);
+                return;
+              }
+            }
+          }
+        } catch (parseError) {
+          console.log('⚠️ Could not parse AI response, falling back to pattern matching');
+        }
+      } catch (error) {
+        console.log(`⚠️ AI input failed: ${(error as Error).message}, falling back to pattern matching`);
+      }
+    } else {
+      console.log('⚠️ OpenAI not available, using fallback pattern matching');
+    }
+    
+    // Fallback to existing pattern-based approach
+    console.log('🔍 Using pattern-based input field discovery...');
     
     const candidates = await page.evaluate((targetText: string) => {
       const elements: Array<{
@@ -1436,13 +1903,173 @@ export class TestExecutorService {
   }
 
   private async performAIVerify(page: Page, target: string): Promise<void> {
-    console.log(`AI-powered verification discovery for target: "${target}"`);
+    console.log(`\n🤖 AI-POWERED VERIFICATION for: "${target}"`);
+    console.log('=' .repeat(50));
     
     const targetLower = target.toLowerCase();
     
-    // Special handling for "no error" verification - use robust multi-strategy detection
+    // Special handling for "no error" verification - use AI analysis
     if (targetLower.includes('no error') || targetLower.includes('no exception')) {
-      console.log('🔍 Performing robust "no error" verification...');
+      console.log('🔍 Performing AI-powered "no error" verification...');
+      
+      // Try GPT-4 first if available
+      if (this.openai) {
+        console.log('✅ OpenAI client is available, proceeding with AI analysis...');
+        try {
+          console.log('🔍 Using GPT-4 for intelligent error detection...');
+          
+          // Get page information for AI analysis
+          const pageInfo = await page.evaluate(() => {
+            const allFrames = window.frames;
+            const frameData: Array<{
+              url: string;
+              title: string;
+              textContent: string;
+              errorElements: Array<{
+                tagName: string;
+                text: string;
+                className: string;
+                id: string;
+                innerHTML: string;
+              }>;
+            }> = [];
+            
+            // Check main document
+            const mainDoc = document;
+            const errorElements = Array.from(mainDoc.querySelectorAll(
+              '.error, .exception, .traceback, .alert-danger, .alert-error, [class*="error"], [class*="exception"], [class*="traceback"]'
+            )).map(el => ({
+              tagName: el.tagName,
+              text: el.textContent?.trim() || '',
+              className: el.className,
+              id: el.id,
+              innerHTML: el.innerHTML.substring(0, 200)
+            }));
+            
+            frameData.push({
+              url: mainDoc.URL,
+              title: mainDoc.title,
+              textContent: mainDoc.body.innerText.substring(0, 2000),
+              errorElements
+            });
+            
+            // Check iframes
+            const iframes = mainDoc.querySelectorAll('iframe');
+            for (let i = 0; i < iframes.length; i++) {
+              try {
+                const iframe = iframes[i] as HTMLIFrameElement;
+                const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+                if (iframeDoc) {
+                  const iframeErrorElements = Array.from(iframeDoc.querySelectorAll(
+                    '.error, .exception, .traceback, .alert-danger, .alert-error, [class*="error"], [class*="exception"], [class*="traceback"]'
+                  )).map(el => ({
+                    tagName: el.tagName,
+                    text: el.textContent?.trim() || '',
+                    className: el.className,
+                    id: el.id,
+                    innerHTML: el.innerHTML.substring(0, 200)
+                  }));
+                  
+                  frameData.push({
+                    url: iframe.src || 'iframe',
+                    title: iframeDoc.title,
+                    textContent: iframeDoc.body.innerText.substring(0, 2000),
+                    errorElements: iframeErrorElements
+                  });
+                }
+              } catch (e) {
+                // Cross-origin iframe, skip
+              }
+            }
+            
+            return frameData;
+          });
+          
+          // Create AI prompt for error analysis
+          const prompt = `Please analyze this web page and determine if there are any errors or issues that need attention.
+
+PAGE INFORMATION:
+${pageInfo.map((frame, i) => `
+Frame ${i}:
+- URL: ${frame.url}
+- Title: ${frame.title}
+- Text Content: ${frame.textContent}
+- Error Elements Found: ${frame.errorElements.length}
+${frame.errorElements.length > 0 ? frame.errorElements.map((el, idx) => `  ${idx + 1}. <${el.tagName}> class="${el.className}" text="${el.text}"`).join('\n') : '  None'}
+`).join('\n')}
+
+Please respond with JSON:
+{
+  "hasErrors": boolean,
+  "errorCount": number,
+  "errors": [
+    {
+      "frame": number,
+      "type": "error type",
+      "description": "description of the error",
+      "severity": "low|medium|high"
+    }
+  ],
+  "summary": "overall assessment of the page state"
+}`;
+
+          const response = await Promise.race([
+            this.openai.chat.completions.create({
+              model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+              messages: [
+                {
+                  role: 'system',
+                  content: 'You are an expert web application tester. Analyze web pages for errors, exceptions, and issues. Look for Python errors, JavaScript errors, UI issues, and any problems that would indicate the application is not working correctly. Respond with JSON.'
+                },
+                {
+                  role: 'user',
+                  content: prompt
+                }
+              ],
+              temperature: 0.1,
+              max_tokens: 1000
+            }),
+            new Promise<never>((_, reject) => 
+              setTimeout(() => reject(new Error('AI verification timeout after 30 seconds')), 30000)
+            )
+          ]) as any;
+
+          const aiResponse = response.choices[0]?.message?.content || '';
+          console.log(`📊 AI Analysis Response: ${aiResponse}`);
+
+          // Parse AI response
+          try {
+            const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const result = JSON.parse(jsonMatch[0]);
+              if (result.hasErrors && result.errorCount > 0) {
+                console.log(`🚨 AI detected ${result.errorCount} errors:`);
+                result.errors.forEach((error: any, idx: number) => {
+                  console.log(`  ${idx + 1}. Frame ${error.frame}: ${error.type} - ${error.description} (${error.severity})`);
+                });
+                throw new Error(`VERIFICATION FAILED: AI detected ${result.errorCount} errors on the page.\n\nAI Analysis Summary: ${result.summary}\n\nErrors:\n${result.errors.map((e: any) => `- Frame ${e.frame}: ${e.type} - ${e.description}`).join('\n')}`);
+              } else {
+                console.log(`✅ AI verification passed: ${result.summary}`);
+                return; // Exit early - AI says no errors, so verification passes
+              }
+            } else {
+              console.log('⚠️ Could not parse AI response, falling back to pattern matching');
+              throw new Error('Could not parse AI response');
+            }
+          } catch (parseError) {
+            console.log('⚠️ AI verification failed, falling back to pattern matching');
+            throw parseError;
+          }
+        } catch (error) {
+          console.log(`⚠️ AI verification failed: ${(error as Error).message}, falling back to pattern matching`);
+          // Fall through to pattern matching
+        }
+      } else {
+        console.log('❌ OpenAI client is NOT available, using fallback pattern matching');
+      }
+      
+      // Fallback to existing pattern-based approach
+      console.log('🔍 Using pattern-based error detection...');
       
       // Wait for dynamic errors to appear
       await page.waitForTimeout(3000);
@@ -1808,10 +2435,144 @@ export class TestExecutorService {
   }
 
   private async scrollSweep(page: Page) {
-    try { await page.evaluate(() => (globalThis as any).scrollTo(0, 0)); } catch {}
+    try {
+      // Check if page is still valid before scrolling
+      if (page.isClosed()) {
+        console.log(`⚠️ Page is closed - skipping scroll sweep`);
+        return;
+      }
+      
+      console.log(`🔄 Starting scroll sweep...`);
+      await page.evaluate(() => (globalThis as any).scrollTo(0, 0));
+      
     for (let i = 0; i < 3; i++) {
-      try { await page.mouse.wheel(0, 800); } catch {}
+        // Check if page is still valid before each scroll
+        if (page.isClosed()) {
+          console.log(`⚠️ Page closed during scroll sweep at step ${i + 1}`);
+          return;
+        }
+        
+        try { 
+          await page.mouse.wheel(0, 800); 
+          console.log(`📜 Scroll step ${i + 1}/3 completed`);
+        } catch (scrollError) {
+          console.log(`⚠️ Scroll step ${i + 1} failed: ${(scrollError as Error).message}`);
+          if ((scrollError as Error).message.includes('Target page, context or browser has been closed')) {
+            console.log(`✅ Page closed during scroll - navigation may have occurred`);
+            return;
+          }
+        }
       await page.waitForTimeout(80);
+      }
+      
+      console.log(`✅ Scroll sweep completed successfully`);
+    } catch (error) {
+      console.log(`⚠️ Scroll sweep failed: ${(error as Error).message}`);
+      if ((error as Error).message.includes('Target page, context or browser has been closed')) {
+        console.log(`✅ Page closed during scroll sweep - navigation may have occurred`);
+      }
+    }
+  }
+
+  private async waitForDataAppFullLoad(page: Page): Promise<void> {
+    try {
+      console.log(`🔄 Waiting for DataApp to fully load...`);
+      
+      // Check if page is still valid
+      if (page.isClosed()) {
+        console.log(`⚠️ Page is closed - cannot wait for DataApp load`);
+        return;
+      }
+      
+      // Wait for the page to have substantial content (not just "Streamlit" title)
+      let attempts = 0;
+      const maxAttempts = 30; // 30 seconds max
+      
+      while (attempts < maxAttempts) {
+        if (page.isClosed()) {
+          console.log(`✅ Page closed during DataApp load wait - navigation may have occurred`);
+          return;
+        }
+        
+        try {
+          const pageTitle = await page.title();
+          const pageText = await page.textContent('body');
+          const textLength = pageText?.length || 0;
+          
+          console.log(`📊 DataApp load check ${attempts + 1}/${maxAttempts}: Title="${pageTitle}", Content=${textLength} chars`);
+          
+          // Check if DataApp is loaded (has substantial content and proper title)
+          if (textLength > 1000 && !pageTitle.toLowerCase().includes('streamlit')) {
+            console.log(`✅ DataApp fully loaded: ${textLength} chars, title="${pageTitle}"`);
+            return;
+          }
+          
+          // Also check for specific DataApp elements
+          const hasDataAppElements = await page.evaluate(() => {
+            const elements = document.querySelectorAll('nav, [role="tab"], .nav-item, .nav-link, button, a');
+            return elements.length > 5; // Should have navigation elements
+          });
+          
+          if (hasDataAppElements) {
+            console.log(`✅ DataApp elements detected - UI is loaded`);
+            return;
+          }
+          
+          // Check for iframes that might contain the DataApp UI
+          const hasIframes = await page.evaluate(() => {
+            const iframes = document.querySelectorAll('iframe');
+            return iframes.length > 0;
+          });
+          
+          if (hasIframes) {
+            console.log(`🔄 DataApp has iframes - checking iframe content...`);
+            // Wait a bit more for iframe content to load
+            await page.waitForTimeout(2000);
+          }
+          
+        } catch (error) {
+          console.log(`⚠️ DataApp load check failed: ${(error as Error).message}`);
+        }
+        
+        await page.waitForTimeout(1000);
+        attempts++;
+      }
+      
+      console.log(`⚠️ DataApp load timeout after ${maxAttempts} seconds - proceeding anyway`);
+      
+    } catch (error) {
+      console.log(`⚠️ DataApp load wait failed: ${(error as Error).message}`);
+    }
+  }
+
+  private async waitForNavigationStability(page: Page): Promise<void> {
+    try {
+      // Check if page is still valid before proceeding
+      if (page.isClosed()) {
+        console.log(`✅ Page closed - navigation successful`);
+        return;
+      }
+      
+      // For navigation clicks, use a shorter, more lenient wait
+      await Promise.race([
+        page.waitForLoadState('networkidle', { timeout: 2000 }),
+        page.waitForTimeout(1000) // Shorter fallback timeout
+      ]);
+      
+      // Check if page is still valid after network wait
+      if (page.isClosed()) {
+        console.log(`✅ Page closed after navigation - successful`);
+        return;
+      }
+      
+      console.log(`✅ Navigation stability achieved`);
+    } catch (error) {
+      // If page closed during navigation wait, that's expected
+      if ((error as Error).message.includes('Target page, context or browser has been closed')) {
+        console.log(`✅ Page closed during navigation - successful`);
+      } else {
+        console.log(`⚠️ Navigation stability warning: ${(error as Error).message}`);
+      }
     }
   }
 
@@ -1886,57 +2647,6 @@ export class TestExecutorService {
     }
   }
 
-  private async waitForNavigationStability(page: Page): Promise<void> {
-    try {
-      // Check if page is still valid before proceeding
-      if (page.isClosed()) {
-        console.log(`✅ Page closed - navigation successful`);
-        return;
-      }
-      
-      // For navigation clicks, use a more lenient approach
-      // Wait for basic network stability (shorter timeout)
-      await Promise.race([
-        page.waitForLoadState('networkidle', { timeout: 5000 }),
-        page.waitForTimeout(2000) // Fallback timeout
-      ]);
-      
-      // Check if page is still valid after network wait
-      if (page.isClosed()) {
-        console.log(`✅ Page closed after network wait - navigation successful`);
-        return;
-      }
-      
-      // Wait for any loading indicators to disappear (shorter timeout)
-      await Promise.race([
-        page.waitForSelector('.loading, .spinner, [class*="loading"], [class*="spinner"]', { 
-          state: 'detached', 
-          timeout: 1500 
-        }).catch(() => {}),
-        page.waitForTimeout(1000)
-      ]);
-      
-      // Check if page is still valid after loading indicators wait
-      if (page.isClosed()) {
-        console.log(`✅ Page closed after loading indicators wait - navigation successful`);
-        return;
-      }
-      
-      // For navigation clicks, don't wait for specific frame counts
-      // Just ensure the page is responsive
-      await page.waitForTimeout(500);
-      
-      console.log(`✅ Navigation stability check completed`);
-      
-    } catch (error: any) {
-      // If page closed during any operation, that's expected for navigation clicks
-      if (error.message.includes('Target page, context or browser has been closed')) {
-        console.log(`✅ Page closed during navigation stability check - navigation successful`);
-        return;
-      }
-      console.log(`⚠️ Navigation stability check failed: ${error.message}`);
-    }
-  }
 
   // Wait for dynamic elements to appear (like dropdown options after clicking Advanced Settings)
   private async waitForDynamicElementToAppear(page: Page, target: string): Promise<void> {
@@ -2066,6 +2776,183 @@ export class TestExecutorService {
     
     const targetLower = target.toLowerCase();
     return projectCreationKeywords.some(keyword => targetLower.includes(keyword));
+  }
+
+  private isNavigationElement(target: string): boolean {
+    const navigationKeywords = [
+      'overview', 'schedule', 'gantt', 'ask ai', 'dashboard', 'home',
+      'projects', 'settings', 'profile', 'account', 'logout', 'sign out',
+      'back', 'next', 'continue', 'proceed', 'submit', 'save'
+    ];
+    
+    const targetLower = target.toLowerCase();
+    return navigationKeywords.some(keyword => targetLower.includes(keyword));
+  }
+
+  private async checkNavigationElementState(page: Page, target: string): Promise<{exists: boolean, isActive: boolean, elementInfo: string}> {
+    try {
+      console.log(`🔍 Checking navigation element state for "${target}"...`);
+      
+      // Check if page is still valid
+      if (page.isClosed()) {
+        console.log(`⚠️ Page is closed - cannot check element state`);
+        return {exists: false, isActive: false, elementInfo: 'Page closed'};
+      }
+      
+      // Try to find the element using our enhanced locators
+      const elementInfo = await page.evaluate((targetText: string) => {
+        const targetLower = targetText.toLowerCase();
+        const results: Array<{tagName: string, text: string, className: string, role: string, isActive: boolean, selector: string}> = [];
+        
+        // Try different selectors to find the element
+        const selectors = [
+          `[role="tab"]:has-text("${targetText}")`,
+          `nav a:has-text("${targetText}")`,
+          `nav button:has-text("${targetText}")`,
+          `.tab:has-text("${targetText}")`,
+          `.nav-item:has-text("${targetText}")`,
+          `.nav-link:has-text("${targetText}")`,
+          `button:has-text("${targetText}")`,
+          `a:has-text("${targetText}")`,
+          `*:has-text("${targetText}")`
+        ];
+        
+        // Also check iframes
+        const iframeSelectors = [
+          `iframe [role="tab"]:has-text("${targetText}")`,
+          `iframe nav a:has-text("${targetText}")`,
+          `iframe nav button:has-text("${targetText}")`,
+          `iframe .tab:has-text("${targetText}")`,
+          `iframe .nav-item:has-text("${targetText}")`,
+          `iframe .nav-link:has-text("${targetText}")`,
+          `iframe button:has-text("${targetText}")`,
+          `iframe a:has-text("${targetText}")`,
+          `iframe *:has-text("${targetText}")`
+        ];
+        
+        // Combine all selectors
+        const allSelectors = [...selectors, ...iframeSelectors];
+        
+        for (const selector of allSelectors) {
+          try {
+            const elements = document.querySelectorAll(selector);
+            for (const element of Array.from(elements)) {
+              const text = element.textContent?.trim().toLowerCase() || '';
+              if (text === targetLower || text.includes(targetLower)) {
+                const className = element.className?.toLowerCase() || '';
+                const role = element.getAttribute('role') || '';
+                const isActive = className.includes('active') || 
+                               className.includes('selected') || 
+                               className.includes('current') ||
+                               className.includes('highlighted');
+                
+                results.push({
+                  tagName: element.tagName,
+                  text: element.textContent?.trim() || '',
+                  className: element.className || '',
+                  role: role,
+                  isActive: isActive,
+                  selector: selector
+                });
+              }
+            }
+          } catch (e) {
+            // Selector might not be supported, continue
+          }
+        }
+        
+        return results;
+      }, target);
+      
+      if (elementInfo.length > 0) {
+        console.log(`✅ Found ${elementInfo.length} elements for "${target}":`);
+        elementInfo.forEach((info, index) => {
+          console.log(`  ${index + 1}. ${info.tagName} - "${info.text}" - Classes: "${info.className}" - Role: "${info.role}" - Active: ${info.isActive}`);
+        });
+        
+        // Check if any element is active
+        const hasActiveElement = elementInfo.some(info => info.isActive);
+        return {
+          exists: true,
+          isActive: hasActiveElement,
+          elementInfo: `Found ${elementInfo.length} elements, ${hasActiveElement ? 'some active' : 'none active'}`
+        };
+      } else {
+        console.log(`❌ No elements found for "${target}"`);
+        return {exists: false, isActive: false, elementInfo: 'No elements found'};
+      }
+      
+    } catch (error) {
+      console.log(`⚠️ Error checking navigation element state: ${(error as Error).message}`);
+      return {exists: false, isActive: false, elementInfo: `Error: ${(error as Error).message}`};
+    }
+  }
+
+  private async checkIfNavigationTabIsSelected(page: Page, target: string): Promise<boolean> {
+    try {
+      console.log(`🔍 Checking if navigation tab "${target}" is already selected...`);
+      
+      // Check if page is still valid
+      if (page.isClosed()) {
+        console.log(`⚠️ Page is closed - cannot check selection state`);
+        return false;
+      }
+      
+      // Look for common tab selection indicators
+      const selectionIndicators = await page.evaluate((targetText: string) => {
+        const targetLower = targetText.toLowerCase();
+        const indicators: string[] = [];
+        
+        console.log(`🔍 Looking for elements containing "${targetText}"...`);
+        
+        // Look for elements with the target text that have active/selected states
+        const elements = document.querySelectorAll('*');
+        
+        for (const element of Array.from(elements)) {
+          const text = element.textContent?.trim().toLowerCase() || '';
+          const className = element.className?.toLowerCase() || '';
+          const ariaSelected = element.getAttribute('aria-selected');
+          const ariaCurrent = element.getAttribute('aria-current');
+          const role = element.getAttribute('role');
+          
+          // More flexible text matching
+          if (text === targetLower || text.includes(targetLower)) {
+            console.log(`Found element with text "${text}": ${element.tagName}, classes: "${className}", role: "${role}"`);
+            
+            // Check for active/selected indicators
+            const isActive = className.includes('active') || 
+                           className.includes('selected') || 
+                           className.includes('current') ||
+                           className.includes('highlighted') ||
+                           ariaSelected === 'true' ||
+                           ariaCurrent === 'page' ||
+                           ariaCurrent === 'true';
+            
+            if (isActive) {
+              indicators.push(`Found ACTIVE element: ${element.tagName} with classes: "${className}", role: "${role}"`);
+            } else {
+              indicators.push(`Found INACTIVE element: ${element.tagName} with classes: "${className}", role: "${role}"`);
+            }
+          }
+        }
+        
+        console.log(`Total elements found: ${indicators.length}`);
+        return indicators;
+      }, target);
+      
+      if (selectionIndicators.length > 0) {
+        console.log(`✅ Found ${selectionIndicators.length} active/selected indicators for "${target}":`);
+        selectionIndicators.forEach(indicator => console.log(`  - ${indicator}`));
+        return true;
+      }
+      
+      console.log(`ℹ️ No active/selected indicators found for "${target}"`);
+      return false;
+      
+    } catch (error) {
+      console.log(`⚠️ Error checking navigation tab selection: ${(error as Error).message}`);
+      return false;
+    }
   }
 
   // Handle dropdown interaction more intelligently
@@ -2252,8 +3139,17 @@ export class TestExecutorService {
           i = conditionalResult.nextIndex;
         } else {
           // Execute regular step
+          if (step.action === 'wait') {
+            // Wait steps handle their own timing and should not be subject to step timeout
+            await this.performStep(page, step, emit);
+          } else if (step.action === 'verify' && (step as any).useAI) {
+            // AI verification steps need more time for AI analysis and should not be subject to step timeout
+            await this.performStep(page, step, emit);
+          } else {
+            // Other steps use adaptive timeout
           const adaptiveTimeout = this.getAdaptiveTimeout(step);
           await this.performWithTimeout(() => this.performStep(page, step, emit), adaptiveTimeout);
+          }
           
           // Screenshot on success
           let screenshotPath: string | undefined;
