@@ -350,7 +350,10 @@ jobs:
         fi
 
         CRON_SCHEDULE=$(echo "$SELECTED_CONFIG" | jq -r '.cron_schedule')
-        TEST_DESCRIPTION=$(echo "$SELECTED_CONFIG" | jq -r '.test_description')
+        # Safely extract test description to avoid shell syntax issues with special characters
+        # Use a temporary file to avoid shell variable assignment issues
+        echo "$SELECTED_CONFIG" | jq -r '.test_description' > /tmp/test_desc_from_json.txt
+        TEST_DESCRIPTION=$(cat /tmp/test_desc_from_json.txt)
 
         # Sanitize config name for filename
         SANITIZED_CONFIG_NAME=$(echo "$CONFIG_NAME" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
@@ -591,7 +594,7 @@ jobs:
         fi
         
         # Clean up
-        rm -f /tmp/new_env_section.txt /tmp/test_description.txt
+        rm -f /tmp/new_env_section.txt /tmp/test_description.txt /tmp/test_desc_from_json.txt
         
         # CRITICAL: Replace inputs.headless with env.HEADLESS for scheduled workflows
         echo "🔧 CRITICAL: Replacing inputs.headless with env.HEADLESS..."
