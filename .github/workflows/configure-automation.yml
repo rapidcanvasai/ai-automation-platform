@@ -360,7 +360,6 @@ jobs:
         WORKFLOW_FILE=".github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml"
 
         echo " Cron Schedule: $CRON_SCHEDULE"
-        echo " Test Description: $TEST_DESCRIPTION"
         echo " Test Description Length: ${#TEST_DESCRIPTION}"
         echo " Workflow File: $WORKFLOW_FILE"
         
@@ -479,18 +478,18 @@ jobs:
         SLACK_CHANNEL=$(echo "$SELECTED_CONFIG" | jq -r '.slack_channel // "general"')
         ENABLE_SLACK=$(echo "$SELECTED_CONFIG" | jq -r '.enable_slack // true')
         HEADLESS=$(echo "$SELECTED_CONFIG" | jq -r '.headless // true')
-        TEST_DESCRIPTION=$(echo "$SELECTED_CONFIG" | jq -r '.test_description // ""')
+        # TEST_DESCRIPTION already safely extracted above, don't override it
 
         echo "Debug: Extracted config values:"
         echo "  SLACK_CHANNEL: $SLACK_CHANNEL"
         echo "  ENABLE_SLACK: $ENABLE_SLACK"
         echo "  HEADLESS: $HEADLESS"
-        echo "  TEST_DESCRIPTION: '$TEST_DESCRIPTION'"
+        echo "  TEST_DESCRIPTION: [Length: ${#TEST_DESCRIPTION} characters]"
 
         # Replace environment variables with hardcoded values from user configuration
         # This ensures scheduled workflows have fixed values, no dependency on inputs
         
-        echo "Debug: Original TEST_DESCRIPTION: '$TEST_DESCRIPTION'"
+        echo "Debug: Original TEST_DESCRIPTION length: ${#TEST_DESCRIPTION}"
         echo "Debug: TEST_DESCRIPTION length: ${#TEST_DESCRIPTION}"
         echo "Debug: WORKFLOW_FILE: $WORKFLOW_FILE"
         
@@ -514,7 +513,7 @@ jobs:
         # DIRECT REPLACEMENT: Replace the entire env section with hardcoded values
         echo "🔧 CRITICAL: Running direct environment variable replacement..."
         echo "Debug: WORKFLOW_FILE = $WORKFLOW_FILE"
-        echo "Debug: TEST_DESCRIPTION = '$TEST_DESCRIPTION'"
+        echo "Debug: TEST_DESCRIPTION length = ${#TEST_DESCRIPTION}"
         echo "Debug: SLACK_CHANNEL = '$SLACK_CHANNEL'"
         echo "Debug: ENABLE_SLACK = $ENABLE_SLACK"
         echo "Debug: HEADLESS = $HEADLESS"
