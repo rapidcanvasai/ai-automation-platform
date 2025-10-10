@@ -427,7 +427,8 @@ jobs:
         
         # Use cross-platform sed approach - create temp file and replace
         echo "Debug: Running sed command..."
-        sed "s/name: AI Test Automation Pipeline/name: Daily AI Test Automation - $CONFIG_NAME/" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
+        # Use a safer approach with perl instead of sed to avoid escaping issues
+        perl -i -pe "s/name: AI Test Automation Pipeline/name: Daily AI Test Automation - $CONFIG_NAME/" "$WORKFLOW_FILE"
         echo "Debug: Sed command completed"
         
         # Verify workflow name update
@@ -518,7 +519,8 @@ jobs:
         echo "🔧 CRITICAL: Creating new env section with hardcoded values..."
         {
           echo "env:"
-          echo "  TEST_DESCRIPTION: 'TEST_DESCRIPTION_PLACEHOLDER'"
+          echo "  TEST_DESCRIPTION: |"
+          echo "    TEST_DESCRIPTION_PLACEHOLDER"
           echo "  OPENAI_API_KEY: \$\{\{ secrets.OPENAI_API_KEY \}\}"
           echo "  OPENAI_MODEL: gpt-4o-mini"
           echo "  SLACK_CHANNEL: 'SLACK_CHANNEL_PLACEHOLDER'"
@@ -529,18 +531,28 @@ jobs:
           echo ""
         } > /tmp/new_env_section.txt
         
-        # Replace placeholders with actual values (using awk for safer replacement)
-        awk -v test_desc="$TEST_DESCRIPTION" \
-            -v slack_chan="$SLACK_CHANNEL" \
-            -v enable_slack="$ENABLE_SLACK" \
-            -v headless="$HEADLESS" \
-            '{
-              gsub(/TEST_DESCRIPTION_PLACEHOLDER/, test_desc)
-              gsub(/SLACK_CHANNEL_PLACEHOLDER/, slack_chan)
-              gsub(/ENABLE_SLACK_PLACEHOLDER/, enable_slack)
-              gsub(/HEADLESS_PLACEHOLDER/, headless)
-              print
-            }' /tmp/new_env_section.txt > /tmp/new_env_section_final.txt
+        # Replace placeholders with actual values using a simpler approach
+        # Create a temporary file with the test description to avoid shell escaping issues
+        echo "$TEST_DESCRIPTION" > /tmp/test_description.txt
+        
+        # Use a simpler approach - replace each placeholder individually
+        cp /tmp/new_env_section.txt /tmp/new_env_section_final.txt
+        
+        # Replace TEST_DESCRIPTION_PLACEHOLDER with the actual test description
+        if grep -q "TEST_DESCRIPTION_PLACEHOLDER" /tmp/new_env_section_final.txt; then
+          # Create a new file with the test description properly formatted
+          {
+            head -n 2 /tmp/new_env_section_final.txt  # Keep "env:" and "  TEST_DESCRIPTION: |"
+            sed 's/^/    /' /tmp/test_description.txt  # Add proper indentation to each line
+            tail -n +4 /tmp/new_env_section_final.txt  # Keep the rest of the file
+          } > /tmp/new_env_section_final.txt.tmp
+          mv /tmp/new_env_section_final.txt.tmp /tmp/new_env_section_final.txt
+        fi
+        
+        # Replace other placeholders
+        sed -i "s/SLACK_CHANNEL_PLACEHOLDER/$SLACK_CHANNEL/g" /tmp/new_env_section_final.txt
+        sed -i "s/ENABLE_SLACK_PLACEHOLDER/$ENABLE_SLACK/g" /tmp/new_env_section_final.txt
+        sed -i "s/HEADLESS_PLACEHOLDER/$HEADLESS/g" /tmp/new_env_section_final.txt
         
         # Convert escaped GitHub Actions expressions back to proper format
         tr -d '\\' < /tmp/new_env_section_final.txt > /tmp/new_env_section_converted.txt
@@ -578,7 +590,7 @@ jobs:
         fi
         
         # Clean up
-        rm -f /tmp/new_env_section.txt
+        rm -f /tmp/new_env_section.txt /tmp/test_description.txt
         
         # CRITICAL: Replace inputs.headless with env.HEADLESS for scheduled workflows
         echo "🔧 CRITICAL: Replacing inputs.headless with env.HEADLESS..."
