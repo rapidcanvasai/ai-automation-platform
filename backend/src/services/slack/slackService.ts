@@ -316,6 +316,46 @@ export class SlackService {
   }
 
   /**
+   * Search for messages containing test ID
+   */
+  private async searchMessageByTestId(testId: string): Promise<string | null> {
+    if (!this.config.botToken) {
+      return null;
+    }
+
+    try {
+      const channel = this.config.channel || '';
+      const cleanChannel = channel.startsWith('#') ? channel.substring(1) : channel;
+      
+      // Search for messages containing the test ID
+      const response = await axios.post('https://slack.com/api/search.messages', {
+        query: `in:${cleanChannel} ${testId}`,
+        count: 10
+      }, {
+        headers: {
+          'Authorization': `Bearer ${this.config.botToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.data.ok && response.data.messages && response.data.messages.matches) {
+        // Find the most recent message containing the test ID
+        const matches = response.data.messages.matches;
+        for (const match of matches) {
+          if (match.text && match.text.includes(testId)) {
+            logger.info('Found existing message for test', { testId, messageTs: match.ts });
+            return match.ts;
+          }
+        }
+      }
+    } catch (error) {
+      logger.error('Failed to search for existing message', { error, testId });
+    }
+    
+    return null;
+  }
+
+  /**
    * Update an existing message via Slack API
    */
   private async updateMessageViaAPI(
@@ -381,51 +421,19 @@ export class SlackService {
     try {
       logger.info('🔄 updateMainThreadWithResult called', { testId, testName, status: result.status });
       
-      const threadTs = this.threadTimestamps.get(testId);
+      let threadTs = this.threadTimestamps.get(testId);
       if (!threadTs) {
-        logger.warn('No thread timestamp found for test - creating new message instead', { testId });
-        
-        // If no thread timestamp, create a new message instead of updating
-        if (!this.config.botToken) {
-          logger.warn('Cannot create new message without bot token', { testId });
+        logger.warn('No thread timestamp found for test - searching for existing message', { testId });
+        const foundTs = await this.searchMessageByTestId(testId);
+        if (foundTs) {
+          threadTs = foundTs;
+          // Store it for future use
+          this.threadTimestamps.set(testId, threadTs);
+          logger.info('Found and stored thread timestamp for test', { testId, threadTs });
+        } else {
+          logger.warn('No existing message found for test - skipping thread update', { testId });
           return false;
         }
-        
-        // Create a new message with the test result
-        const isPassed = result.status === 'passed';
-        const statusEmoji = isPassed ? '✅' : '❌';
-        const statusText = isPassed ? 'PASSED' : 'FAILED';
-        
-        let text = `${statusEmoji} *Test ${statusText}: ${testName}*\n\n`;
-        text += `*Test ID:* ${testId}`;
-        text += `\n*Status:* ${statusText}`;
-        text += `\n*Steps:* ${result.steps.length}`;
-        text += `\n*Passed:* ${result.steps.filter(s => s.status === 'passed').length}`;
-        text += `\n*Failed:* ${result.steps.filter(s => s.status === 'failed').length}`;
-        
-        if (workflowRunUrl) {
-          text += `\n🔗 <${workflowRunUrl}|View Workflow Run>`;
-        }
-        
-        const message = {
-          channel: this.config.channel || '',
-          text: text,
-          username: this.config.username || 'Test Automation Bot',
-          icon_emoji: this.config.iconEmoji || ':robot_face:'
-        };
-        
-        try {
-          const response = await this.sendMessageViaAPI(message);
-          if (response && response.ts) {
-            this.threadTimestamps.set(testId, response.ts);
-            logger.info('✅ Created new test result message', { testId, threadTs: response.ts });
-            return true;
-          }
-        } catch (error) {
-          logger.error('Failed to create new test result message', { error, testId });
-        }
-        
-        return false;
       }
 
       if (!this.config.botToken) {
