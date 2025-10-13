@@ -26,7 +26,7 @@ on:
 
 env:
   TEST_DESCRIPTION: |
-    Open https://app.rapidcanvas.ai/ Enter Publisher@rapidcanvas.ai in email Click Next Enter 45P4b@4.3n3m in Password Click Sign In Verify Dashboard Open https://app.rapidcanvas.ai/e3a7b979-2d11-4285-99e8-c8880390b05a/dataapps-ui/TYA_CausalInference Wait 30sec If(text=Relaunch) then Click on Relaunch If(text=Launching) then wait 50sec Wait 100sec Click on Pronóstico de Precios: Departamentos with AI Wait 20sec Verify no error is coming on UI with AI Click on Pronóstico de Precios: Casas with AI Wait 30sec Verify no error is coming on UI with AI Click on Proyecciones de Absorción with AI Wait 300sec Verify no error is coming on UI with AI
+    Open https://app.rapidcanvas.ai/ Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Verify Dashboard Open https://app.rapidcanvas.ai/e3a7b979-2d11-4285-99e8-c8880390b05a/dataapps-ui/TYA_CausalInference Wait 30sec If(text=Relaunch) then Click on Relaunch If(text=Launching) then wait 50sec Wait 100sec Click on Pronóstico de Precios: Departamentos with AI Wait 20sec Verify no error is coming on UI with AI Click on Pronóstico de Precios: Casas with AI Wait 30sec Verify no error is coming on UI with AI Click on Proyecciones de Absorción with AI Wait 30sec Verify no error is coming on UI with AI
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENAI_MODEL: gpt-4o-mini
   SLACK_CHANNEL: 'test-automation-platform-alerts'
