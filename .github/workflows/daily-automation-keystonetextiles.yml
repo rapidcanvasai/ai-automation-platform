@@ -29,7 +29,7 @@ env:
     Open https://app.rapidcanvas.ai/ Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Verify Dashboard Open https://app.rapidcanvas.ai/apps/Keystone%20Textiles%20App?autoLaunch=true Wait 10sec If(text=Relaunch) then Click on Relaunch If(text=Launching) then wait 50sec Wait 50sec Click on OVERVIEW with AI Wait 20sec Verify no error is coming on UI with AI Click on SCHEDULE with AI Wait 20sec Verify no error is coming on UI with AI Click on GANTT with AI Wait 20sec Verify no error is coming on UI with AI Click on ASK AI with AI Wait 60sec Verify no error is coming on UI with AI
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENAI_MODEL: gpt-4o-mini
-  SLACK_CHANNEL: 'test-automation-platform-alerts'
+  SLACK_CHANNEL: 'rc-demo'
   SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
   ENABLE_SLACK: true

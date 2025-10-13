@@ -316,6 +316,168 @@ export class SlackService {
   }
 
   /**
+   * Update an existing message via Slack API
+   */
+  private async updateMessageViaAPI(
+    channel: string,
+    messageTs: string,
+    newText: string,
+    newBlocks?: SlackBlock[]
+  ): Promise<any> {
+    if (!this.config.botToken) {
+      throw new Error('Slack bot token is not configured');
+    }
+
+    // Remove # if present for API calls
+    if (channel.startsWith('#')) {
+      channel = channel.substring(1);
+    }
+
+    const payload: any = {
+      channel: channel,
+      ts: messageTs,
+      text: newText,
+      username: this.config.username || 'Test Automation Bot',
+      icon_emoji: this.config.iconEmoji || ':robot_face:',
+    };
+
+    // Add blocks if provided
+    if (newBlocks) {
+      payload.blocks = newBlocks;
+    }
+
+    logger.info('Updating message via Slack API', { channel, messageTs });
+
+    try {
+      const response = await axios.post('https://slack.com/api/chat.update', payload, {
+        headers: {
+          'Authorization': `Bearer ${this.config.botToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.data.ok) {
+        logger.error('Slack API update error response', { error: response.data.error, payload });
+        throw new Error(`Slack API update error: ${response.data.error}`);
+      }
+      
+      logger.info('Message updated via Slack API successfully', { ts: response.data.ts });
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to update message via Slack API', { error, payload });
+      throw error;
+    }
+  }
+
+  /**
+   * Update main thread with test execution result status
+   */
+  async updateMainThreadWithResult(
+    testId: string,
+    testName: string,
+    result: ExecutionResult,
+    workflowRunUrl?: string
+  ): Promise<boolean> {
+    try {
+      const threadTs = this.threadTimestamps.get(testId);
+      if (!threadTs) {
+        logger.warn('No thread timestamp found for test', { testId });
+        return false;
+      }
+
+      if (!this.config.botToken) {
+        logger.warn('Cannot update main thread without bot token', { testId });
+        return false;
+      }
+
+      // Determine status emoji and text
+      const isPassed = result.status === 'passed';
+      const statusEmoji = isPassed ? '✅' : '❌';
+      const statusText = isPassed ? 'PASSED' : 'FAILED';
+      const statusColor = isPassed ? 'good' : 'danger';
+
+      // Build updated message
+      let text = `${statusEmoji} *Test ${statusText}: ${testName}*\n\n`;
+      text += `*Test ID:* ${testId}`;
+      text += `\n*Status:* ${statusText}`;
+      text += `\n*Steps:* ${result.steps.length}`;
+      text += `\n*Passed:* ${result.steps.filter(s => s.status === 'passed').length}`;
+      text += `\n*Failed:* ${result.steps.filter(s => s.status === 'failed').length}`;
+
+      // Add workflow run link if available
+      if (workflowRunUrl) {
+        text += `\n🔗 <${workflowRunUrl}|View Workflow Run>`;
+      }
+
+      // Build blocks for better formatting
+      const blocks: SlackBlock[] = [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `${statusEmoji} *Test ${statusText}: ${testName}*`
+          }
+        },
+        {
+          type: 'section',
+          fields: [
+            {
+              type: 'mrkdwn',
+              text: `*Test ID:*\n${testId}`
+            },
+            {
+              type: 'mrkdwn',
+              text: `*Status:*\n${statusText}`
+            },
+            {
+              type: 'mrkdwn',
+              text: `*Total Steps:*\n${result.steps.length}`
+            },
+            {
+              type: 'mrkdwn',
+              text: `*Passed:*\n${result.steps.filter(s => s.status === 'passed').length}`
+            }
+          ]
+        }
+      ];
+
+      // Add failed steps count if any
+      const failedCount = result.steps.filter(s => s.status === 'failed').length;
+      if (failedCount > 0) {
+        blocks[1].fields?.push({
+          type: 'mrkdwn',
+          text: `*Failed:*\n${failedCount}`
+        });
+      }
+
+      // Add workflow run link if available
+      if (workflowRunUrl) {
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `🔗 <${workflowRunUrl}|View Workflow Run>`
+          }
+        });
+      }
+
+      // Update the main thread message
+      await this.updateMessageViaAPI(
+        this.config.channel || '',
+        threadTs,
+        text,
+        blocks
+      );
+
+      logger.info('Main thread updated with test result', { testId, status: result.status });
+      return true;
+    } catch (error) {
+      logger.error('Failed to update main thread with test result', { error, testId });
+      return false;
+    }
+  }
+
+  /**
    * Send message via Slack API (for thread support)
    */
   private async sendMessageViaAPI(message: SlackMessage): Promise<any> {
@@ -1389,6 +1551,81 @@ export class SlackService {
     try {
       const statusEmoji = testStatus === 'passed' ? '✅' : testStatus === 'failed' ? '❌' : '⚠️';
       const statusText = testStatus === 'passed' ? 'SUCCESS' : testStatus === 'failed' ? 'FAILED' : 'COMPLETED';
+
+      // If we have a testId and testStatus, try to update the main thread
+      if (testId && testStatus && this.config.botToken) {
+        try {
+          const threadTs = this.threadTimestamps.get(testId);
+          if (threadTs) {
+            // Build updated message for main thread
+            let text = `${statusEmoji} *Test ${statusText}: ${testDescription.substring(0, 50)}...*\n\n`;
+            text += `*Test ID:* ${testId}`;
+            text += `\n*Status:* ${statusText}`;
+            text += `\n*Repository:* ${repository}`;
+            text += `\n*Workflow Run:* ${workflowRun}`;
+            
+            if (jobRunUrl) {
+              text += `\n🔗 <${jobRunUrl}|View Workflow Run>`;
+            }
+
+            // Build blocks for better formatting
+            const blocks: SlackBlock[] = [
+              {
+                type: 'section',
+                text: {
+                  type: 'mrkdwn',
+                  text: `${statusEmoji} *Test ${statusText}: ${testDescription.substring(0, 50)}...*`
+                }
+              },
+              {
+                type: 'section',
+                fields: [
+                  {
+                    type: 'mrkdwn',
+                    text: `*Test ID:*\n${testId}`
+                  },
+                  {
+                    type: 'mrkdwn',
+                    text: `*Status:*\n${statusText}`
+                  },
+                  {
+                    type: 'mrkdwn',
+                    text: `*Repository:*\n${repository}`
+                  },
+                  {
+                    type: 'mrkdwn',
+                    text: `*Workflow Run:*\n${workflowRun}`
+                  }
+                ]
+              }
+            ];
+
+            // Add workflow run link if available
+            if (jobRunUrl) {
+              blocks.push({
+                type: 'section',
+                text: {
+                  type: 'mrkdwn',
+                  text: `🔗 <${jobRunUrl}|View Workflow Run>`
+                }
+              });
+            }
+
+            // Update the main thread message
+            await this.updateMessageViaAPI(
+              this.config.channel || '',
+              threadTs,
+              text,
+              blocks
+            );
+
+            logger.info('Main thread updated with workflow completion status', { testId, status: testStatus });
+          }
+        } catch (updateError) {
+          logger.error('Failed to update main thread with workflow completion', { updateError, testId });
+          // Continue with regular workflow notification
+        }
+      }
 
       const blocks: SlackBlock[] = [
         {

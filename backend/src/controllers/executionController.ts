@@ -43,6 +43,9 @@ router.post('/:id/run', async (req: Request, res: Response) => {
         // Send execution started notification
         await slackService.sendTestExecutionStarted(test.name, executionId, id);
         
+        // Update main thread with pass/fail status
+        await slackService.updateMainThreadWithResult(id, test.name, result);
+        
         // Send execution result summary
         await slackService.sendTestResult(
           test.name, 

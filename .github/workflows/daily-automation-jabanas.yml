@@ -29,7 +29,7 @@ env:
     Open https://app.rapidcanvas.ai/ Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Verify Dashboard Open https://app.rapidcanvas.ai/apps/app%20for%20tests?autoLaunch=true Wait 30sec If(text=Relaunch) then Click on Relaunch If(text=Launching) then wait 50sec Wait 100sec Click on High-Level Summary with AI Wait 20sec Verify no error is coming on UI with AI Click on Operational Breakdown with AI Wait 20sec Verify no error is coming on UI with AI Click on Safety with AI Wait 20sec Verify no error is coming on UI with AI Click on Maintenance & Technical Activities with AI Wait 20sec Verify no error is coming on UI with AI Click on Data Explorer with AI Wait 20sec Verify no error is coming on UI with AI Click on AskAI with AI Wait 60sec Verify no error is coming on UI with AI
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENAI_MODEL: gpt-4o-mini
-  SLACK_CHANNEL: 'test-automation-platform-alerts'
+  SLACK_CHANNEL: 'rc-cust-jabanas-internal'
   SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
   ENABLE_SLACK: true
