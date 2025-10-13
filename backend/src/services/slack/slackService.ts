@@ -85,14 +85,14 @@ export class SlackService {
       // Try Slack API first if bot token is available
       if (this.config.botToken) {
         try {
-          logger.info('Attempting to send message via Slack API', { testId, channel: this.config.channel });
+          logger.info('🔄 Attempting to send message via Slack API', { testId, channel: this.config.channel, hasBotToken: !!this.config.botToken });
           const response = await this.sendMessageViaAPI(message);
           if (response && response.ts) {
             this.threadTimestamps.set(testId, response.ts);
-            logger.info('✅ Test creation notification sent to Slack via API', { testId, threadTs: response.ts });
+            logger.info('✅ Test creation notification sent to Slack via API', { testId, threadTs: response.ts, responseData: response });
             return response.ts;
           } else {
-            logger.warn('Slack API returned no timestamp', { testId, response });
+            logger.warn('❌ Slack API returned no timestamp', { testId, response });
           }
         } catch (apiError) {
           const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
@@ -349,12 +349,15 @@ export class SlackService {
    */
   private async searchMessageByTestId(testId: string): Promise<string | null> {
     if (!this.config.botToken) {
+      logger.warn('❌ No bot token available for search', { testId });
       return null;
     }
 
     try {
       const channel = this.config.channel || '';
       const cleanChannel = channel.startsWith('#') ? channel.substring(1) : channel;
+      
+      logger.info('🔍 Searching for existing message', { testId, channel: cleanChannel });
       
       // Search for messages containing the test ID
       const response = await axios.post('https://slack.com/api/search.messages', {
@@ -367,18 +370,24 @@ export class SlackService {
         },
       });
 
+      logger.info('🔍 Search API response', { testId, ok: response.data.ok, hasMatches: !!response.data.messages?.matches });
+
       if (response.data.ok && response.data.messages && response.data.messages.matches) {
         // Find the most recent message containing the test ID
         const matches = response.data.messages.matches;
+        logger.info('🔍 Found matches', { testId, matchCount: matches.length });
+        
         for (const match of matches) {
           if (match.text && match.text.includes(testId)) {
-            logger.info('Found existing message for test', { testId, messageTs: match.ts });
+            logger.info('✅ Found existing message for test', { testId, messageTs: match.ts, text: match.text.substring(0, 100) });
             return match.ts;
           }
         }
+      } else {
+        logger.warn('❌ Search API failed or no matches', { testId, error: response.data.error });
       }
     } catch (error) {
-      logger.error('Failed to search for existing message', { error, testId });
+      logger.error('❌ Failed to search for existing message', { error, testId });
     }
     
     return null;
@@ -451,15 +460,18 @@ export class SlackService {
       logger.info('🔄 updateMainThreadWithResult called', { testId, testName, status: result.status });
       
       let threadTs = this.threadTimestamps.get(testId);
+      logger.info('🔍 Current thread timestamp status', { testId, threadTs, hasBotToken: !!this.config.botToken });
       
       // If no thread timestamp, try to find existing message
       if (!threadTs && this.config.botToken) {
-        logger.warn('No thread timestamp found for test - searching for existing message', { testId });
+        logger.warn('❌ No thread timestamp found for test - searching for existing message', { testId });
         const foundTs = await this.searchMessageByTestId(testId);
         if (foundTs) {
           threadTs = foundTs;
           this.threadTimestamps.set(testId, threadTs);
-          logger.info('Found and stored thread timestamp for test', { testId, threadTs });
+          logger.info('✅ Found and stored thread timestamp for test', { testId, threadTs });
+        } else {
+          logger.warn('❌ No existing message found for test', { testId });
         }
       }
       
