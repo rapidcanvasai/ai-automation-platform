@@ -394,6 +394,62 @@ export class SlackService {
   }
 
   /**
+   * Search for messages by pattern (broader search)
+   */
+  private async searchMessageByPattern(pattern: string): Promise<string | null> {
+    if (!this.config.botToken) {
+      logger.warn('❌ No bot token available for pattern search', { pattern });
+      return null;
+    }
+
+    try {
+      const channel = this.config.channel || '';
+      const cleanChannel = channel.startsWith('#') ? channel.substring(1) : channel;
+      
+      logger.info('🔍 Searching for message by pattern', { pattern, channel: cleanChannel });
+      
+      // Search for messages containing the pattern
+      const response = await axios.post('https://slack.com/api/search.messages', {
+        query: `in:${cleanChannel} ${pattern}`,
+        count: 20,
+        sort: 'timestamp',
+        sort_dir: 'desc'
+      }, {
+        headers: {
+          'Authorization': `Bearer ${this.config.botToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      logger.info('🔍 Pattern search API response', { pattern, ok: response.data.ok, hasMatches: !!response.data.messages?.matches });
+
+      if (response.data.ok && response.data.messages && response.data.messages.matches) {
+        const matches = response.data.messages.matches;
+        logger.info('🔍 Found pattern matches', { pattern, matchCount: matches.length });
+        
+        // Look for messages that look like test creation messages
+        for (const match of matches) {
+          if (match.text && (
+            match.text.includes('Test Created:') ||
+            match.text.includes('Test ID:') ||
+            match.text.includes('🧪') ||
+            match.text.includes('Test Automation Bot')
+          )) {
+            logger.info('✅ Found test creation message by pattern', { pattern, messageTs: match.ts, text: match.text.substring(0, 100) });
+            return match.ts;
+          }
+        }
+      } else {
+        logger.warn('❌ Pattern search API failed or no matches', { pattern, error: response.data.error });
+      }
+    } catch (error) {
+      logger.error('❌ Failed to search for message by pattern', { error, pattern });
+    }
+    
+    return null;
+  }
+
+  /**
    * Update an existing message via Slack API
    */
   private async updateMessageViaAPI(
@@ -472,6 +528,28 @@ export class SlackService {
           logger.info('✅ Found and stored thread timestamp for test', { testId, threadTs });
         } else {
           logger.warn('❌ No existing message found for test', { testId });
+        }
+      }
+      
+      // If still no thread timestamp, try a more aggressive search
+      if (!threadTs && this.config.botToken) {
+        logger.info('🔍 Attempting broader search for test message', { testId });
+        // Try searching with different patterns
+        const searchPatterns = [
+          testId,
+          `Test Created: ${testName}`,
+          `Test ID: ${testId}`,
+          testName
+        ];
+        
+        for (const pattern of searchPatterns) {
+          const foundTs = await this.searchMessageByPattern(pattern);
+          if (foundTs) {
+            threadTs = foundTs;
+            this.threadTimestamps.set(testId, threadTs);
+            logger.info('✅ Found thread timestamp with pattern search', { testId, threadTs, pattern });
+            break;
+          }
         }
       }
       
@@ -564,15 +642,40 @@ export class SlackService {
 
       // Update the main thread message
       logger.info('🔄 Attempting to update main thread', { testId, threadTs, channel: this.config.channel });
-      await this.updateMessageViaAPI(
-        this.config.channel || '',
-        threadTs,
-        text,
-        blocks
-      );
+      
+      try {
+        await this.updateMessageViaAPI(
+          this.config.channel || '',
+          threadTs,
+          text,
+          blocks
+        );
 
-      logger.info('✅ Main thread updated with test result', { testId, status: result.status, threadTs });
-      return true;
+        logger.info('✅ Main thread updated with test result', { testId, status: result.status, threadTs });
+        return true;
+      } catch (updateError) {
+        logger.error('❌ Failed to update main thread message', { updateError, testId, threadTs });
+        
+        // Try to send a new message as fallback if update fails
+        try {
+          logger.info('🔄 Attempting fallback: sending new message with result', { testId });
+          const fallbackMessage = this.buildTestCreatedMessage(
+            `${testName} - ${statusText}`,
+            testId,
+            workflowRunUrl
+          );
+          
+          // Add status emoji to the fallback message
+          fallbackMessage.text = `${statusEmoji} ${fallbackMessage.text}`;
+          
+          await this.sendMessageViaAPI(fallbackMessage);
+          logger.info('✅ Fallback message sent successfully', { testId });
+          return true;
+        } catch (fallbackError) {
+          logger.error('❌ Fallback message also failed', { fallbackError, testId });
+          return false;
+        }
+      }
     } catch (error) {
       logger.error('Failed to update main thread with test result', { error, testId });
       return false;
@@ -1676,7 +1779,28 @@ export class SlackService {
             }
           }
           
-          if (threadTs) {
+          // If still no thread timestamp, try broader search
+          if (!threadTs) {
+            logger.info('🔍 Attempting broader search for workflow completion', { testId });
+            const searchPatterns = [
+              testId,
+              `Test Created:`,
+              `Test ID: ${testId}`,
+              testDescription.substring(0, 30)
+            ];
+            
+            for (const pattern of searchPatterns) {
+              const foundTs = await this.searchMessageByPattern(pattern);
+              if (foundTs) {
+                threadTs = foundTs;
+                this.threadTimestamps.set(testId, threadTs);
+                logger.info('✅ Found thread timestamp with pattern search for workflow', { testId, threadTs, pattern });
+                break;
+              }
+            }
+          }
+          
+          if (threadTs && !threadTs.startsWith('dummy_') && !threadTs.startsWith('webhook_') && !threadTs.startsWith('failed_')) {
             // Build updated message for main thread
             let text = `${statusEmoji} *Test ${statusText}: ${testDescription.substring(0, 50)}...*\n\n`;
             text += `*Test ID:* ${testId}`;
@@ -1732,14 +1856,38 @@ export class SlackService {
             }
 
             // Update the main thread message
-            await this.updateMessageViaAPI(
-              this.config.channel || '',
-              threadTs,
-              text,
-              blocks
-            );
+            try {
+              await this.updateMessageViaAPI(
+                this.config.channel || '',
+                threadTs,
+                text,
+                blocks
+              );
 
-            logger.info('Main thread updated with workflow completion status', { testId, status: testStatus });
+              logger.info('Main thread updated with workflow completion status', { testId, status: testStatus });
+            } catch (updateError) {
+              logger.error('Failed to update main thread message for workflow completion', { updateError, testId, threadTs });
+              
+              // Try fallback: send new message
+              try {
+                logger.info('🔄 Attempting fallback: sending new workflow completion message', { testId });
+                const fallbackMessage = this.buildTestCreatedMessage(
+                  `${testDescription.substring(0, 30)}... - ${statusText}`,
+                  testId,
+                  jobRunUrl
+                );
+                
+                // Add status emoji to the fallback message
+                fallbackMessage.text = `${statusEmoji} ${fallbackMessage.text}`;
+                
+                await this.sendMessageViaAPI(fallbackMessage);
+                logger.info('✅ Fallback workflow completion message sent successfully', { testId });
+              } catch (fallbackError) {
+                logger.error('❌ Fallback workflow completion message also failed', { fallbackError, testId });
+              }
+            }
+          } else {
+            logger.warn('No valid thread timestamp found for workflow completion update', { testId, threadTs });
           }
         } catch (updateError) {
           logger.error('Failed to update main thread with workflow completion', { updateError, testId });

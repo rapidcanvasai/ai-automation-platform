@@ -78,6 +78,73 @@ router.post('/:id/run', async (req: Request, res: Response) => {
     });
   }
 });
+
+// Update Slack main thread with test result status
+router.post('/:id/slack-update', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { testName, status, workflowRunUrl } = req.body;
+    
+    if (!testName || !status) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'testName and status are required' 
+      });
+    }
+
+    // Get execution result
+    const execution = getExecution(id);
+    if (!execution) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Execution not found' 
+      });
+    }
+
+    // Send Slack notification
+    try {
+      const slackService = createSlackService();
+      if (slackService) {
+        logger.info('📢 Updating Slack main thread via API endpoint', { testId: execution.testId, executionId: id, status });
+        
+        // Update main thread with pass/fail status
+        const success = await slackService.updateMainThreadWithResult(
+          execution.testId, 
+          testName, 
+          execution.result, 
+          workflowRunUrl
+        );
+        
+        if (success) {
+          logger.info('✅ Slack main thread updated successfully via API', { testId: execution.testId, executionId: id });
+          res.json({ success: true, message: 'Slack main thread updated successfully' });
+        } else {
+          logger.warn('⚠️ Slack main thread update failed via API', { testId: execution.testId, executionId: id });
+          res.json({ success: false, message: 'Slack main thread update failed' });
+        }
+      } else {
+        logger.warn('Slack service not available for API update');
+        res.status(503).json({ 
+          success: false, 
+          error: 'Slack service not available' 
+        });
+      }
+    } catch (slackError) {
+      logger.error('Failed to update Slack main thread via API', { slackError, executionId: id });
+      res.status(500).json({ 
+        success: false, 
+        error: 'Failed to update Slack main thread' 
+      });
+    }
+  } catch (error) {
+    logger.error('Error updating Slack main thread via API', { error, id: req.params.id });
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to update Slack main thread' 
+    });
+  }
+});
+
 // Server-Sent Events for live logs
 router.get('/:id/stream', async (req: Request, res: Response) => {
   const { id } = req.params;
