@@ -415,7 +415,7 @@ export class SlackService {
       payload.blocks = newBlocks;
     }
 
-    logger.info('Updating message via Slack API', { channel, messageTs });
+    logger.info('🔄 Updating message via Slack API', { channel, messageTs, payload });
 
     try {
       const response = await axios.post('https://slack.com/api/chat.update', payload, {
@@ -426,11 +426,11 @@ export class SlackService {
       });
 
       if (!response.data.ok) {
-        logger.error('Slack API update error response', { error: response.data.error, payload });
+        logger.error('❌ Slack API update error response', { error: response.data.error, payload });
         throw new Error(`Slack API update error: ${response.data.error}`);
       }
       
-      logger.info('Message updated via Slack API successfully', { ts: response.data.ts });
+      logger.info('✅ Message updated via Slack API successfully', { ts: response.data.ts, channel, messageTs });
       return response.data;
     } catch (error) {
       logger.error('Failed to update message via Slack API', { error, payload });
@@ -485,8 +485,8 @@ export class SlackService {
       const statusText = isPassed ? 'PASSED' : 'FAILED';
       const statusColor = isPassed ? 'good' : 'danger';
 
-      // Build updated message
-      let text = `${statusEmoji} *Test ${statusText}: ${testName}*\n\n`;
+      // Build updated message - Update the original test creation message
+      let text = `🧪 *Test Created: ${testName} : ${statusText}*\n\n`;
       text += `*Test ID:* ${testId}`;
       text += `\n*Status:* ${statusText}`;
       text += `\n*Steps:* ${result.steps.length}`;
@@ -504,7 +504,7 @@ export class SlackService {
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: `${statusEmoji} *Test ${statusText}: ${testName}*`
+            text: `🧪 *Test Created: ${testName} : ${statusText}*`
           }
         },
         {
@@ -551,6 +551,7 @@ export class SlackService {
       }
 
       // Update the main thread message
+      logger.info('🔄 Attempting to update main thread', { testId, threadTs, channel: this.config.channel });
       await this.updateMessageViaAPI(
         this.config.channel || '',
         threadTs,
@@ -558,7 +559,7 @@ export class SlackService {
         blocks
       );
 
-      logger.info('Main thread updated with test result', { testId, status: result.status });
+      logger.info('✅ Main thread updated with test result', { testId, status: result.status, threadTs });
       return true;
     } catch (error) {
       logger.error('Failed to update main thread with test result', { error, testId });
