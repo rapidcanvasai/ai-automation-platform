@@ -421,19 +421,10 @@ export class SlackService {
     try {
       logger.info('🔄 updateMainThreadWithResult called', { testId, testName, status: result.status });
       
-      let threadTs = this.threadTimestamps.get(testId);
+      const threadTs = this.threadTimestamps.get(testId);
       if (!threadTs) {
-        logger.warn('No thread timestamp found for test - searching for existing message', { testId });
-        const foundTs = await this.searchMessageByTestId(testId);
-        if (foundTs) {
-          threadTs = foundTs;
-          // Store it for future use
-          this.threadTimestamps.set(testId, threadTs);
-          logger.info('Found and stored thread timestamp for test', { testId, threadTs });
-        } else {
-          logger.warn('No existing message found for test - skipping thread update', { testId });
-          return false;
-        }
+        logger.warn('No thread timestamp found for test - skipping thread update', { testId });
+        return false;
       }
 
       if (!this.config.botToken) {
