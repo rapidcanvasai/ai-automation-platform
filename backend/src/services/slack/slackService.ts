@@ -421,9 +421,56 @@ export class SlackService {
     try {
       logger.info('🔄 updateMainThreadWithResult called', { testId, testName, status: result.status });
       
-      const threadTs = this.threadTimestamps.get(testId);
+      let threadTs = this.threadTimestamps.get(testId);
+      
+      // If no thread timestamp, try to find existing message
+      if (!threadTs && this.config.botToken) {
+        logger.warn('No thread timestamp found for test - searching for existing message', { testId });
+        const foundTs = await this.searchMessageByTestId(testId);
+        if (foundTs) {
+          threadTs = foundTs;
+          this.threadTimestamps.set(testId, threadTs);
+          logger.info('Found and stored thread timestamp for test', { testId, threadTs });
+        }
+      }
+      
       if (!threadTs) {
-        logger.warn('No thread timestamp found for test - skipping thread update', { testId });
+        logger.warn('No thread timestamp found for test - creating new message instead', { testId });
+        
+        // Create a new message with the test result
+        const isPassed = result.status === 'passed';
+        const statusEmoji = isPassed ? '✅' : '❌';
+        const statusText = isPassed ? 'PASSED' : 'FAILED';
+        
+        let text = `${statusEmoji} *Test ${statusText}: ${testName}*\n\n`;
+        text += `*Test ID:* ${testId}`;
+        text += `\n*Status:* ${statusText}`;
+        text += `\n*Steps:* ${result.steps.length}`;
+        text += `\n*Passed:* ${result.steps.filter(s => s.status === 'passed').length}`;
+        text += `\n*Failed:* ${result.steps.filter(s => s.status === 'failed').length}`;
+        
+        if (workflowRunUrl) {
+          text += `\n🔗 <${workflowRunUrl}|View Workflow Run>`;
+        }
+        
+        const message = {
+          channel: this.config.channel || '',
+          text: text,
+          username: this.config.username || 'Test Automation Bot',
+          icon_emoji: this.config.iconEmoji || ':robot_face:'
+        };
+        
+        try {
+          const response = await this.sendMessageViaAPI(message);
+          if (response && response.ts) {
+            this.threadTimestamps.set(testId, response.ts);
+            logger.info('✅ Created new test result message', { testId, threadTs: response.ts });
+            return true;
+          }
+        } catch (error) {
+          logger.error('Failed to create new test result message', { error, testId });
+        }
+        
         return false;
       }
 
@@ -1597,7 +1644,19 @@ export class SlackService {
       // If we have a testId and testStatus, try to update the main thread
       if (testId && testStatus && this.config.botToken) {
         try {
-          const threadTs = this.threadTimestamps.get(testId);
+          let threadTs = this.threadTimestamps.get(testId);
+          
+          // If no thread timestamp, try to find existing message
+          if (!threadTs) {
+            logger.warn('No thread timestamp found for test - searching for existing message', { testId });
+            const foundTs = await this.searchMessageByTestId(testId);
+            if (foundTs) {
+              threadTs = foundTs;
+              this.threadTimestamps.set(testId, threadTs);
+              logger.info('Found and stored thread timestamp for test', { testId, threadTs });
+            }
+          }
+          
           if (threadTs) {
             // Build updated message for main thread
             let text = `${statusEmoji} *Test ${statusText}: ${testDescription.substring(0, 50)}...*\n\n`;
