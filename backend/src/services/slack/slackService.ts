@@ -128,7 +128,7 @@ export class SlackService {
     try {
       const threadTs = this.threadTimestamps.get(testId);
       if (!threadTs) {
-        logger.warn('No thread timestamp found for test', { testId });
+        logger.warn('No thread timestamp found for test - skipping execution started notification', { testId });
         return false;
       }
 
@@ -383,7 +383,48 @@ export class SlackService {
       
       const threadTs = this.threadTimestamps.get(testId);
       if (!threadTs) {
-        logger.warn('No thread timestamp found for test', { testId });
+        logger.warn('No thread timestamp found for test - creating new message instead', { testId });
+        
+        // If no thread timestamp, create a new message instead of updating
+        if (!this.config.botToken) {
+          logger.warn('Cannot create new message without bot token', { testId });
+          return false;
+        }
+        
+        // Create a new message with the test result
+        const isPassed = result.status === 'passed';
+        const statusEmoji = isPassed ? '✅' : '❌';
+        const statusText = isPassed ? 'PASSED' : 'FAILED';
+        
+        let text = `${statusEmoji} *Test ${statusText}: ${testName}*\n\n`;
+        text += `*Test ID:* ${testId}`;
+        text += `\n*Status:* ${statusText}`;
+        text += `\n*Steps:* ${result.steps.length}`;
+        text += `\n*Passed:* ${result.steps.filter(s => s.status === 'passed').length}`;
+        text += `\n*Failed:* ${result.steps.filter(s => s.status === 'failed').length}`;
+        
+        if (workflowRunUrl) {
+          text += `\n🔗 <${workflowRunUrl}|View Workflow Run>`;
+        }
+        
+        const message = {
+          channel: this.config.channel || '',
+          text: text,
+          username: this.config.username || 'Test Automation Bot',
+          icon_emoji: this.config.iconEmoji || ':robot_face:'
+        };
+        
+        try {
+          const response = await this.sendMessageViaAPI(message);
+          if (response && response.ts) {
+            this.threadTimestamps.set(testId, response.ts);
+            logger.info('✅ Created new test result message', { testId, threadTs: response.ts });
+            return true;
+          }
+        } catch (error) {
+          logger.error('Failed to create new test result message', { error, testId });
+        }
+        
         return false;
       }
 
