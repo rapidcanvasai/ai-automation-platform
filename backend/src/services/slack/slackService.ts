@@ -97,6 +97,13 @@ export class SlackService {
         } catch (apiError) {
           const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
           logger.error('❌ Slack API failed', { apiError: errorMessage, testId });
+          
+          // If API fails, try to create a dummy thread timestamp for future use
+          // This ensures we can still update the main thread later
+          const dummyTs = `dummy_${Date.now()}_${testId}`;
+          this.threadTimestamps.set(testId, dummyTs);
+          logger.info('📝 Created dummy thread timestamp for future updates', { testId, dummyTs });
+          return dummyTs;
         }
       }
       
@@ -105,12 +112,22 @@ export class SlackService {
         logger.info('Attempting to send message via webhook', { testId });
         await this.sendMessage(message);
         logger.info('✅ Test creation notification sent to Slack via webhook', { testId });
+        
+        // Create a dummy thread timestamp for webhook fallback
+        const dummyTs = `webhook_${Date.now()}_${testId}`;
+        this.threadTimestamps.set(testId, dummyTs);
+        logger.info('📝 Created dummy thread timestamp for webhook fallback', { testId, dummyTs });
+        return dummyTs;
       } catch (webhookError) {
         const errorMessage = webhookError instanceof Error ? webhookError.message : 'Unknown error';
         logger.error('❌ Webhook also failed', { webhookError: errorMessage, testId });
+        
+        // Even if webhook fails, create a dummy timestamp for future attempts
+        const dummyTs = `failed_${Date.now()}_${testId}`;
+        this.threadTimestamps.set(testId, dummyTs);
+        logger.info('📝 Created dummy thread timestamp despite failures', { testId, dummyTs });
+        return dummyTs;
       }
-      
-      return null;
     } catch (error) {
       logger.error('Failed to send test creation notification', { error, testId });
       return null;
@@ -129,6 +146,12 @@ export class SlackService {
       const threadTs = this.threadTimestamps.get(testId);
       if (!threadTs) {
         logger.warn('No thread timestamp found for test - skipping execution started notification', { testId });
+        return false;
+      }
+
+      // Skip thread replies for dummy timestamps
+      if (threadTs.startsWith('dummy_') || threadTs.startsWith('webhook_') || threadTs.startsWith('failed_')) {
+        logger.info('Dummy thread timestamp detected - skipping execution started notification', { testId, threadTs });
         return false;
       }
 
@@ -171,6 +194,12 @@ export class SlackService {
       const threadTs = this.threadTimestamps.get(testId);
       if (!threadTs) {
         logger.warn('No thread timestamp found for test', { testId });
+        return false;
+      }
+
+      // Skip thread replies for dummy timestamps
+      if (threadTs.startsWith('dummy_') || threadTs.startsWith('webhook_') || threadTs.startsWith('failed_')) {
+        logger.info('Dummy thread timestamp detected - skipping test result notification', { testId, threadTs });
         return false;
       }
 
@@ -435,42 +464,13 @@ export class SlackService {
       }
       
       if (!threadTs) {
-        logger.warn('No thread timestamp found for test - creating new message instead', { testId });
-        
-        // Create a new message with the test result
-        const isPassed = result.status === 'passed';
-        const statusEmoji = isPassed ? '✅' : '❌';
-        const statusText = isPassed ? 'PASSED' : 'FAILED';
-        
-        let text = `${statusEmoji} *Test ${statusText}: ${testName}*\n\n`;
-        text += `*Test ID:* ${testId}`;
-        text += `\n*Status:* ${statusText}`;
-        text += `\n*Steps:* ${result.steps.length}`;
-        text += `\n*Passed:* ${result.steps.filter(s => s.status === 'passed').length}`;
-        text += `\n*Failed:* ${result.steps.filter(s => s.status === 'failed').length}`;
-        
-        if (workflowRunUrl) {
-          text += `\n🔗 <${workflowRunUrl}|View Workflow Run>`;
-        }
-        
-        const message = {
-          channel: this.config.channel || '',
-          text: text,
-          username: this.config.username || 'Test Automation Bot',
-          icon_emoji: this.config.iconEmoji || ':robot_face:'
-        };
-        
-        try {
-          const response = await this.sendMessageViaAPI(message);
-          if (response && response.ts) {
-            this.threadTimestamps.set(testId, response.ts);
-            logger.info('✅ Created new test result message', { testId, threadTs: response.ts });
-            return true;
-          }
-        } catch (error) {
-          logger.error('Failed to create new test result message', { error, testId });
-        }
-        
+        logger.warn('No thread timestamp found for test - skipping main thread update', { testId });
+        return false;
+      }
+
+      // Check if this is a dummy timestamp (created when initial message failed)
+      if (threadTs.startsWith('dummy_') || threadTs.startsWith('webhook_') || threadTs.startsWith('failed_')) {
+        logger.info('Dummy thread timestamp detected - skipping main thread update', { testId, threadTs });
         return false;
       }
 
@@ -1020,6 +1020,12 @@ export class SlackService {
       const threadTs = this.threadTimestamps.get(testId);
       if (!threadTs) {
         logger.warn('No thread timestamp found for test', { testId });
+        return false;
+      }
+
+      // Skip thread replies for dummy timestamps
+      if (threadTs.startsWith('dummy_') || threadTs.startsWith('webhook_') || threadTs.startsWith('failed_')) {
+        logger.info('Dummy thread timestamp detected - skipping execution details notification', { testId, threadTs });
         return false;
       }
 
@@ -1821,9 +1827,10 @@ export function createSlackService(): SlackService | null {
     return null;
   }
 
-  // Force recreation of instance to pick up latest code changes
-  logger.info('🔄 Creating new SlackService instance');
-  slackServiceInstance = null;
+  // Only recreate if not already created
+  if (!slackServiceInstance) {
+    logger.info('🔄 Creating new SlackService instance');
+  }
 
   // Return existing instance if available
   if (slackServiceInstance) {
