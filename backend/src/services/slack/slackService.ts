@@ -379,6 +379,8 @@ export class SlackService {
     workflowRunUrl?: string
   ): Promise<boolean> {
     try {
+      logger.info('🔄 updateMainThreadWithResult called', { testId, testName, status: result.status });
+      
       const threadTs = this.threadTimestamps.get(testId);
       if (!threadTs) {
         logger.warn('No thread timestamp found for test', { testId });
@@ -1720,6 +1722,10 @@ export function createSlackService(): SlackService | null {
     return null;
   }
 
+  // Force recreation of instance to pick up latest code changes
+  logger.info('🔄 Creating new SlackService instance');
+  slackServiceInstance = null;
+
   // Return existing instance if available
   if (slackServiceInstance) {
     return slackServiceInstance;
@@ -1732,6 +1738,11 @@ export function createSlackService(): SlackService | null {
     username: process.env.SLACK_USERNAME || 'Test Automation Bot',
     iconEmoji: process.env.SLACK_ICON_EMOJI || ':robot_face:',
     botToken: process.env.SLACK_BOT_TOKEN,
+  });
+
+  logger.info('✅ SlackService instance created', { 
+    hasBotToken: !!process.env.SLACK_BOT_TOKEN,
+    channel: process.env.SLACK_CHANNEL 
   });
 
   return slackServiceInstance;

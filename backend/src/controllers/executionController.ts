@@ -40,10 +40,13 @@ router.post('/:id/run', async (req: Request, res: Response) => {
     try {
       const slackService = createSlackService();
       if (slackService) {
+        logger.info('📢 Slack service available, sending notifications', { testId: id, executionId });
+        
         // Send execution started notification
         await slackService.sendTestExecutionStarted(test.name, executionId, id);
         
         // Update main thread with pass/fail status
+        logger.info('🔄 Calling updateMainThreadWithResult', { testId: id, testName: test.name, status: result.status });
         await slackService.updateMainThreadWithResult(id, test.name, result);
         
         // Send execution result summary
@@ -58,6 +61,8 @@ router.post('/:id/run', async (req: Request, res: Response) => {
         
         // Send detailed execution results as thread reply
         await slackService.sendExecutionDetails(result, id);
+      } else {
+        logger.warn('Slack service not available');
       }
     } catch (slackError) {
       logger.error('Failed to send Slack notification', { slackError, executionId });
