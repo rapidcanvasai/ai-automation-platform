@@ -42,14 +42,14 @@ router.post('/:id/run', async (req: Request, res: Response) => {
       if (slackService) {
         logger.info('📢 Slack service available, sending notifications', { testId: id, executionId });
         
-        // Send execution started notification
+        // Send execution started notification (thread reply only)
         await slackService.sendTestExecutionStarted(test.name, executionId, id);
         
         // Update main thread with pass/fail status
         logger.info('🔄 Calling updateMainThreadWithResult', { testId: id, testName: test.name, status: result.status });
         await slackService.updateMainThreadWithResult(id, test.name, result);
         
-        // Send execution result summary
+        // Send execution result summary (thread reply only)
         await slackService.sendTestResult(
           test.name, 
           executionId, 
@@ -61,6 +61,10 @@ router.post('/:id/run', async (req: Request, res: Response) => {
         
         // Send detailed execution results as thread reply
         await slackService.sendExecutionDetails(result, id);
+        
+        // NOTE: We do NOT call sendWorkflowCompleted here to avoid duplicate messages
+        // The GitHub Actions workflow will call the /api/execution/:id/slack-update endpoint
+        // which will properly update the main thread
       } else {
         logger.warn('Slack service not available');
       }
@@ -107,11 +111,17 @@ router.post('/:id/slack-update', async (req: Request, res: Response) => {
       if (slackService) {
         logger.info('📢 Updating Slack main thread via API endpoint', { testId: execution.testId, executionId: id, status });
         
+        // Create a custom result object with the status from request body
+        const customResult = {
+          ...execution.result,
+          status: status as 'passed' | 'failed'
+        };
+        
         // Update main thread with pass/fail status
         const success = await slackService.updateMainThreadWithResult(
           execution.testId, 
           testName, 
-          execution.result, 
+          customResult, 
           workflowRunUrl
         );
         

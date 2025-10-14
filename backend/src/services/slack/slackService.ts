@@ -63,6 +63,8 @@ export class SlackService {
   private config: SlackConfig;
   private debugPackageService: DebugPackageService;
   private threadTimestamps: Map<string, string> = new Map(); // executionId -> thread_ts
+  private testCreationTimestamps: Map<string, string> = new Map(); // testId -> test_creation_ts
+  private channelId: string = 'C09F5F2MH8D'; // Channel ID for test-automation-platform-alerts
 
   constructor(config: SlackConfig) {
     this.config = config;
@@ -89,6 +91,7 @@ export class SlackService {
           const response = await this.sendMessageViaAPI(message);
           if (response && response.ts) {
             this.threadTimestamps.set(testId, response.ts);
+            this.testCreationTimestamps.set(testId, response.ts);
             logger.info('✅ Test creation notification sent to Slack via API', { testId, threadTs: response.ts, responseData: response });
             return response.ts;
           } else {
@@ -465,8 +468,10 @@ export class SlackService {
       throw new Error('Slack bot token is not configured');
     }
 
-    // Remove # if present for API calls
-    if (channel.startsWith('#')) {
+    // Use channel ID directly if it's a channel ID, otherwise clean the channel name
+    if (channel.startsWith('C')) {
+      // It's already a channel ID, use as is
+    } else if (channel.startsWith('#')) {
       channel = channel.substring(1);
     }
 
@@ -518,17 +523,17 @@ export class SlackService {
     try {
       logger.info('🔄 updateMainThreadWithResult called', { testId, testName, status: result.status });
       
-      let threadTs = this.threadTimestamps.get(testId);
-      logger.info('🔍 Current thread timestamp status', { testId, threadTs, hasBotToken: !!this.config.botToken });
+      let threadTs = this.testCreationTimestamps.get(testId);
+      logger.info('🔍 Current test creation timestamp status', { testId, threadTs, hasBotToken: !!this.config.botToken });
       
-      // If no thread timestamp, try to find existing message
+      // If no test creation timestamp, try to find existing message
       if (!threadTs && this.config.botToken) {
-        logger.warn('❌ No thread timestamp found for test - searching for existing message', { testId });
+        logger.warn('❌ No test creation timestamp found for test - searching for existing message', { testId });
         const foundTs = await this.searchMessageByTestId(testId);
         if (foundTs) {
           threadTs = foundTs;
-          this.threadTimestamps.set(testId, threadTs);
-          logger.info('✅ Found and stored thread timestamp for test', { testId, threadTs });
+          this.testCreationTimestamps.set(testId, threadTs);
+          logger.info('✅ Found and stored test creation timestamp for test', { testId, threadTs });
         } else {
           logger.warn('❌ No existing message found for test', { testId });
         }
@@ -582,7 +587,7 @@ export class SlackService {
       const statusColor = isPassed ? 'good' : 'danger';
 
       // Build updated message - Update the original test creation message
-      let text = `🧪 *Test Created: ${testName} : ${statusText}*\n\n`;
+      let text = `🧪 *Test ${statusText}: ${testName}*\n\n`;
       text += `*Test ID:* ${testId}`;
       text += `\n*Status:* ${statusText}`;
       text += `\n*Steps:* ${result.steps.length}`;
@@ -600,7 +605,7 @@ export class SlackService {
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: `🧪 *Test Created: ${testName} : ${statusText}*`
+            text: `🧪 *Test ${statusText}: ${testName}*`
           }
         },
         {
@@ -646,18 +651,18 @@ export class SlackService {
         });
       }
 
-      // Update the main thread message
-      logger.info('🔄 Attempting to update main thread', { testId, threadTs, channel: this.config.channel });
+      // Update the main thread message (test creation message)
+      logger.info('🔄 Attempting to update test creation message', { testId, threadTs, channel: this.channelId });
       
       try {
         await this.updateMessageViaAPI(
-          this.config.channel || '',
+          this.channelId,
           threadTs,
           text,
           blocks
         );
 
-        logger.info('✅ Main thread updated with test result', { testId, status: result.status, threadTs });
+        logger.info('✅ Test creation message updated with test result', { testId, status: result.status, threadTs });
         return true;
       } catch (updateError) {
         logger.error('❌ Failed to update main thread message', { updateError, testId, threadTs });
@@ -1707,16 +1712,16 @@ export class SlackService {
         const testId = testIdMatch ? testIdMatch[1] : null;
         
         if (testId) {
-          let threadTs = this.threadTimestamps.get(testId);
+          let threadTs = this.testCreationTimestamps.get(testId);
           
           // If no thread timestamp, try to find existing message
           if (!threadTs) {
-            logger.info('🔍 Searching for existing message for workflow started', { testId });
+            logger.info('🔍 Searching for existing test creation message for workflow started', { testId });
             const foundTs = await this.searchMessageByTestId(testId);
             if (foundTs) {
               threadTs = foundTs;
-              this.threadTimestamps.set(testId, threadTs);
-              logger.info('✅ Found existing message for workflow started', { testId, threadTs });
+              this.testCreationTimestamps.set(testId, threadTs);
+              logger.info('✅ Found existing test creation message for workflow started', { testId, threadTs });
             }
           }
           
@@ -1737,8 +1742,8 @@ export class SlackService {
               const foundTs = await this.searchMessageByPattern(pattern);
               if (foundTs) {
                 threadTs = foundTs;
-                this.threadTimestamps.set(testId, threadTs);
-                logger.info('✅ Found thread timestamp with pattern search for workflow started', { testId, threadTs, pattern });
+                this.testCreationTimestamps.set(testId, threadTs);
+                logger.info('✅ Found test creation timestamp with pattern search for workflow started', { testId, threadTs, pattern });
                 break;
               }
             }
@@ -1903,16 +1908,16 @@ export class SlackService {
       let mainThreadUpdated = false;
       if (testId && testStatus && this.config.botToken) {
         try {
-          let threadTs = this.threadTimestamps.get(testId);
+          let threadTs = this.testCreationTimestamps.get(testId);
           
           // If no thread timestamp, try to find existing message
           if (!threadTs) {
-            logger.warn('No thread timestamp found for test - searching for existing message', { testId });
+            logger.warn('No test creation timestamp found for test - searching for existing message', { testId });
             const foundTs = await this.searchMessageByTestId(testId);
             if (foundTs) {
               threadTs = foundTs;
-              this.threadTimestamps.set(testId, threadTs);
-              logger.info('Found and stored thread timestamp for test', { testId, threadTs });
+              this.testCreationTimestamps.set(testId, threadTs);
+              logger.info('Found and stored test creation timestamp for test', { testId, threadTs });
             }
           }
           
@@ -1933,8 +1938,8 @@ export class SlackService {
               const foundTs = await this.searchMessageByPattern(pattern);
               if (foundTs) {
                 threadTs = foundTs;
-                this.threadTimestamps.set(testId, threadTs);
-                logger.info('✅ Found thread timestamp with pattern search for workflow', { testId, threadTs, pattern });
+                this.testCreationTimestamps.set(testId, threadTs);
+                logger.info('✅ Found test creation timestamp with pattern search for workflow', { testId, threadTs, pattern });
                 break;
               }
             }
