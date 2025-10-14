@@ -380,6 +380,56 @@ jobs:
           echo "❌ No execution ID found - test may not have been executed"
         fi
 
+    - name: Update Slack main thread with test result
+      if: env.EXECUTION_ID != '' && env.TEST_ID != '' && env.TEST_STATUS != ''
+      run: |
+        echo "📢 Updating Slack main thread with test result..."
+        if [ -n "${{ env.EXECUTION_ID }}" ] && [ -n "${{ env.TEST_ID }}" ] && [ -n "${{ env.TEST_STATUS }}" ]; then
+          echo "🔄 Calling Slack update API..."
+          
+          # Prepare the update payload
+          UPDATE_PAYLOAD=$(jq -n \
+            --arg testName "${{ env.TEST_DESCRIPTION }}" \
+            --arg status "${{ env.TEST_STATUS }}" \
+            --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{
+              testName: $testName,
+              status: $status,
+              workflowRunUrl: $workflowRunUrl
+            }')
+          
+          echo "📋 Update payload:"
+          echo "$UPDATE_PAYLOAD" | jq '.'
+          
+          # Call the Slack update endpoint
+          SLACK_UPDATE_RESPONSE=$(curl -X POST \
+            "${BACKEND_URL:-http://localhost:3001}/api/execution/${{ env.EXECUTION_ID }}/slack-update" \
+            -H "Content-Type: application/json" \
+            -d "$UPDATE_PAYLOAD" \
+            -w "\n%{http_code}" \
+            --max-time 30)
+          
+          SLACK_UPDATE_HTTP_CODE=$(echo "$SLACK_UPDATE_RESPONSE" | tail -n1)
+          SLACK_UPDATE_BODY=$(echo "$SLACK_UPDATE_RESPONSE" | sed '$d')
+          
+          echo "Slack Update HTTP Code: $SLACK_UPDATE_HTTP_CODE"
+          echo "Slack Update Response: $SLACK_UPDATE_BODY"
+          
+          if [ "$SLACK_UPDATE_HTTP_CODE" -eq 200 ]; then
+            echo "✅ Slack main thread updated successfully!"
+            echo "$SLACK_UPDATE_BODY" | jq '.'
+          else
+            echo "⚠️ Slack main thread update failed with HTTP $SLACK_UPDATE_HTTP_CODE"
+            echo "Response: $SLACK_UPDATE_BODY"
+            # Don't fail the workflow if Slack update fails
+          fi
+        else
+          echo "⚠️ Missing required environment variables for Slack update"
+          echo "EXECUTION_ID: ${{ env.EXECUTION_ID }}"
+          echo "TEST_ID: ${{ env.TEST_ID }}"
+          echo "TEST_STATUS: ${{ env.TEST_STATUS }}"
+        fi
+
     - name: Upload test scenarios
       uses: actions/upload-artifact@v4
       with:

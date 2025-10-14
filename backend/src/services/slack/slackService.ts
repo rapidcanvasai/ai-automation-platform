@@ -586,13 +586,48 @@ export class SlackService {
       const statusText = isPassed ? 'PASSED' : 'FAILED';
       const statusColor = isPassed ? 'good' : 'danger';
 
-      // Build updated message - Update the original test creation message
-      let text = `🧪 *Test ${statusText}: ${testName}*\n\n`;
+      // Extract main URL from test steps
+      const extractMainUrl = (steps: any[], testDescription?: string): string => {
+        // First, look for the main application URL in navigation steps
+        for (const step of steps) {
+          if (step.action === 'navigate' && step.target) {
+            const url = step.target;
+            // Check if it's a rapidcanvas.ai URL with a specific app path
+            if (url.includes('rapidcanvas.ai') && url.includes('/dataapps')) {
+              return url;
+            }
+            // If it's just the main rapidcanvas.ai URL, use it
+            if (url.includes('rapidcanvas.ai')) {
+              return url;
+            }
+          }
+        }
+        
+        // If no steps or no URL found in steps, try to extract from test description
+        if (testDescription) {
+          // Look for rapidcanvas.ai URLs in the description
+          const urlMatch = testDescription.match(/https:\/\/app\.rapidcanvas\.ai\/[^\s]+/);
+          if (urlMatch) {
+            return urlMatch[0];
+          }
+          
+          // Look for any rapidcanvas.ai URL
+          const generalUrlMatch = testDescription.match(/https:\/\/[^\s]*rapidcanvas\.ai[^\s]*/);
+          if (generalUrlMatch) {
+            return generalUrlMatch[0];
+          }
+        }
+        
+        // Fallback to test name if no URL found
+        return testName;
+      };
+
+      const mainUrl = extractMainUrl(result.steps, testName);
+      
+      // Build updated message - Simplified format with main URL and status icons
+      let text = `🧪 *TEST ${statusEmoji} ${statusText}: ${mainUrl}*\n\n`;
       text += `*Test ID:* ${testId}`;
-      text += `\n*Status:* ${statusText}`;
-      text += `\n*Steps:* ${result.steps.length}`;
-      text += `\n*Passed:* ${result.steps.filter(s => s.status === 'passed').length}`;
-      text += `\n*Failed:* ${result.steps.filter(s => s.status === 'failed').length}`;
+      text += `\n*Status:* ${statusEmoji} ${statusText}`;
 
       // Add workflow run link if available
       if (workflowRunUrl) {
@@ -605,7 +640,7 @@ export class SlackService {
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: `🧪 *Test ${statusText}: ${testName}*`
+            text: `🧪 *TEST ${statusEmoji} ${statusText}: ${mainUrl}*`
           }
         },
         {
@@ -617,15 +652,7 @@ export class SlackService {
             },
             {
               type: 'mrkdwn',
-              text: `*Status:*\n${statusText}`
-            },
-            {
-              type: 'mrkdwn',
-              text: `*Total Steps:*\n${result.steps.length}`
-            },
-            {
-              type: 'mrkdwn',
-              text: `*Passed:*\n${result.steps.filter(s => s.status === 'passed').length}`
+              text: `*Status:*\n${statusEmoji} ${statusText}`
             }
           ]
         }
