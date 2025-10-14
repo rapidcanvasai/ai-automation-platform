@@ -2064,7 +2064,23 @@ Please respond with JSON:
           });
           
           // Create AI prompt for error analysis
-          const prompt = `Please analyze this web page and determine if there are any errors or issues that need attention.
+          const prompt = `Please analyze this web page and determine if there are any ACTUAL ERRORS or issues that need attention.
+
+IMPORTANT: Only report REAL ERRORS, not normal UI elements like:
+- SVG graphics, charts, or icons (even if they have empty text content)
+- Notification badges or counters (like "2" in a badge)
+- Status indicators or normal UI components
+- Loading spinners or progress indicators
+- Navigation elements or buttons
+
+REAL ERRORS include:
+- Python/JavaScript exceptions or tracebacks
+- Error messages like "Error:", "Failed:", "Exception:"
+- Broken functionality or missing content
+- Authentication/authorization failures
+- Server errors or connection issues
+- Form validation errors
+- Critical UI problems that prevent functionality
 
 PAGE INFORMATION:
 ${pageInfo.map((frame, i) => `
@@ -2097,7 +2113,7 @@ Please respond with JSON:
               messages: [
                 {
                   role: 'system',
-                  content: 'You are an expert web application tester. Analyze web pages for errors, exceptions, and issues. Look for Python errors, JavaScript errors, UI issues, and any problems that would indicate the application is not working correctly. Respond with JSON.'
+                  content: 'You are an expert web application tester. Analyze web pages for ACTUAL ERRORS, exceptions, and critical issues. IGNORE normal UI elements like SVG graphics, notification badges, status indicators, and navigation elements. Only report real problems like Python/JavaScript errors, broken functionality, authentication failures, server errors, or critical UI issues that prevent the application from working correctly. Respond with JSON.'
                 },
                 {
                   role: 'user',
@@ -2310,8 +2326,10 @@ Please respond with JSON:
                   if (isVisible && isInViewport) {
                     const text = el.textContent?.trim() || '';
                     if (text && text.length > 0) {
-                  // Exclude form validation errors and status messages
+                  // Exclude form validation errors, status messages, and notification badges
                   const textLower = text.toLowerCase();
+                  const className = el.className.toLowerCase();
+                  
                   const isFormValidation = textLower.includes('required') || 
                                          textLower.includes('invalid') ||
                                          textLower.includes('email') ||
@@ -2330,8 +2348,15 @@ Please respond with JSON:
                                         textLower.includes('running') ||
                                         textLower.includes('stopped');
                   
-                  // Only flag if it's not a form validation or status message
-                  if (!isFormValidation && !isStatusMessage) {
+                  // Exclude notification badges and counters
+                  const isNotificationBadge = className.includes('badge') || 
+                                            className.includes('counter') ||
+                                            className.includes('notification') ||
+                                            className.includes('count') ||
+                                            (text.match(/^\d+$/) && text.length <= 3); // Single digit numbers
+                  
+                  // Only flag if it's not a form validation, status message, or notification badge
+                  if (!isFormValidation && !isStatusMessage && !isNotificationBadge) {
                         elements.push({
                           selector,
                           text: text.substring(0, 200),
