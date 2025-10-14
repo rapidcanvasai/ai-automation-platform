@@ -68,7 +68,7 @@ describe('SlackService', () => {
       expect(updateCall[1]).toMatchObject({
         channel: 'test-channel',
         ts: '1234567890.123456',
-        text: expect.stringMatching(/✅.*PASSED/)
+        text: expect.stringMatching(/🧪.*PASSED/)
       });
     });
 
@@ -119,7 +119,7 @@ describe('SlackService', () => {
       expect(updateCall[1]).toMatchObject({
         channel: 'test-channel',
         ts: '1234567890.123456',
-        text: expect.stringMatching(/❌.*FAILED/)
+        text: expect.stringMatching(/🧪.*FAILED/)
       });
     });
 
@@ -150,7 +150,7 @@ describe('SlackService', () => {
       );
 
       expect(result).toBe(false);
-      expect(axios.post).toHaveBeenCalledTimes(5); // Search call + 4 pattern searches
+      expect(axios.post).toHaveBeenCalledTimes(8); // Search call + 7 pattern searches (added more patterns)
     });
 
     it('should use fallback when update fails', async () => {

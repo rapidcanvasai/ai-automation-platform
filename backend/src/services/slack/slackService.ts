@@ -433,7 +433,10 @@ export class SlackService {
             match.text.includes('Test Created:') ||
             match.text.includes('Test ID:') ||
             match.text.includes('🧪') ||
-            match.text.includes('Test Automation Bot')
+            match.text.includes('Test Automation Bot') ||
+            match.text.includes('Status: Ready to execute') ||
+            match.text.includes('GitHub Action Test') ||
+            match.text.includes('Test Automation Platform')
           )) {
             logger.info('✅ Found test creation message by pattern', { pattern, messageTs: match.ts, text: match.text.substring(0, 100) });
             return match.ts;
@@ -539,7 +542,10 @@ export class SlackService {
           testId,
           `Test Created: ${testName}`,
           `Test ID: ${testId}`,
-          testName
+          testName,
+          `GitHub Action Test`,
+          `Test Created:`,
+          `Status: Ready to execute`
         ];
         
         for (const pattern of searchPatterns) {
@@ -1692,57 +1698,187 @@ export class SlackService {
     jobRunUrl?: string
   ): Promise<void> {
     try {
-      const blocks: SlackBlock[] = [
-        {
-          type: 'header',
-          text: {
-            type: 'plain_text',
-            text: '🚀 GitHub Actions Workflow Started'
-          }
-        },
-        {
-          type: 'section',
-          fields: [
-            {
-              type: 'mrkdwn',
-              text: `*Repository:*\n${repository}`
-            },
-            {
-              type: 'mrkdwn',
-              text: `*Triggered by:*\n${triggeredBy}`
-            },
-            {
-              type: 'mrkdwn',
-              text: `*Workflow Run:*\n${workflowRun}`
-            },
-            {
-              type: 'mrkdwn',
-              text: `*Test Description:*\n${testDescription.substring(0, 200)}${testDescription.length > 200 ? '...' : ''}`
+      // Try to find existing main thread first
+      let mainThreadUpdated = false;
+      
+      if (this.config.botToken) {
+        // Extract test ID from testDescription if possible
+        const testIdMatch = testDescription.match(/Test ID: ([a-f0-9-]+)/i);
+        const testId = testIdMatch ? testIdMatch[1] : null;
+        
+        if (testId) {
+          let threadTs = this.threadTimestamps.get(testId);
+          
+          // If no thread timestamp, try to find existing message
+          if (!threadTs) {
+            logger.info('🔍 Searching for existing message for workflow started', { testId });
+            const foundTs = await this.searchMessageByTestId(testId);
+            if (foundTs) {
+              threadTs = foundTs;
+              this.threadTimestamps.set(testId, threadTs);
+              logger.info('✅ Found existing message for workflow started', { testId, threadTs });
             }
-          ]
-        }
-      ];
-
-      if (jobRunUrl) {
-        blocks.push({
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `🔗 <${jobRunUrl}|View Workflow Run>`
           }
-        });
+          
+          // If still no thread timestamp, try broader search
+          if (!threadTs) {
+            logger.info('🔍 Attempting broader search for workflow started', { testId });
+            const searchPatterns = [
+              testId,
+              `Test Created:`,
+              `Test ID: ${testId}`,
+              testDescription.substring(0, 30),
+              `GitHub Action Test`,
+              `Status: Ready to execute`,
+              `Test Automation Platform`
+            ];
+            
+            for (const pattern of searchPatterns) {
+              const foundTs = await this.searchMessageByPattern(pattern);
+              if (foundTs) {
+                threadTs = foundTs;
+                this.threadTimestamps.set(testId, threadTs);
+                logger.info('✅ Found thread timestamp with pattern search for workflow started', { testId, threadTs, pattern });
+                break;
+              }
+            }
+          }
+          
+          if (threadTs && !threadTs.startsWith('dummy_') && !threadTs.startsWith('webhook_') && !threadTs.startsWith('failed_')) {
+            // Build updated message for main thread
+            let text = `🚀 *Workflow Started: ${testDescription.substring(0, 50)}...*\n\n`;
+            text += `*Repository:* ${repository}`;
+            text += `\n*Triggered by:* ${triggeredBy}`;
+            text += `\n*Workflow Run:* ${workflowRun}`;
+            text += `\n*Test Description:* ${testDescription.substring(0, 200)}${testDescription.length > 200 ? '...' : ''}`;
+            
+            if (jobRunUrl) {
+              text += `\n🔗 <${jobRunUrl}|View Workflow Run>`;
+            }
+
+            // Build blocks for better formatting
+            const blocks: SlackBlock[] = [
+              {
+                type: 'section',
+                text: {
+                  type: 'mrkdwn',
+                  text: `🚀 *Workflow Started: ${testDescription.substring(0, 50)}...*`
+                }
+              },
+              {
+                type: 'section',
+                fields: [
+                  {
+                    type: 'mrkdwn',
+                    text: `*Repository:*\n${repository}`
+                  },
+                  {
+                    type: 'mrkdwn',
+                    text: `*Triggered by:*\n${triggeredBy}`
+                  },
+                  {
+                    type: 'mrkdwn',
+                    text: `*Workflow Run:*\n${workflowRun}`
+                  },
+                  {
+                    type: 'mrkdwn',
+                    text: `*Test Description:*\n${testDescription.substring(0, 200)}${testDescription.length > 200 ? '...' : ''}`
+                  }
+                ]
+              }
+            ];
+
+            // Add workflow run link if available
+            if (jobRunUrl) {
+              blocks.push({
+                type: 'section',
+                text: {
+                  type: 'mrkdwn',
+                  text: `🔗 <${jobRunUrl}|View Workflow Run>`
+                }
+              });
+            }
+
+            // Update the main thread message
+            try {
+              await this.updateMessageViaAPI(
+                this.config.channel || '',
+                threadTs,
+                text,
+                blocks
+              );
+
+              logger.info('Main thread updated with workflow started status', { testId, workflowRun });
+              mainThreadUpdated = true;
+            } catch (updateError) {
+              logger.error('Failed to update main thread message for workflow started', { updateError, testId, threadTs });
+              mainThreadUpdated = false;
+            }
+          } else {
+            logger.warn('No valid thread timestamp found for workflow started update', { testId, threadTs });
+            mainThreadUpdated = false;
+          }
+        }
       }
 
-      const message: SlackMessage = {
-        text: `🚀 GitHub Actions workflow started for: ${testDescription.substring(0, 100)}...`,
-        blocks,
-        channel: this.config.channel,
-        username: this.config.username,
-        icon_emoji: this.config.iconEmoji
-      };
+      // Only send a new workflow notification if main thread update failed
+      if (!mainThreadUpdated) {
+        logger.info('Main thread update failed, sending new workflow started notification', { workflowRun });
+        
+        const blocks: SlackBlock[] = [
+          {
+            type: 'header',
+            text: {
+              type: 'plain_text',
+              text: '🚀 GitHub Actions Workflow Started'
+            }
+          },
+          {
+            type: 'section',
+            fields: [
+              {
+                type: 'mrkdwn',
+                text: `*Repository:*\n${repository}`
+              },
+              {
+                type: 'mrkdwn',
+                text: `*Triggered by:*\n${triggeredBy}`
+              },
+              {
+                type: 'mrkdwn',
+                text: `*Workflow Run:*\n${workflowRun}`
+              },
+              {
+                type: 'mrkdwn',
+                text: `*Test Description:*\n${testDescription.substring(0, 200)}${testDescription.length > 200 ? '...' : ''}`
+              }
+            ]
+          }
+        ];
 
-      await this.sendMessage(message);
-      logger.info('Workflow started notification sent to Slack', { workflowRun, repository });
+        if (jobRunUrl) {
+          blocks.push({
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `🔗 <${jobRunUrl}|View Workflow Run>`
+            }
+          });
+        }
+
+        const message: SlackMessage = {
+          text: `🚀 GitHub Actions workflow started for: ${testDescription.substring(0, 100)}...`,
+          blocks,
+          channel: this.config.channel,
+          username: this.config.username,
+          icon_emoji: this.config.iconEmoji
+        };
+
+        await this.sendMessage(message);
+        logger.info('Workflow started notification sent to Slack', { workflowRun, repository });
+      } else {
+        logger.info('Main thread updated successfully, skipping new workflow started notification', { workflowRun });
+      }
     } catch (error) {
       logger.error('Failed to send workflow started notification', { error, workflowRun });
     }
@@ -1764,6 +1900,7 @@ export class SlackService {
       const statusText = testStatus === 'passed' ? 'SUCCESS' : testStatus === 'failed' ? 'FAILED' : 'COMPLETED';
 
       // If we have a testId and testStatus, try to update the main thread
+      let mainThreadUpdated = false;
       if (testId && testStatus && this.config.botToken) {
         try {
           let threadTs = this.threadTimestamps.get(testId);
@@ -1786,7 +1923,10 @@ export class SlackService {
               testId,
               `Test Created:`,
               `Test ID: ${testId}`,
-              testDescription.substring(0, 30)
+              testDescription.substring(0, 30),
+              `GitHub Action Test`,
+              `Status: Ready to execute`,
+              `Test Automation Platform`
             ];
             
             for (const pattern of searchPatterns) {
@@ -1865,33 +2005,18 @@ export class SlackService {
               );
 
               logger.info('Main thread updated with workflow completion status', { testId, status: testStatus });
+              mainThreadUpdated = true;
             } catch (updateError) {
               logger.error('Failed to update main thread message for workflow completion', { updateError, testId, threadTs });
-              
-              // Try fallback: send new message
-              try {
-                logger.info('🔄 Attempting fallback: sending new workflow completion message', { testId });
-                const fallbackMessage = this.buildTestCreatedMessage(
-                  `${testDescription.substring(0, 30)}... - ${statusText}`,
-                  testId,
-                  jobRunUrl
-                );
-                
-                // Add status emoji to the fallback message
-                fallbackMessage.text = `${statusEmoji} ${fallbackMessage.text}`;
-                
-                await this.sendMessageViaAPI(fallbackMessage);
-                logger.info('✅ Fallback workflow completion message sent successfully', { testId });
-              } catch (fallbackError) {
-                logger.error('❌ Fallback workflow completion message also failed', { fallbackError, testId });
-              }
+              mainThreadUpdated = false;
             }
           } else {
             logger.warn('No valid thread timestamp found for workflow completion update', { testId, threadTs });
+            mainThreadUpdated = false;
           }
         } catch (updateError) {
           logger.error('Failed to update main thread with workflow completion', { updateError, testId });
-          // Continue with regular workflow notification
+          mainThreadUpdated = false;
         }
       }
 
@@ -1960,16 +2085,23 @@ export class SlackService {
         });
       }
 
-      const message: SlackMessage = {
-        text: `${statusEmoji} GitHub Actions workflow ${statusText.toLowerCase()} for: ${testDescription.substring(0, 100)}...`,
-        blocks,
-        channel: this.config.channel,
-        username: this.config.username,
-        icon_emoji: this.config.iconEmoji
-      };
+      // Only send a new workflow notification if main thread update failed
+      if (!mainThreadUpdated) {
+        logger.info('Main thread update failed, sending new workflow notification', { testId, testStatus });
+        
+        const message: SlackMessage = {
+          text: `${statusEmoji} GitHub Actions workflow ${statusText.toLowerCase()} for: ${testDescription.substring(0, 100)}...`,
+          blocks,
+          channel: this.config.channel,
+          username: this.config.username,
+          icon_emoji: this.config.iconEmoji
+        };
 
-      await this.sendMessage(message);
-      logger.info('Workflow completed notification sent to Slack', { workflowRun, repository, testStatus });
+        await this.sendMessage(message);
+        logger.info('Workflow completed notification sent to Slack', { workflowRun, repository, testStatus });
+      } else {
+        logger.info('Main thread updated successfully, skipping new workflow notification', { testId, testStatus });
+      }
     } catch (error) {
       logger.error('Failed to send workflow completed notification', { error, workflowRun });
     }
