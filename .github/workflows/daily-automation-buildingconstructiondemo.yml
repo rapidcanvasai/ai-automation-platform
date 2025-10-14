@@ -1,0 +1,476 @@
+name: Daily AI Test Automation - BuildingConstructionDemo
+
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+    inputs:
+      test_description:
+        description: 'Test description in plain English. For supported commands, see: https://rapidcanvas.atlassian.net/wiki/spaces/RAPIDCANVA/pages/887554049/Test+Automation+Platform+-+Supported+Commands+Documentation'
+        required: true
+        type: string
+      slack_channel:
+        description: 'Provide slack channel name(Make sure bot - test-automation-platform is added to mentioned slack channel)'
+        required: false
+        type: string
+      headless:
+        description: 'Run browser in headless mode (true) or show browser window (false) - GitHub Actions default is headless'
+        required: false
+        type: boolean
+        default: true
+      enable_slack:
+        description: 'Enable Slack notifications'
+        required: false
+        type: boolean
+        default: true
+
+env:
+  TEST_DESCRIPTION: |
+    Open https://app.rapidcanvas.ai/ Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Verify Dashboard Open https://app.rapidcanvas.ai/apps/Untitled%20DataApp%204/RC-Retail?autoLaunch=true Wait 50sec If(text=Relaunch) then Click on Relaunch If(text=Launching) then wait 150sec Wait 100sec Click on OVERVIEW with AI Wait 30sec Verify no error is coming on UI with AI Click on ANALYTICS with AI Wait 30sec Verify no error is coming on UI with AI Click on FORECASTING with AI Wait 30sec Verify no error is coming on UI with AI Click on INVENTORY with AI Wait 20sec Verify no error is coming on UI with AI Click on ASK AI with AI Wait 60sec Verify no error is coming on UI with AI
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  OPENAI_MODEL: gpt-4o-mini
+  SLACK_CHANNEL: 'rc-demo-alerts'
+  SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  ENABLE_SLACK: true
+  HEADLESS: true
+
+jobs:
+  create-test-scenario:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📚 Documentation Link
+      run: |
+        echo "## 📚 Test Automation Documentation" >> $GITHUB_STEP_SUMMARY
+        echo "**Supported Commands**: [View Documentation](https://rapidcanvas.atlassian.net/wiki/spaces/RAPIDCANVA/pages/887554049/Test+Automation+Platform+-+Supported+Commands+Documentation)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "This documentation contains all supported commands and syntax for writing test descriptions." >> $GITHUB_STEP_SUMMARY
+
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install backend dependencies
+      run: |
+        cd backend
+        npm ci
+
+    - name: Install Playwright browsers
+      run: |
+        cd backend
+        echo "🔍 Checking Playwright installation..."
+        npx playwright --version
+        echo "🚀 Installing Chromium browser..."
+        npx playwright install chromium
+        echo "🔧 Installing system dependencies..."
+        npx playwright install-deps chromium
+        echo "✅ Playwright installation completed!"
+        echo "🔍 Verifying installation..."
+        npx playwright install chromium --dry-run
+
+    - name: Build backend
+      run: |
+        cd backend
+        npm run build
+
+    - name: Start backend server
+      run: |
+        cd backend
+        DB_DISABLED=true NODE_ENV=development PORT=3001 npm start &
+        echo "Backend server starting..."
+        
+        # Wait for backend to be ready
+        for i in {1..30}; do
+          if curl -f http://localhost:3001/health >/dev/null 2>&1; then
+            echo "✅ Backend is ready!"
+            break
+          fi
+          echo "Waiting for backend... ($i/30)"
+          sleep 2
+        done
+
+    - name: Generate and create complete test scenario
+      run: |
+        echo "🚀 Generating and creating complete test scenario from: ${{ env.TEST_DESCRIPTION }}"
+        echo "Test description length: ${#TEST_DESCRIPTION}"
+        
+        if [ -z "${{ env.TEST_DESCRIPTION }}" ]; then
+          echo "❌ No test description provided"
+          echo "Raw env value: '${{ env.TEST_DESCRIPTION }}'"
+          exit 1
+        fi
+        
+        echo "✅ Test description provided"
+        echo "Creating test-scenarios directory..."
+        mkdir -p test-scenarios
+        echo "Calling API to parse steps..."
+        
+        # Create properly escaped JSON payload
+        # GitHub Actions converts newlines to spaces, so we need to restore them
+        # The web interface sends text with actual \n characters, so we need to match that
+        echo "🔍 Restoring newlines to match web interface format..."
+        echo "Original input: ${{ env.TEST_DESCRIPTION }}"
+        
+        # Convert spaces back to newlines for action keywords (same as web interface)
+        # Handle conditional statements as complete lines: "If(text=X) then Action"
+        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/ Open https:/\nOpen https:/g' | sed 's/ Enter /\nEnter /g' | sed 's/ Verify /\nVerify /g' | sed 's/ Wait /\nWait /g' | sed 's/ If(/\nIf(/g')
+        
+        # Handle Click statements - split only standalone Click, not those after "then"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Click /\1\nClick /g')
+        
+        echo "Restored description with newlines:"
+        echo "$TEST_DESC_WITH_NEWLINES"
+        echo ""
+        
+        jq -n --arg text "$TEST_DESC_WITH_NEWLINES" '{text: $text}' > /tmp/nlp-payload.json
+        
+        STEPS_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/nlp/parse -H "Content-Type: application/json" -d @/tmp/nlp-payload.json -w "\n%{http_code}")
+        HTTP_CODE=$(echo "$STEPS_RESPONSE" | tail -n1)
+        STEPS_BODY=$(echo "$STEPS_RESPONSE" | sed '$d')
+        
+        echo "Steps HTTP Code: $HTTP_CODE"
+        echo "Steps Response Length: ${#STEPS_BODY}"
+        echo "Success: $(echo "$STEPS_BODY" | grep -o '"success":true' || echo 'false')"
+        
+        # Debug: Check number of steps parsed
+        STEPS_COUNT=$(echo "$STEPS_BODY" | jq '.steps | length' 2>/dev/null || echo "0")
+        echo "Number of steps parsed: $STEPS_COUNT"
+        
+        if [ "$STEPS_COUNT" -gt 5 ]; then
+            echo "✅ SUCCESS: Multiple steps parsed correctly!"
+            echo "First few steps:"
+            echo "$STEPS_BODY" | jq '.steps[0:3]'
+        else
+            echo "❌ ISSUE: Only $STEPS_COUNT step(s) parsed"
+            echo "Full response:"
+            echo "$STEPS_BODY" | jq '.'
+        fi
+        
+        if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
+          echo "✅ Test steps generated successfully!"
+          echo "Saving NLP parsing response..."
+          echo "$STEPS_BODY" > test-scenarios/steps-response-${{ github.run_id }}.json
+          echo "Creating payload..."
+          echo "$STEPS_BODY" | jq -c '{steps: .steps, language: "typescript"}' > /tmp/steps.json
+          echo "Payload created:"
+          cat /tmp/steps.json
+          echo ""
+          
+          echo "Calling API to generate code..."
+          CODE_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/nlp/generate-code -H "Content-Type: application/json" -d @/tmp/steps.json -w "\n%{http_code}")
+          CODE_HTTP_CODE=$(echo "$CODE_RESPONSE" | tail -n1)
+          CODE_BODY=$(echo "$CODE_RESPONSE" | sed '$d')
+          
+          echo "Code HTTP Code: $CODE_HTTP_CODE"
+          echo "Code Response Length: ${#CODE_BODY}"
+          echo "Code Success: $(echo "$CODE_BODY" | grep -o '"success":true' || echo 'false')"
+          
+          if [ "$CODE_HTTP_CODE" -eq 200 ] || [ "$CODE_HTTP_CODE" -eq 201 ]; then
+            echo "✅ Test code generated successfully!"
+            echo "Creating test scenario files..."
+            mkdir -p test-scenarios
+            
+            echo "Extracting test steps..."
+            TEST_STEPS=$(echo "$STEPS_BODY" | jq -r '.steps // .parsedSteps // "No steps generated"' 2>/dev/null || echo "No steps generated - parsing failed")
+            
+            echo "Creating comprehensive test scenario file..."
+            # Create markdown file using echo commands to avoid YAML issues
+            echo "# Test Scenario" > test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "Generated on: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "Triggered by: ${{ github.actor }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "Workflow Run: ${{ github.run_id }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "## Test Description" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "${{ env.TEST_DESCRIPTION }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "## Generated Test Steps" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "\`\`\`json" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "$STEPS_BODY" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "\`\`\`" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "## Generated Test Code Response" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "\`\`\`json" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "$CODE_BODY" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "\`\`\`" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "## Test Steps (Human Readable)" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "$TEST_STEPS" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "## Usage Instructions" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "1. Extract the code from the JSON response above" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "2. Save it as a .js file in your test project" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "3. Run with: npx playwright test your-test-file.js" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            
+            echo "Creating raw response file..."
+            echo "$CODE_BODY" > test-scenarios/code-response-${{ github.run_id }}.json
+            echo "Creating steps file..."
+            echo "$TEST_STEPS" > test-scenarios/test-steps-${{ github.run_id }}.txt
+            
+            echo "✅ Test scenario files created successfully!"
+            echo "Files created:"
+            ls -la test-scenarios/
+            echo "Main file size:"
+            wc -c test-scenarios/test-scenario-${{ github.run_id }}.md
+          else
+            echo "❌ Failed to generate test code"
+            echo "Raw code response: $CODE_RESPONSE"
+            exit 1
+          fi
+        else
+          echo "❌ Failed to generate test steps"
+          echo "Raw steps response: $STEPS_RESPONSE"
+          echo "Debug: TEST_DESCRIPTION value: '${{ env.TEST_DESCRIPTION }}'"
+          echo "Debug: TEST_DESCRIPTION length: ${#TEST_DESCRIPTION}"
+          exit 1
+        fi
+        
+        rm -f /tmp/steps.json /tmp/nlp-payload.json
+
+    - name: Create test in platform and execute
+      run: |
+        echo "🚀 Creating test in platform and executing..."
+        echo "📝 Creating test payload..."
+        TEST_NAME="GitHub Action Test - ${{ github.run_id }}"
+        
+        # Extract steps from the original NLP parsing response (like the frontend does)
+        STEPS_DATA=$(cat test-scenarios/steps-response-${{ github.run_id }}.json | jq -c '.steps // []')
+        
+        echo "🔍 Extracted steps data:"
+        echo "$STEPS_DATA" | jq '.'
+        echo ""
+        
+        # Create test payload using jq to properly escape JSON (matching frontend behavior)
+        jq -n \
+          --arg name "$TEST_NAME" \
+          --arg description "${{ env.TEST_DESCRIPTION }}" \
+          --argjson steps "$STEPS_DATA" \
+          --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+          '{
+            name: $name,
+            description: $description,
+            steps: $steps,
+            workflowRunUrl: $workflowRunUrl
+          }' > /tmp/test-payload.json
+        
+        echo "Creating test in platform..."
+        CREATE_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/tests -H "Content-Type: application/json" -d @/tmp/test-payload.json -w "\n%{http_code}")
+        CREATE_HTTP_CODE=$(echo "$CREATE_RESPONSE" | tail -n1)
+        CREATE_BODY=$(echo "$CREATE_RESPONSE" | sed '$d')
+        echo "Create Test HTTP Code: $CREATE_HTTP_CODE"
+        
+        if [ "$CREATE_HTTP_CODE" -eq 201 ]; then
+          echo "✅ Test created successfully!"
+            TEST_ID=$(echo "$CREATE_BODY" | jq -r '.test.id // "unknown"')
+            echo "Test ID: $TEST_ID"
+            echo "🔍 Debug: Full create response:"
+            echo "$CREATE_BODY" | jq '.'
+          echo "🚀 Executing test..."
+          
+          # Set browser execution mode for GitHub Actions
+          # GitHub Actions default is headless: true (no GUI available)
+          if [ "${{ env.HEADLESS }}" = "true" ]; then
+            HEADLESS_VALUE="true"
+            echo "🖥️ Running in HEADLESS mode (GitHub Actions - no GUI available)"
+          else
+            HEADLESS_VALUE="false"
+            echo "🖥️ Running in HEADED mode (browser window visible) - not recommended for GitHub Actions"
+          fi
+          
+          if [ "${{ env.ENABLE_SLACK }}" = "true" ]; then
+            SLACK_VALUE="true"
+          else
+            SLACK_VALUE="false"
+          fi
+          
+          # Match web interface execution parameters exactly
+          jq -n \
+            --argjson headless "$HEADLESS_VALUE" \
+            --argjson enableSlack "$SLACK_VALUE" \
+            '{
+              headless: $headless,
+              slowMoMs: 1000,
+              enableSlackNotifications: $enableSlack
+            }' > /tmp/exec-payload.json
+          
+          echo "📋 Execution payload:"
+          cat /tmp/exec-payload.json
+          echo ""
+          
+          echo "🔍 Testing execution with test ID: $TEST_ID"
+          echo "🔍 Checking if test exists first..."
+          curl -X GET ${BACKEND_URL:-http://localhost:3001}/api/tests/$TEST_ID | jq '.test.id // "not found"'
+          
+          echo "🔍 Debug: Checking Playwright installation in backend..."
+          curl -X GET ${BACKEND_URL:-http://localhost:3001}/health | jq '.' || echo "Health check failed"
+          
+          echo "🚀 Executing test..."
+          EXEC_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}" --max-time 600)
+          EXEC_HTTP_CODE=$(echo "$EXEC_RESPONSE" | tail -n1)
+          EXEC_BODY=$(echo "$EXEC_RESPONSE" | sed '$d')
+          echo "Execution HTTP Code: $EXEC_HTTP_CODE"
+          echo "Execution Response: $EXEC_BODY"
+          
+          if [ "$EXEC_HTTP_CODE" -eq 200 ]; then
+            echo "✅ Test executed successfully!"
+            echo "Execution Result:"
+            echo "$EXEC_BODY" | jq '.'
+            EXECUTION_ID=$(echo "$EXEC_BODY" | jq -r '.executionId // "unknown"')
+            TEST_STATUS=$(echo "$EXEC_BODY" | jq -r '.status // "unknown"')
+            echo "EXECUTION_ID=$EXECUTION_ID" >> $GITHUB_ENV
+            echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
+            echo "TEST_ID=$TEST_ID" >> $GITHUB_ENV
+            
+            # Check if execution actually completed
+            STEPS_EXECUTED=$(echo "$EXEC_BODY" | jq '.result.steps | length' 2>/dev/null || echo "0")
+            echo "Steps executed: $STEPS_EXECUTED"
+            if [ "$STEPS_EXECUTED" -eq 0 ]; then
+              echo "⚠️ WARNING: No steps were executed in the browser."
+              echo "This might be due to browser automation issues in Docker environment."
+            fi
+          elif [ "$EXEC_HTTP_CODE" -eq 404 ]; then
+            echo "❌ Test not found (404) - Test ID: $TEST_ID"
+            echo "Raw execution response: $EXEC_RESPONSE"
+            exit 1
+          else
+            echo "❌ Test execution failed with HTTP $EXEC_HTTP_CODE"
+            echo "Raw execution response: $EXEC_RESPONSE"
+            exit 1
+          fi
+        else
+          echo "❌ Failed to create test"
+          echo "Raw create response: $CREATE_RESPONSE"
+          exit 1
+        fi
+        
+        # Cleanup
+        rm -f /tmp/test-payload.json /tmp/exec-payload.json
+
+
+    - name: Verify test execution results
+      run: |
+        echo "📊 Verifying test execution results..."
+        if [ -n "${{ env.EXECUTION_ID }}" ]; then
+          echo "✅ Test executed in platform successfully!"
+          echo "Execution ID: ${{ env.EXECUTION_ID }}"
+          echo "Test Status: ${{ env.TEST_STATUS }}"
+          echo "Test ID: ${{ env.TEST_ID }}"
+          
+          # Get detailed execution results
+          echo "📋 Getting detailed execution results..."
+          DETAILED_RESULTS=$(curl -X GET "${BACKEND_URL:-http://localhost:3001}/api/execution/${{ env.EXECUTION_ID }}/results" | jq '.')
+          echo "Detailed Results:"
+          echo "$DETAILED_RESULTS" | jq '.'
+          
+          STEPS_EXECUTED=$(echo "$DETAILED_RESULTS" | jq '.execution.result.steps | length')
+          echo "Steps executed: $STEPS_EXECUTED"
+          
+          if [ "$STEPS_EXECUTED" -gt 0 ]; then
+            echo "🎉 SUCCESS: Browser execution completed! Steps were executed."
+            echo "Step details:"
+            echo "$DETAILED_RESULTS" | jq '.execution.result.steps[] | {step: .step, action: .action, target: .target, status: .status, error: .error}'
+          else
+            echo "⚠️ WARNING: No steps were executed in the browser."
+          fi
+        else
+          echo "❌ No execution ID found - test may not have been executed"
+        fi
+
+    - name: Update Slack main thread with test result
+      if: env.EXECUTION_ID != '' && env.TEST_ID != '' && env.TEST_STATUS != ''
+      run: |
+        echo "📢 Updating Slack main thread with test result..."
+        if [ -n "${{ env.EXECUTION_ID }}" ] && [ -n "${{ env.TEST_ID }}" ] && [ -n "${{ env.TEST_STATUS }}" ]; then
+          echo "🔄 Calling Slack update API..."
+          
+          # Prepare the update payload
+          UPDATE_PAYLOAD=$(jq -n \
+            --arg testName "GitHub Action Test - ${{ github.run_id }}" \
+            --arg status "${{ env.TEST_STATUS }}" \
+            --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{
+              testName: $testName,
+              status: $status,
+              workflowRunUrl: $workflowRunUrl
+            }')
+          
+          echo "📋 Update payload:"
+          echo "$UPDATE_PAYLOAD" | jq '.'
+          
+          # Call the Slack update endpoint
+          SLACK_UPDATE_RESPONSE=$(curl -X POST \
+            "${BACKEND_URL:-http://localhost:3001}/api/execution/${{ env.EXECUTION_ID }}/slack-update" \
+            -H "Content-Type: application/json" \
+            -d "$UPDATE_PAYLOAD" \
+            -w "\n%{http_code}" \
+            --max-time 30)
+          
+          SLACK_UPDATE_HTTP_CODE=$(echo "$SLACK_UPDATE_RESPONSE" | tail -n1)
+          SLACK_UPDATE_BODY=$(echo "$SLACK_UPDATE_RESPONSE" | sed '$d')
+          
+          echo "Slack Update HTTP Code: $SLACK_UPDATE_HTTP_CODE"
+          echo "Slack Update Response: $SLACK_UPDATE_BODY"
+          
+          if [ "$SLACK_UPDATE_HTTP_CODE" -eq 200 ]; then
+            echo "✅ Slack main thread updated successfully!"
+            echo "$SLACK_UPDATE_BODY" | jq '.'
+          else
+            echo "⚠️ Slack main thread update failed with HTTP $SLACK_UPDATE_HTTP_CODE"
+            echo "Response: $SLACK_UPDATE_BODY"
+            # Don't fail the workflow if Slack update fails
+          fi
+        else
+          echo "⚠️ Missing required environment variables for Slack update"
+          echo "EXECUTION_ID: ${{ env.EXECUTION_ID }}"
+          echo "TEST_ID: ${{ env.TEST_ID }}"
+          echo "TEST_STATUS: ${{ env.TEST_STATUS }}"
+        fi
+
+    - name: Upload test scenarios
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-scenarios-${{ github.run_id }}
+        path: test-scenarios/
+        retention-days: 30
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ github.run_id }}
+        path: backend/test-results/
+        retention-days: 30
+
+
+    - name: Comment on workflow
+      run: |
+        echo "✅ AI Test Automation Pipeline completed successfully!"
+        echo ""
+        echo "📊 Pipeline Summary:"
+        echo "   • Natural language processing: ✅"
+        echo "   • Test code generation: ✅"
+        echo "   • Test creation in platform: ✅"
+        echo "   • Test execution: ✅"
+        echo "   • Slack notifications: ✅"
+        echo ""
+        echo "📁 Files uploaded as artifacts:"
+        echo "   - test-scenario-${{ github.run_id }}.md (comprehensive report)"
+        echo "   - code-response-${{ github.run_id }}.json (raw code response)"
+        echo "   - test-steps-${{ github.run_id }}.txt (human readable steps)"
+          echo "   - test-results-${{ github.run_id }} (test execution results)"
+          echo "   - generated-test-${{ github.run_id }}.js (executable test file)"
+        echo ""
+        echo "🎯 Next steps:"
+        echo "   1. Download the artifacts from this workflow run"
+          echo "   2. ✅ Tests were executed automatically!"
+          echo "   3. Check test-results artifact for screenshots/videos"
+          echo "   4. Use generated-test-${{ github.run_id }}.js for future runs"
+        echo "   5. Check Slack for detailed execution notifications"
+        echo ""
+        echo "🔗 Platform Integration:"
+        echo "   • Test created in platform with ID: ${{ env.TEST_ID }}"
+        echo "   • Execution ID: ${{ env.EXECUTION_ID }}"
+        echo "   • Status: ${{ env.TEST_STATUS }}"
