@@ -592,12 +592,8 @@ export class SlackService {
         for (const step of steps) {
           if (step.action === 'navigate' && step.target) {
             const url = step.target;
-            // Check if it's a rapidcanvas.ai URL with a specific app path
-            if (url.includes('rapidcanvas.ai') && url.includes('/dataapps')) {
-              return url;
-            }
-            // If it's just the main rapidcanvas.ai URL, use it
-            if (url.includes('rapidcanvas.ai')) {
+            // Check if it's a rapidcanvas.ai URL with a specific app path (prioritize these)
+            if (url.includes('rapidcanvas.ai') && (url.includes('/dataapps-ui/') || url.includes('/apps/'))) {
               return url;
             }
           }
@@ -605,14 +601,20 @@ export class SlackService {
         
         // If no steps or no URL found in steps, try to extract from test description
         if (testDescription) {
-          // Look for rapidcanvas.ai URLs in the description
-          const urlMatch = testDescription.match(/https:\/\/app\.rapidcanvas\.ai\/[^\s]+/);
-          if (urlMatch) {
-            return urlMatch[0];
+          // Look for specific app URLs first (with /dataapps-ui/ or /apps/)
+          const specificUrlMatch = testDescription.match(/https:\/\/app\.rapidcanvas\.ai\/(?:dataapps-ui\/[^\s]+|apps\/[^\s]+)/);
+          if (specificUrlMatch) {
+            return specificUrlMatch[0];
           }
           
-          // Look for any rapidcanvas.ai URL
-          const generalUrlMatch = testDescription.match(/https:\/\/[^\s]*rapidcanvas\.ai[^\s]*/);
+          // Look for any rapidcanvas.ai URL with a path (not just the base URL)
+          const urlWithPathMatch = testDescription.match(/https:\/\/app\.rapidcanvas\.ai\/[^\s\*]+/);
+          if (urlWithPathMatch) {
+            return urlWithPathMatch[0];
+          }
+          
+          // Fallback: look for any rapidcanvas.ai URL
+          const generalUrlMatch = testDescription.match(/https:\/\/[^\s]*rapidcanvas\.ai[^\s\*]+/);
           if (generalUrlMatch) {
             return generalUrlMatch[0];
           }
@@ -622,9 +624,23 @@ export class SlackService {
         return testName;
       };
 
-      const mainUrl = extractMainUrl(result.steps, testName);
+      // Try to get test description from database if testName doesn't contain a URL
+      let testDescription = testName;
+      if (!testName.includes('rapidcanvas.ai')) {
+        try {
+          const { getTestById } = await import('../../models/test/testStore');
+          const test = getTestById(testId);
+          if (test && test.description) {
+            testDescription = test.description;
+          }
+        } catch (error) {
+          logger.warn('Could not fetch test description from database', { testId, error });
+        }
+      }
+
+      const mainUrl = extractMainUrl(result.steps, testDescription);
       
-      // Build updated message - Simplified format with main URL and status icons
+      // Build updated message - Simplified format with main URL and status icons (no failed count)
       let text = `🧪 *TEST ${statusEmoji} ${statusText}: ${mainUrl}*\n\n`;
       text += `*Test ID:* ${testId}`;
       text += `\n*Status:* ${statusEmoji} ${statusText}`;
@@ -657,15 +673,6 @@ export class SlackService {
           ]
         }
       ];
-
-      // Add failed steps count if any
-      const failedCount = result.steps.filter(s => s.status === 'failed').length;
-      if (failedCount > 0) {
-        blocks[1].fields?.push({
-          type: 'mrkdwn',
-          text: `*Failed:*\n${failedCount}`
-        });
-      }
 
       // Add workflow run link if available
       if (workflowRunUrl) {

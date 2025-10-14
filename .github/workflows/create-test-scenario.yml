@@ -385,7 +385,7 @@ jobs:
           
           # Prepare the update payload
           UPDATE_PAYLOAD=$(jq -n \
-            --arg testName "${{ env.TEST_DESCRIPTION }}" \
+            --arg testName "GitHub Action Test - ${{ github.run_id }}" \
             --arg status "${{ env.TEST_STATUS }}" \
             --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             '{
