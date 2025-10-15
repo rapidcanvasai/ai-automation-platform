@@ -350,17 +350,17 @@ export class SlackService {
   /**
    * Search for messages containing test ID
    */
-  private async searchMessageByTestId(testId: string, searchChannel?: string): Promise<string | null> {
+  private async searchMessageByTestId(testId: string): Promise<string | null> {
     if (!this.config.botToken) {
       logger.warn('❌ No bot token available for search', { testId });
       return null;
     }
 
     try {
-      const channel = searchChannel || this.config.channel || '';
+      const channel = this.config.channel || '';
       const cleanChannel = channel.startsWith('#') ? channel.substring(1) : channel;
       
-      logger.info('🔍 Searching for existing message', { testId, channel: cleanChannel, searchChannel });
+      logger.info('🔍 Searching for existing message', { testId, channel: cleanChannel });
       
       // Search for messages containing the test ID
       const response = await axios.post('https://slack.com/api/search.messages', {
@@ -399,17 +399,17 @@ export class SlackService {
   /**
    * Search for messages by pattern (broader search)
    */
-  private async searchMessageByPattern(pattern: string, searchChannel?: string): Promise<string | null> {
+  private async searchMessageByPattern(pattern: string): Promise<string | null> {
     if (!this.config.botToken) {
       logger.warn('❌ No bot token available for pattern search', { pattern });
       return null;
     }
 
     try {
-      const channel = searchChannel || this.config.channel || '';
+      const channel = this.config.channel || '';
       const cleanChannel = channel.startsWith('#') ? channel.substring(1) : channel;
       
-      logger.info('🔍 Searching for message by pattern', { pattern, channel: cleanChannel, searchChannel });
+      logger.info('🔍 Searching for message by pattern', { pattern, channel: cleanChannel });
       
       // Search for messages containing the pattern
       const response = await axios.post('https://slack.com/api/search.messages', {
@@ -518,8 +518,7 @@ export class SlackService {
     testId: string,
     testName: string,
     result: ExecutionResult,
-    workflowRunUrl?: string,
-    channel?: string
+    workflowRunUrl?: string
   ): Promise<boolean> {
     try {
       logger.info('🔄 updateMainThreadWithResult called', { testId, testName, status: result.status });
@@ -530,7 +529,7 @@ export class SlackService {
       // If no test creation timestamp, try to find existing message
       if (!threadTs && this.config.botToken) {
         logger.warn('❌ No test creation timestamp found for test - searching for existing message', { testId });
-        const foundTs = await this.searchMessageByTestId(testId, channel);
+        const foundTs = await this.searchMessageByTestId(testId);
         if (foundTs) {
           threadTs = foundTs;
           this.testCreationTimestamps.set(testId, threadTs);
@@ -555,7 +554,7 @@ export class SlackService {
         ];
         
         for (const pattern of searchPatterns) {
-          const foundTs = await this.searchMessageByPattern(pattern, channel);
+          const foundTs = await this.searchMessageByPattern(pattern);
           if (foundTs) {
             threadTs = foundTs;
             this.threadTimestamps.set(testId, threadTs);

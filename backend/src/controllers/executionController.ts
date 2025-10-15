@@ -87,7 +87,7 @@ router.post('/:id/run', async (req: Request, res: Response) => {
 router.post('/:id/slack-update', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { testName, status, workflowRunUrl, channel } = req.body;
+    const { testName, status, workflowRunUrl } = req.body;
     
     if (!testName || !status) {
       return res.status(400).json({ 
@@ -109,12 +109,7 @@ router.post('/:id/slack-update', async (req: Request, res: Response) => {
     try {
       const slackService = createSlackService();
       if (slackService) {
-        logger.info('📢 Updating Slack main thread via API endpoint', { 
-          testId: execution.testId, 
-          executionId: id, 
-          status, 
-          channel: channel || 'default' 
-        });
+        logger.info('📢 Updating Slack main thread via API endpoint', { testId: execution.testId, executionId: id, status });
         
         // Create a custom result object with the status from request body
         const customResult = {
@@ -123,13 +118,11 @@ router.post('/:id/slack-update', async (req: Request, res: Response) => {
         };
         
         // Update main thread with pass/fail status
-        // Pass the channel if provided to ensure we search in the correct channel
         const success = await slackService.updateMainThreadWithResult(
           execution.testId, 
           testName, 
           customResult, 
-          workflowRunUrl,
-          channel // Pass the channel parameter
+          workflowRunUrl
         );
         
         if (success) {
