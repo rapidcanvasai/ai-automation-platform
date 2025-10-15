@@ -1,8 +1,8 @@
 name: Daily AI Test Automation - Jabanas
 
 on:
-  # schedule:
-  #   - cron: '0 10 * * *'
+  schedule:
+    - cron: '0 10 * * *'
   workflow_dispatch:
     inputs:
       test_description:

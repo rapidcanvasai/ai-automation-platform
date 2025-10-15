@@ -1,8 +1,8 @@
 name: Daily AI Test Automation - KeyStoneTextiles
 
 on:
-  # schedule:
-  #   - cron: '0 5 * * *'
+  schedule:
+    - cron: '0 5 * * *'
   workflow_dispatch:
     inputs:
       test_description:
