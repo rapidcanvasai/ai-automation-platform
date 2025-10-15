@@ -64,7 +64,6 @@ export class SlackService {
   private debugPackageService: DebugPackageService;
   private threadTimestamps: Map<string, string> = new Map(); // executionId -> thread_ts
   private testCreationTimestamps: Map<string, string> = new Map(); // testId -> test_creation_ts
-  private channelId: string = 'C09F5F2MH8D'; // Channel ID for test-automation-platform-alerts
 
   constructor(config: SlackConfig) {
     this.config = config;
@@ -87,7 +86,13 @@ export class SlackService {
       // Try Slack API first if bot token is available
       if (this.config.botToken) {
         try {
-          logger.info('🔄 Attempting to send message via Slack API', { testId, channel: this.config.channel, hasBotToken: !!this.config.botToken });
+          logger.info('🔄 Attempting to send message via Slack API', { 
+            testId, 
+            channel: this.config.channel, 
+            hasBotToken: !!this.config.botToken,
+            botTokenLength: this.config.botToken?.length || 0,
+            botTokenPrefix: this.config.botToken?.substring(0, 10) || 'none'
+          });
           const response = await this.sendMessageViaAPI(message);
           if (response && response.ts) {
             this.threadTimestamps.set(testId, response.ts);
@@ -99,14 +104,11 @@ export class SlackService {
           }
         } catch (apiError) {
           const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
-          logger.error('❌ Slack API failed', { apiError: errorMessage, testId });
+          logger.error('❌ Slack API failed', { apiError: errorMessage, testId, errorDetails: apiError });
           
-          // If API fails, try to create a dummy thread timestamp for future use
-          // This ensures we can still update the main thread later
-          const dummyTs = `dummy_${Date.now()}_${testId}`;
-          this.threadTimestamps.set(testId, dummyTs);
-          logger.info('📝 Created dummy thread timestamp for future updates', { testId, dummyTs });
-          return dummyTs;
+          // Don't create dummy timestamps - let the fallback mechanism handle it properly
+          logger.warn('⚠️ Slack API failed, will rely on fallback mechanism', { testId });
+          return null;
         }
       }
       
@@ -573,28 +575,55 @@ export class SlackService {
       }
       
       if (!threadTs) {
-        logger.warn('No thread timestamp found for test - attempting to send new message as fallback', { testId });
+        logger.warn('No thread timestamp found for test - attempting aggressive search', { testId });
         
-        // Fallback: Send a new message if we can't find the original
-        try {
-          let fallbackMessage = `🧪 *TEST ${result.status === 'passed' ? '✅ PASSED' : '❌ FAILED'}: ${testName}*\n\n*Test ID:* ${testId}\n*Status:* ${result.status === 'passed' ? '✅ PASSED' : '❌ FAILED'}`;
-          
-          if (workflowRunUrl) {
-            fallbackMessage = fallbackMessage + `\n🔗 <${workflowRunUrl}|View Workflow Run>`;
+        // Try more aggressive search patterns
+        const aggressiveSearchPatterns = [
+          testId,
+          `Test Created: ${testName}`,
+          `Test ID: ${testId}`,
+          testName,
+          `GitHub Action Test`,
+          `Test Created:`,
+          `Status: Ready to execute`,
+          `Ready to execute`
+        ];
+        
+        for (const pattern of aggressiveSearchPatterns) {
+          logger.info('🔍 Trying aggressive search pattern', { testId, pattern });
+          const foundTs = await this.searchMessageByPattern(pattern, channel);
+          if (foundTs) {
+            threadTs = foundTs;
+            this.testCreationTimestamps.set(testId, threadTs);
+            logger.info('✅ Found thread timestamp with aggressive search', { testId, threadTs, pattern });
+            break;
           }
+        }
+        
+        // If still no thread timestamp found, send fallback message
+        if (!threadTs) {
+          logger.warn('No thread timestamp found after aggressive search - sending fallback message', { testId });
           
-          const response = await this.sendMessageViaAPI({
-            channel: channel || this.config.channel,
-            text: fallbackMessage,
-            username: this.config.username || 'Test Automation Bot',
-            icon_emoji: this.config.iconEmoji || ':robot_face:'
-          });
-          
-          logger.info('✅ Fallback message sent successfully', { testId, messageTs: response.ts });
-          return true;
-        } catch (fallbackError) {
-          logger.error('❌ Fallback message also failed', { testId, error: fallbackError });
-          return false;
+          try {
+            let fallbackMessage = `🧪 *TEST ${result.status === 'passed' ? '✅ PASSED' : '❌ FAILED'}: ${testName}*\n\n*Test ID:* ${testId}\n*Status:* ${result.status === 'passed' ? '✅ PASSED' : '❌ FAILED'}`;
+            
+            if (workflowRunUrl) {
+              fallbackMessage = fallbackMessage + `\n🔗 <${workflowRunUrl}|View Workflow Run>`;
+            }
+            
+            const response = await this.sendMessageViaAPI({
+              channel: channel || this.config.channel,
+              text: fallbackMessage,
+              username: this.config.username || 'Test Automation Bot',
+              icon_emoji: this.config.iconEmoji || ':robot_face:'
+            });
+            
+            logger.info('✅ Fallback message sent successfully', { testId, messageTs: response.ts });
+            return true;
+          } catch (fallbackError) {
+            logger.error('❌ Fallback message also failed', { testId, error: fallbackError });
+            return false;
+          }
         }
       }
 
@@ -808,6 +837,54 @@ export class SlackService {
   }
 
   /**
+   * Get channel ID from channel name
+   */
+  private async getChannelId(channelName: string): Promise<string | null> {
+    if (!this.config.botToken) {
+      logger.warn('No bot token available for channel ID lookup', { channelName });
+      return null;
+    }
+
+    try {
+      // Remove # if present
+      const cleanChannel = channelName.startsWith('#') ? channelName.substring(1) : channelName;
+      
+      logger.info('🔍 Looking up channel ID', { channelName: cleanChannel });
+      
+      const response = await axios.get('https://slack.com/api/conversations.list', {
+        headers: {
+          'Authorization': `Bearer ${this.config.botToken}`,
+          'Content-Type': 'application/json',
+        },
+        params: {
+          types: 'public_channel,private_channel',
+          limit: 1000
+        }
+      });
+
+      if (!response.data.ok) {
+        logger.error('Failed to get channel list', { error: response.data.error });
+        return null;
+      }
+
+      const channel = response.data.channels.find((ch: any) => 
+        ch.name === cleanChannel || ch.id === cleanChannel
+      );
+
+      if (channel) {
+        logger.info('✅ Found channel ID', { channelName: cleanChannel, channelId: channel.id });
+        return channel.id;
+      } else {
+        logger.warn('❌ Channel not found', { channelName: cleanChannel, availableChannels: response.data.channels.map((ch: any) => ch.name) });
+        return null;
+      }
+    } catch (error) {
+      logger.error('Failed to get channel ID', { error, channelName });
+      return null;
+    }
+  }
+
+  /**
    * Upload file to Slack using external upload API (supports direct thread uploads)
    */
   private async uploadFileToSlack(fileUpload: SlackFileUpload): Promise<boolean> {
@@ -817,8 +894,12 @@ export class SlackService {
         return false;
       }
 
-      // Use channel ID directly for test-automation-platform-alerts
-      const channelId = 'C09F5F2MH8D';
+      // Get channel ID dynamically
+      const channelId = await this.getChannelId(this.config.channel || 'test-automation-platform-alerts');
+      if (!channelId) {
+        logger.error('Could not get channel ID for file upload');
+        return false;
+      }
       
       logger.info('Uploading file to Slack using external upload API', { 
         filename: fileUpload.filename, 
@@ -2201,7 +2282,9 @@ export function createSlackService(): SlackService | null {
     hasBotToken: !!process.env.SLACK_BOT_TOKEN,
     channel: process.env.SLACK_CHANNEL,
     hasWebhookUrl: !!process.env.SLACK_WEBHOOK_URL,
-    botTokenLength: process.env.SLACK_BOT_TOKEN?.length || 0
+    botTokenLength: process.env.SLACK_BOT_TOKEN?.length || 0,
+    botTokenPrefix: process.env.SLACK_BOT_TOKEN?.substring(0, 10) || 'none',
+    webhookUrlPrefix: process.env.SLACK_WEBHOOK_URL?.substring(0, 30) || 'none'
   });
 
   return slackService;
