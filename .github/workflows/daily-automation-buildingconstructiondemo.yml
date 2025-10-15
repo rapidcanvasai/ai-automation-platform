@@ -1,8 +1,8 @@
 name: Daily AI Test Automation - BuildingConstructionDemo
 
 on:
-  # schedule:
-  #   - cron: '0 9 * * *'
+  schedule:
+    - cron: '0 9 * * *'
   workflow_dispatch:
     inputs:
       test_description:
@@ -33,8 +33,10 @@ env:
     Open https://app.rapidcanvas.ai/ Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Verify Dashboard Open https://app.rapidcanvas.ai/apps/Untitled%20DataApp%204/RC-Retail?autoLaunch=true Wait 50sec If(text=Relaunch) then Click on Relaunch If(text=Launching) then wait 150sec Wait 100sec Click on OVERVIEW with AI Wait 30sec Verify no error is coming on UI with AI Click on ANALYTICS with AI Wait 30sec Verify no error is coming on UI with AI Click on FORECASTING with AI Wait 30sec Verify no error is coming on UI with AI Click on INVENTORY with AI Wait 20sec Verify no error is coming on UI with AI Click on ASK AI with AI Wait 60sec Verify no error is coming on UI with AI
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENAI_MODEL: gpt-4o-mini
-  SLACK_CHANNEL: ${{ inputs.slack_channel || 'rc-demo-alerts' }}
-  SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id || 'C09F5F2MH8D' }}
+  SLACK_CHANNEL: 'test-scheduled-jobs-channel'
+  SLACK_CHANNEL_ID: 'C09L6FFE3E3'
+  # SLACK_CHANNEL: ${{ inputs.slack_channel || 'rc-demo-alerts' }}
+  # SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id || 'C09F5F2MH8D' }}
   SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
   ENABLE_SLACK: true

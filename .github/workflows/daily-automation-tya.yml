@@ -2,7 +2,7 @@ name: Daily AI Test Automation - TYA
 
 on:
   schedule:
-    - cron: '* * * * *'
+    - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
       test_description:
