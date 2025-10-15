@@ -392,10 +392,12 @@ jobs:
             --arg testName "GitHub Action Test - ${{ github.run_id }}" \
             --arg status "${{ env.TEST_STATUS }}" \
             --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg channel "${{ env.SLACK_CHANNEL }}" \
             '{
               testName: $testName,
               status: $status,
-              workflowRunUrl: $workflowRunUrl
+              workflowRunUrl: $workflowRunUrl,
+              channel: $channel
             }')
           
           echo "📋 Update payload:"
