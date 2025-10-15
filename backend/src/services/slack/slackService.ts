@@ -522,14 +522,7 @@ export class SlackService {
     channel?: string
   ): Promise<boolean> {
     try {
-      logger.info('🔄 updateMainThreadWithResult called', { 
-        testId, 
-        testName, 
-        status: result.status, 
-        providedChannel: channel,
-        configChannel: this.config.channel,
-        hasBotToken: !!this.config.botToken
-      });
+      logger.info('🔄 updateMainThreadWithResult called', { testId, testName, status: result.status });
       
       let threadTs = this.testCreationTimestamps.get(testId);
       logger.info('🔍 Current test creation timestamp status', { testId, threadTs, hasBotToken: !!this.config.botToken });
@@ -573,29 +566,8 @@ export class SlackService {
       }
       
       if (!threadTs) {
-        logger.warn('No thread timestamp found for test - attempting to send new message as fallback', { testId });
-        
-        // Fallback: Send a new message if we can't find the original
-        try {
-          let fallbackMessage = `🧪 *TEST ${result.status === 'passed' ? '✅ PASSED' : '❌ FAILED'}: ${testName}*\n\n*Test ID:* ${testId}\n*Status:* ${result.status === 'passed' ? '✅ PASSED' : '❌ FAILED'}`;
-          
-          if (workflowRunUrl) {
-            fallbackMessage = fallbackMessage + `\n🔗 <${workflowRunUrl}|View Workflow Run>`;
-          }
-          
-          const response = await this.sendMessageViaAPI({
-            channel: channel || this.config.channel,
-            text: fallbackMessage,
-            username: this.config.username || 'Test Automation Bot',
-            icon_emoji: this.config.iconEmoji || ':robot_face:'
-          });
-          
-          logger.info('✅ Fallback message sent successfully', { testId, messageTs: response.ts });
-          return true;
-        } catch (fallbackError) {
-          logger.error('❌ Fallback message also failed', { testId, error: fallbackError });
-          return false;
-        }
+        logger.warn('No thread timestamp found for test - skipping main thread update', { testId });
+        return false;
       }
 
       // Check if this is a dummy timestamp (created when initial message failed)
@@ -733,16 +705,16 @@ export class SlackService {
         // Try to send a new message as fallback if update fails
         try {
           logger.info('🔄 Attempting fallback: sending new message with result', { testId });
-          const fallbackMsg = this.buildTestCreatedMessage(
+          const fallbackMessage = this.buildTestCreatedMessage(
             `${testName} - ${statusText}`,
             testId,
             workflowRunUrl
           );
           
           // Add status emoji to the fallback message
-          fallbackMsg.text = `${statusEmoji} ${fallbackMsg.text}`;
+          fallbackMessage.text = `${statusEmoji} ${fallbackMessage.text}`;
           
-          await this.sendMessageViaAPI(fallbackMsg);
+          await this.sendMessageViaAPI(fallbackMessage);
           logger.info('✅ Fallback message sent successfully', { testId });
           return true;
         } catch (fallbackError) {
@@ -2176,7 +2148,10 @@ export class SlackService {
   }
 }
 
-// Factory function to create SlackService instance
+// Singleton instance
+let slackServiceInstance: SlackService | null = null;
+
+// Factory function to create SlackService instance (singleton)
 export function createSlackService(): SlackService | null {
   const webhookUrl = process.env.SLACK_WEBHOOK_URL;
   
@@ -2185,11 +2160,18 @@ export function createSlackService(): SlackService | null {
     return null;
   }
 
-  // Always create a new instance to pick up current environment variables
-  // This ensures we get the latest SLACK_BOT_TOKEN and SLACK_CHANNEL values
-  logger.info('🔄 Creating SlackService instance with current environment variables');
-  
-  const slackService = new SlackService({
+  // Only recreate if not already created
+  if (!slackServiceInstance) {
+    logger.info('🔄 Creating new SlackService instance');
+  }
+
+  // Return existing instance if available
+  if (slackServiceInstance) {
+    return slackServiceInstance;
+  }
+
+  // Create new instance
+  slackServiceInstance = new SlackService({
     webhookUrl,
     channel: process.env.SLACK_CHANNEL,
     username: process.env.SLACK_USERNAME || 'Test Automation Bot',
@@ -2199,10 +2181,8 @@ export function createSlackService(): SlackService | null {
 
   logger.info('✅ SlackService instance created', { 
     hasBotToken: !!process.env.SLACK_BOT_TOKEN,
-    channel: process.env.SLACK_CHANNEL,
-    hasWebhookUrl: !!process.env.SLACK_WEBHOOK_URL,
-    botTokenLength: process.env.SLACK_BOT_TOKEN?.length || 0
+    channel: process.env.SLACK_CHANNEL 
   });
 
-  return slackService;
+  return slackServiceInstance;
 }
