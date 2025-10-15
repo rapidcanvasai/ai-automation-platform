@@ -1,8 +1,8 @@
 name: Daily AI Test Automation - BuildingConstructionDemo
 
 on:
-  schedule:
-    - cron: '0 9 * * *'
+  # schedule:
+  #   - cron: '0 9 * * *'
   workflow_dispatch:
     inputs:
       test_description:
