@@ -81,7 +81,16 @@ jobs:
     - name: Start backend server
       run: |
         cd backend
-        DB_DISABLED=true NODE_ENV=development PORT=3001 npm start &
+        export DB_DISABLED=true
+        export NODE_ENV=development
+        export PORT=3001
+        export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
+        export OPENAI_MODEL="gpt-4o-mini"
+        export SLACK_CHANNEL="rc-demo-alerts"
+        export SLACK_BOT_TOKEN="${{ secrets.SLACK_BOT_TOKEN }}"
+        export SLACK_WEBHOOK_URL="${{ secrets.SLACK_WEBHOOK_URL }}"
+        export ENABLE_SLACK=true
+        npm start &
         echo "Backend server starting..."
         
         # Wait for backend to be ready
