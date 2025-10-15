@@ -11,6 +11,10 @@ on:
         description: 'Provide slack channel name(Make sure bot - test-automation-platform is added to mentioned slack channel)'
         required: false
         type: string
+      slack_channel_id:
+        description: 'Provide slack channel ID (e.g., C09F5F2MH8D). You can find this by right-clicking on the channel name in Slack and selecting "Copy link"'
+        required: false
+        type: string
       headless:
         description: 'Run browser in headless mode (true) or show browser window (false) - GitHub Actions default is headless'
         required: false
@@ -27,6 +31,7 @@ env:
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENAI_MODEL: "gpt-4o-mini"
   SLACK_CHANNEL: ${{ inputs.slack_channel }}
+  SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
   SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
   ENABLE_SLACK: ${{ inputs.enable_slack }}
@@ -77,7 +82,7 @@ jobs:
     - name: Start backend server
       run: |
         cd backend
-        DB_DISABLED=true NODE_ENV=development PORT=3001 npm start &
+        DB_DISABLED=true NODE_ENV=development PORT=3001 SLACK_CHANNEL_ID=${{ env.SLACK_CHANNEL_ID }} npm start &
         echo "Backend server starting..."
         
         # Wait for backend to be ready

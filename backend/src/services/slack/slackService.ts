@@ -7,6 +7,7 @@ import { DebugPackageService } from '../debug/debugPackageService';
 export interface SlackConfig {
   webhookUrl: string;
   channel?: string;
+  channelId?: string; // Add channel ID support
   username?: string;
   iconEmoji?: string;
   botToken?: string; // For API calls
@@ -64,11 +65,14 @@ export class SlackService {
   private debugPackageService: DebugPackageService;
   private threadTimestamps: Map<string, string> = new Map(); // executionId -> thread_ts
   private testCreationTimestamps: Map<string, string> = new Map(); // testId -> test_creation_ts
-  private channelId: string = 'C09F5F2MH8D'; // Channel ID for test-automation-platform-alerts
+  private channelId: string; // Dynamic channel ID
 
   constructor(config: SlackConfig) {
     this.config = config;
     this.debugPackageService = new DebugPackageService();
+    // Use provided channelId or fallback to default
+    this.channelId = config.channelId || 'C09F5F2MH8D'; // Default to test-automation-platform-alerts
+    logger.info('🔧 SlackService initialized with channel ID', { channelId: this.channelId });
   }
 
   /**
@@ -357,10 +361,11 @@ export class SlackService {
     }
 
     try {
-      const channel = this.config.channel || '';
-      const cleanChannel = channel.startsWith('#') ? channel.substring(1) : channel;
+      // Use channel ID for search if available, otherwise fall back to channel name
+      const searchChannel = this.channelId || this.config.channel || '';
+      const cleanChannel = searchChannel.startsWith('#') ? searchChannel.substring(1) : searchChannel;
       
-      logger.info('🔍 Searching for existing message', { testId, channel: cleanChannel });
+      logger.info('🔍 Searching for existing message', { testId, channel: cleanChannel, channelId: this.channelId });
       
       // Search for messages containing the test ID
       const response = await axios.post('https://slack.com/api/search.messages', {
@@ -406,10 +411,11 @@ export class SlackService {
     }
 
     try {
-      const channel = this.config.channel || '';
-      const cleanChannel = channel.startsWith('#') ? channel.substring(1) : channel;
+      // Use channel ID for search if available, otherwise fall back to channel name
+      const searchChannel = this.channelId || this.config.channel || '';
+      const cleanChannel = searchChannel.startsWith('#') ? searchChannel.substring(1) : searchChannel;
       
-      logger.info('🔍 Searching for message by pattern', { pattern, channel: cleanChannel });
+      logger.info('🔍 Searching for message by pattern', { pattern, channel: cleanChannel, channelId: this.channelId });
       
       // Search for messages containing the pattern
       const response = await axios.post('https://slack.com/api/search.messages', {
@@ -2173,6 +2179,7 @@ export function createSlackService(): SlackService | null {
   slackServiceInstance = new SlackService({
     webhookUrl,
     channel: process.env.SLACK_CHANNEL,
+    channelId: process.env.SLACK_CHANNEL_ID, // Add channel ID support
     username: process.env.SLACK_USERNAME || 'Test Automation Bot',
     iconEmoji: process.env.SLACK_ICON_EMOJI || ':robot_face:',
     botToken: process.env.SLACK_BOT_TOKEN,
@@ -2180,7 +2187,8 @@ export function createSlackService(): SlackService | null {
 
   logger.info('✅ SlackService instance created', { 
     hasBotToken: !!process.env.SLACK_BOT_TOKEN,
-    channel: process.env.SLACK_CHANNEL 
+    channel: process.env.SLACK_CHANNEL,
+    channelId: process.env.SLACK_CHANNEL_ID || 'C09F5F2MH8D'
   });
 
   return slackServiceInstance;
