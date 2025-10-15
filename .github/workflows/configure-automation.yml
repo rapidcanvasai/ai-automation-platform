@@ -36,6 +36,11 @@ on:
         required: false
         type: string
         default: 'test-automation-platform-alerts'
+      slack_channel_id:
+        description: 'Slack channel ID (e.g., C09F5F2MH8D). You can find this by right-clicking on the channel name in Slack and selecting "Copy link"'
+        required: false
+        type: string
+        default: 'C09F5F2MH8D'
       headless:
         description: 'Run browser in headless mode'
         required: false
@@ -162,6 +167,7 @@ jobs:
               --arg cron "${{ inputs.cron_schedule }}" \
               --arg description "$TEST_DESCRIPTION" \
               --arg slack_channel "${{ inputs.slack_channel }}" \
+              --arg slack_channel_id "${{ inputs.slack_channel_id }}" \
               --argjson headless "${{ inputs.headless }}" \
               --argjson enable_slack "${{ inputs.enable_slack }}" \
               --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -171,6 +177,7 @@ jobs:
                 cron_schedule: $cron,
                 test_description: $description,
                 slack_channel: $slack_channel,
+                slack_channel_id: $slack_channel_id,
                 headless: $headless,
                 enable_slack: $enable_slack,
                 created_at: $created_at,
@@ -478,12 +485,14 @@ jobs:
         
         # Get config values
         SLACK_CHANNEL=$(echo "$SELECTED_CONFIG" | jq -r '.slack_channel // "general"')
+        SLACK_CHANNEL_ID=$(echo "$SELECTED_CONFIG" | jq -r '.slack_channel_id // "C09F5F2MH8D"')
         ENABLE_SLACK=$(echo "$SELECTED_CONFIG" | jq -r '.enable_slack // true')
         HEADLESS=$(echo "$SELECTED_CONFIG" | jq -r '.headless // true')
         # TEST_DESCRIPTION already safely extracted above, don't override it
 
         echo "Debug: Extracted config values:"
         echo "  SLACK_CHANNEL: $SLACK_CHANNEL"
+        echo "  SLACK_CHANNEL_ID: $SLACK_CHANNEL_ID"
         echo "  ENABLE_SLACK: $ENABLE_SLACK"
         echo "  HEADLESS: $HEADLESS"
         echo "  TEST_DESCRIPTION: [Length: ${#TEST_DESCRIPTION} characters]"
@@ -517,6 +526,7 @@ jobs:
         echo "Debug: WORKFLOW_FILE = $WORKFLOW_FILE"
         echo "Debug: TEST_DESCRIPTION length = ${#TEST_DESCRIPTION}"
         echo "Debug: SLACK_CHANNEL = '$SLACK_CHANNEL'"
+        echo "Debug: SLACK_CHANNEL_ID = '$SLACK_CHANNEL_ID'"
         echo "Debug: ENABLE_SLACK = $ENABLE_SLACK"
         echo "Debug: HEADLESS = $HEADLESS"
         
@@ -529,6 +539,7 @@ jobs:
           echo "  OPENAI_API_KEY: \$\{\{ secrets.OPENAI_API_KEY \}\}"
           echo "  OPENAI_MODEL: gpt-4o-mini"
           echo "  SLACK_CHANNEL: 'SLACK_CHANNEL_PLACEHOLDER'"
+          echo "  SLACK_CHANNEL_ID: 'SLACK_CHANNEL_ID_PLACEHOLDER'"
           echo "  SLACK_BOT_TOKEN: \$\{\{ secrets.SLACK_BOT_TOKEN \}\}"
           echo "  SLACK_WEBHOOK_URL: \$\{\{ secrets.SLACK_WEBHOOK_URL \}\}"
           echo "  ENABLE_SLACK: ENABLE_SLACK_PLACEHOLDER"
@@ -556,6 +567,7 @@ jobs:
         
         # Replace other placeholders
         sed -i "s/SLACK_CHANNEL_PLACEHOLDER/$SLACK_CHANNEL/g" /tmp/new_env_section_final.txt
+        sed -i "s/SLACK_CHANNEL_ID_PLACEHOLDER/$SLACK_CHANNEL_ID/g" /tmp/new_env_section_final.txt
         sed -i "s/ENABLE_SLACK_PLACEHOLDER/$ENABLE_SLACK/g" /tmp/new_env_section_final.txt
         sed -i "s/HEADLESS_PLACEHOLDER/$HEADLESS/g" /tmp/new_env_section_final.txt
         
