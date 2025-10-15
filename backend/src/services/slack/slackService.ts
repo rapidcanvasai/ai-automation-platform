@@ -744,17 +744,11 @@ export class SlackService {
       }
 
       // Update the main thread message (test creation message)
-      const updateChannel = channel || this.config.channel;
-      if (!updateChannel) {
-        logger.error('No channel specified for message update', { testId, threadTs });
-        return false;
-      }
-      
-      logger.info('🔄 Attempting to update test creation message', { testId, threadTs, channel: updateChannel });
+      logger.info('🔄 Attempting to update test creation message', { testId, threadTs, channel: this.channelId });
       
       try {
         await this.updateMessageViaAPI(
-          updateChannel,
+          this.channelId,
           threadTs,
           text,
           blocks
