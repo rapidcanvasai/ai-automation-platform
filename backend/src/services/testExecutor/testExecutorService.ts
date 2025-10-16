@@ -2064,14 +2064,20 @@ Please respond with JSON:
           });
           
           // Create AI prompt for error analysis
-          const prompt = `Please analyze this web page and determine if there are any ACTUAL ERRORS or issues that need attention.
+          const prompt = `Please analyze this web page and determine if there are any ACTUAL critical ERRORS or issues which might block the user that need attention.
 
 IMPORTANT: Only report REAL ERRORS, not normal UI elements like:
-- SVG graphics, charts, or icons (even if they have empty text content)
+- SVG graphics, charts, or icons (even if they have empty text content or class="[object Object]")
 - Notification badges or counters (like "2" in a badge)
 - Status indicators or normal UI components
 - Loading spinners or progress indicators
 - Navigation elements or buttons
+- Menu items or navigation labels (like "Maintenance & Technical Activities")
+- Section headers or page titles
+- Normal application content or data
+- Streamlit alert containers showing normal content (like analytics data, analysis results)
+- Chart elements or data visualization components
+- Normal UI containers with content like "Preliminary analytics work", "ABC Analysis", etc.
 
 REAL ERRORS include:
 - Python/JavaScript exceptions or tracebacks
@@ -2081,6 +2087,7 @@ REAL ERRORS include:
 - Server errors or connection issues
 - Form validation errors
 - Critical UI problems that prevent functionality
+- Maintenance mode messages or service unavailable notices
 
 PAGE INFORMATION:
 ${pageInfo.map((frame, i) => `
@@ -2220,7 +2227,7 @@ Please respond with JSON:
             { pattern: /Not allowed/gi, name: 'Not Allowed Error' },
             { pattern: /Blocked/gi, name: 'Blocked Error' },
             { pattern: /Restricted/gi, name: 'Restricted Error' },
-            { pattern: /Maintenance/gi, name: 'Maintenance Error' },
+            { pattern: /Maintenance\s+(?:mode|window|page|error|failed|unavailable)/gi, name: 'Maintenance Error' },
             { pattern: /Temporarily unavailable/gi, name: 'Temporarily Unavailable Error' },
             { pattern: /Service unavailable/gi, name: 'Service Unavailable Error' },
             { pattern: /Internal server error/gi, name: 'Internal Server Error' },
@@ -2282,9 +2289,9 @@ Please respond with JSON:
               '.alert-warning', '.alert', '.notification', '.toast', '.snackbar',
               '.message', '[role="alert"]', '[aria-live="polite"]',
               
-              // Python/Streamlit specific
-              '.stException', '.stError', '.streamlit-error', '.stAlertContainer',
-              '[class*="stAlert"]', '[class*="stException"]', '[class*="traceback"]',
+              // Python/Streamlit specific - only actual error containers
+              '.stException', '.stError', '.streamlit-error',
+              '[class*="stException"]', '[class*="traceback"]',
               '[class*="exception"]', '[class*="keyerror"]', '[class*="python"]',
               
               // Error boxes with colored backgrounds
@@ -2346,7 +2353,15 @@ Please respond with JSON:
                                         textLower.includes('connected') ||
                                         textLower.includes('online') ||
                                         textLower.includes('running') ||
-                                        textLower.includes('stopped');
+                                        textLower.includes('stopped') ||
+                                        textLower.includes('analytics') ||
+                                        textLower.includes('preliminary') ||
+                                        textLower.includes('analysis') ||
+                                        textLower.includes('segmentation') ||
+                                        textLower.includes('correlation') ||
+                                        textLower.includes('clustering') ||
+                                        textLower.includes('demo corp') ||
+                                        textLower.includes('abc and xyz');
                   
                   // Exclude notification badges and counters
                   const isNotificationBadge = className.includes('badge') || 
