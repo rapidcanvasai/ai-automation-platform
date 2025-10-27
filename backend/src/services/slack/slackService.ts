@@ -647,7 +647,7 @@ export class SlackService {
       const mainUrl = extractMainUrl(result.steps, testDescription);
       
       // Build updated message - Simplified format with main URL and status icons (no failed count)
-      let text = `🧪 *TEST ${statusEmoji} ${statusText}: ${mainUrl}*\n\n`;
+      let text = `🧪 TEST ${statusEmoji} ${statusText}: ${mainUrl}\n\n`;
       text += `*Test ID:* ${testId}`;
       text += `\n*Status:* ${statusEmoji} ${statusText}`;
 
@@ -662,7 +662,7 @@ export class SlackService {
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: `🧪 *TEST ${statusEmoji} ${statusText}: ${mainUrl}*`
+            text: `🧪 TEST ${statusEmoji} ${statusText}: ${mainUrl}`
           }
         },
         {
