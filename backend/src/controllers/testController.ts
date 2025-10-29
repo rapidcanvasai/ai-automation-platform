@@ -39,23 +39,29 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const testData = req.body;
-    const test = createTest(testData);
+    const { slackNotifyOnlyFailures, ...restTestData } = testData;
+    const test = createTest(restTestData);
     
     // Send Slack notification for test creation automatically
-    try {
-      const slackService = createSlackService();
-      if (slackService) {
-        // Send main test creation message with workflow run URL if available
-        await slackService.sendTestCreated(test.name, test.id, test.workflowRunUrl);
-        
-        // Send test steps as thread reply if steps exist
-        if (test.steps && test.steps.length > 0) {
-          await slackService.sendTestSteps(test.steps, test.id);
+    // Skip if slackNotifyOnlyFailures is true (will send on failure only)
+    if (!slackNotifyOnlyFailures) {
+      try {
+        const slackService = createSlackService();
+        if (slackService) {
+          // Send main test creation message with workflow run URL if available
+          await slackService.sendTestCreated(test.name, test.id, test.workflowRunUrl);
+          
+          // Send test steps as thread reply if steps exist
+          if (test.steps && test.steps.length > 0) {
+            await slackService.sendTestSteps(test.steps, test.id);
+          }
         }
+      } catch (slackError) {
+        logger.error('Failed to send Slack notification for test creation', { slackError, testId: test.id });
+        // Don't fail the request if Slack notification fails
       }
-    } catch (slackError) {
-      logger.error('Failed to send Slack notification for test creation', { slackError, testId: test.id });
-      // Don't fail the request if Slack notification fails
+    } else {
+      logger.info('Skipping Slack notification for test creation (slackNotifyOnlyFailures is true)', { testId: test.id });
     }
     
     res.status(201).json({ success: true, test, message: 'Test created successfully' });
