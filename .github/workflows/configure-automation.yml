@@ -51,6 +51,11 @@ on:
         required: false
         type: boolean
         default: true
+      slack_notify_only_failures:
+        description: 'Send Slack notifications only for failed tests (only applies if enable_slack is true)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -170,6 +175,7 @@ jobs:
               --arg slack_channel_id "${{ inputs.slack_channel_id }}" \
               --argjson headless "${{ inputs.headless }}" \
               --argjson enable_slack "${{ inputs.enable_slack }}" \
+              --argjson slack_notify_only_failures "${{ inputs.slack_notify_only_failures }}" \
               --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --arg created_by "${{ github.actor }}" \
               '{
@@ -180,6 +186,7 @@ jobs:
                 slack_channel_id: $slack_channel_id,
                 headless: $headless,
                 enable_slack: $enable_slack,
+                slack_notify_only_failures: $slack_notify_only_failures,
                 created_at: $created_at,
                 created_by: $created_by,
                 last_updated: $created_at,
@@ -487,6 +494,7 @@ jobs:
         SLACK_CHANNEL=$(echo "$SELECTED_CONFIG" | jq -r '.slack_channel // "general"')
         SLACK_CHANNEL_ID=$(echo "$SELECTED_CONFIG" | jq -r '.slack_channel_id // "C09F5F2MH8D"')
         ENABLE_SLACK=$(echo "$SELECTED_CONFIG" | jq -r '.enable_slack // true')
+        SLACK_NOTIFY_ONLY_FAILURES=$(echo "$SELECTED_CONFIG" | jq -r '.slack_notify_only_failures // false')
         HEADLESS=$(echo "$SELECTED_CONFIG" | jq -r '.headless // true')
         # TEST_DESCRIPTION already safely extracted above, don't override it
 
@@ -494,6 +502,7 @@ jobs:
         echo "  SLACK_CHANNEL: $SLACK_CHANNEL"
         echo "  SLACK_CHANNEL_ID: $SLACK_CHANNEL_ID"
         echo "  ENABLE_SLACK: $ENABLE_SLACK"
+        echo "  SLACK_NOTIFY_ONLY_FAILURES: $SLACK_NOTIFY_ONLY_FAILURES"
         echo "  HEADLESS: $HEADLESS"
         echo "  TEST_DESCRIPTION: [Length: ${#TEST_DESCRIPTION} characters]"
 
@@ -543,6 +552,7 @@ jobs:
           echo "  SLACK_BOT_TOKEN: \$\{\{ secrets.SLACK_BOT_TOKEN \}\}"
           echo "  SLACK_WEBHOOK_URL: \$\{\{ secrets.SLACK_WEBHOOK_URL \}\}"
           echo "  ENABLE_SLACK: ENABLE_SLACK_PLACEHOLDER"
+          echo "  SLACK_NOTIFY_ONLY_FAILURES: SLACK_NOTIFY_ONLY_FAILURES_PLACEHOLDER"
           echo "  HEADLESS: HEADLESS_PLACEHOLDER"
           echo ""
         } > /tmp/new_env_section.txt
@@ -569,6 +579,7 @@ jobs:
         sed -i "s/SLACK_CHANNEL_PLACEHOLDER/$SLACK_CHANNEL/g" /tmp/new_env_section_final.txt
         sed -i "s/SLACK_CHANNEL_ID_PLACEHOLDER/$SLACK_CHANNEL_ID/g" /tmp/new_env_section_final.txt
         sed -i "s/ENABLE_SLACK_PLACEHOLDER/$ENABLE_SLACK/g" /tmp/new_env_section_final.txt
+        sed -i "s/SLACK_NOTIFY_ONLY_FAILURES_PLACEHOLDER/$SLACK_NOTIFY_ONLY_FAILURES/g" /tmp/new_env_section_final.txt
         sed -i "s/HEADLESS_PLACEHOLDER/$HEADLESS/g" /tmp/new_env_section_final.txt
         
         # Convert escaped GitHub Actions expressions back to proper format
@@ -654,6 +665,8 @@ jobs:
         grep "SLACK_CHANNEL:" "$WORKFLOW_FILE" || echo "SLACK_CHANNEL not found"
         echo "Debug: Final ENABLE_SLACK line:"
         grep "ENABLE_SLACK:" "$WORKFLOW_FILE" || echo "ENABLE_SLACK not found"
+        echo "Debug: Final SLACK_NOTIFY_ONLY_FAILURES line:"
+        grep "SLACK_NOTIFY_ONLY_FAILURES:" "$WORKFLOW_FILE" || echo "SLACK_NOTIFY_ONLY_FAILURES not found"
         echo "Debug: Final HEADLESS line:"
         grep "HEADLESS:" "$WORKFLOW_FILE" || echo "HEADLESS not found"
         
