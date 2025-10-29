@@ -25,6 +25,11 @@ on:
         required: false
         type: boolean
         default: true
+      slack_notify_only_failures:
+        description: 'Send Slack notifications only for failed tests (only applies if enable_slack is true)'
+        required: false
+        type: boolean
+        default: false
 
 env:
   TEST_DESCRIPTION: ${{ inputs.test_description }}
@@ -35,6 +40,7 @@ env:
   SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
   ENABLE_SLACK: ${{ inputs.enable_slack }}
+  SLACK_NOTIFY_ONLY_FAILURES: ${{ inputs.slack_notify_only_failures }}
 
 jobs:
   create-test-scenario:
@@ -245,17 +251,26 @@ jobs:
         echo "$STEPS_DATA" | jq '.'
         echo ""
         
+        # Prepare slack notify only failures flag
+        if [ "${{ env.SLACK_NOTIFY_ONLY_FAILURES }}" = "true" ]; then
+          SLACK_NOTIFY_ONLY_FAILURES_VALUE="true"
+        else
+          SLACK_NOTIFY_ONLY_FAILURES_VALUE="false"
+        fi
+        
         # Create test payload using jq to properly escape JSON (matching frontend behavior)
         jq -n \
           --arg name "$TEST_NAME" \
           --arg description "${{ env.TEST_DESCRIPTION }}" \
           --argjson steps "$STEPS_DATA" \
           --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+          --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
           '{
             name: $name,
             description: $description,
             steps: $steps,
-            workflowRunUrl: $workflowRunUrl
+            workflowRunUrl: $workflowRunUrl,
+            slackNotifyOnlyFailures: $slackNotifyOnlyFailures
           }' > /tmp/test-payload.json
         
         echo "Creating test in platform..."
@@ -288,14 +303,22 @@ jobs:
             SLACK_VALUE="false"
           fi
           
+          if [ "${{ env.SLACK_NOTIFY_ONLY_FAILURES }}" = "true" ]; then
+            SLACK_NOTIFY_ONLY_FAILURES_VALUE="true"
+          else
+            SLACK_NOTIFY_ONLY_FAILURES_VALUE="false"
+          fi
+          
           # Match web interface execution parameters exactly
           jq -n \
             --argjson headless "$HEADLESS_VALUE" \
             --argjson enableSlack "$SLACK_VALUE" \
+            --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
             '{
               headless: $headless,
               slowMoMs: 1000,
-              enableSlackNotifications: $enableSlack
+              enableSlackNotifications: $enableSlack,
+              slackNotifyOnlyFailures: $slackNotifyOnlyFailures
             }' > /tmp/exec-payload.json
           
           echo "📋 Execution payload:"
@@ -382,10 +405,16 @@ jobs:
         fi
 
     - name: Update Slack main thread with test result
-      if: env.EXECUTION_ID != '' && env.TEST_ID != '' && env.TEST_STATUS != ''
+      if: env.EXECUTION_ID != '' && env.TEST_ID != '' && env.TEST_STATUS != '' && (env.ENABLE_SLACK == 'true' && (env.SLACK_NOTIFY_ONLY_FAILURES != 'true' || env.TEST_STATUS == 'failed'))
       run: |
         echo "📢 Updating Slack main thread with test result..."
         if [ -n "${{ env.EXECUTION_ID }}" ] && [ -n "${{ env.TEST_ID }}" ] && [ -n "${{ env.TEST_STATUS }}" ]; then
+          # Additional check for failure-only mode (outer if already ensures Slack is enabled)
+          if [ "${{ env.SLACK_NOTIFY_ONLY_FAILURES }}" = "true" ] && [ "${{ env.TEST_STATUS }}" != "failed" ]; then
+            echo "ℹ️ Skipping Slack notification (only failures enabled, test status: ${{ env.TEST_STATUS }})"
+            exit 0
+          fi
+          
           echo "🔄 Calling Slack update API..."
           
           # Prepare the update payload

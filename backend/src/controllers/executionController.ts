@@ -20,7 +20,7 @@ router.get('/', async (req: Request, res: Response) => {
 router.post('/:id/run', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    let { headless = false, slowMoMs = 1000, loginCredentials } = req.body || {};
+    let { headless = false, slowMoMs = 1000, loginCredentials, slackNotifyOnlyFailures = false } = req.body || {};
     // Default to non-headless mode for better debugging
     if (headless === false && (slowMoMs === undefined || slowMoMs === null)) {
       slowMoMs = 1000; // Default to 1 second delays like direct execution
@@ -36,41 +36,61 @@ router.post('/:id/run', async (req: Request, res: Response) => {
     const executionId = storeExecutionWithId(execId, id, result);
     closeExecutionStream(execId);
 
+    // Determine if we should send Slack notifications
+    // If slackNotifyOnlyFailures is true, only send if test failed
+    const shouldSendSlack = !slackNotifyOnlyFailures || result.status === 'failed';
+
     // Send Slack notification automatically with thread-based updates
-    try {
-      const slackService = createSlackService();
-      if (slackService) {
-        logger.info('📢 Slack service available, sending notifications', { testId: id, executionId });
-        
-        // Send execution started notification (thread reply only)
-        await slackService.sendTestExecutionStarted(test.name, executionId, id);
-        
-        // Update main thread with pass/fail status
-        logger.info('🔄 Calling updateMainThreadWithResult', { testId: id, testName: test.name, status: result.status });
-        await slackService.updateMainThreadWithResult(id, test.name, result);
-        
-        // Send execution result summary (thread reply only)
-        await slackService.sendTestResult(
-          test.name, 
-          executionId, 
-          result, 
-          id, // testId for thread management
-          test.steps,
-          test.description
-        );
-        
-        // Send detailed execution results as thread reply
-        await slackService.sendExecutionDetails(result, id);
-        
-        // NOTE: We do NOT call sendWorkflowCompleted here to avoid duplicate messages
-        // The GitHub Actions workflow will call the /api/execution/:id/slack-update endpoint
-        // which will properly update the main thread
-      } else {
-        logger.warn('Slack service not available');
+    if (shouldSendSlack) {
+      try {
+        const slackService = createSlackService();
+        if (slackService) {
+          logger.info('📢 Slack service available, sending notifications', { testId: id, executionId, status: result.status });
+          
+          // If slackNotifyOnlyFailures was true and test failed, send test creation message first
+          // (since we skipped it during test creation)
+          if (slackNotifyOnlyFailures && result.status === 'failed') {
+            logger.info('📢 Sending delayed test creation message (failure-only mode)', { testId: id });
+            await slackService.sendTestCreated(test.name, test.id, test.workflowRunUrl);
+            
+            // Send test steps as thread reply if steps exist
+            if (test.steps && test.steps.length > 0) {
+              await slackService.sendTestSteps(test.steps, test.id);
+            }
+          }
+          
+          // Send execution started notification (thread reply only)
+          await slackService.sendTestExecutionStarted(test.name, executionId, id);
+          
+          // Update main thread with pass/fail status
+          logger.info('🔄 Calling updateMainThreadWithResult', { testId: id, testName: test.name, status: result.status });
+          await slackService.updateMainThreadWithResult(id, test.name, result);
+          
+          // Send execution result summary (thread reply only)
+          await slackService.sendTestResult(
+            test.name, 
+            executionId, 
+            result, 
+            id, // testId for thread management
+            test.steps,
+            test.description
+          );
+          
+          // Send detailed execution results as thread reply
+          await slackService.sendExecutionDetails(result, id);
+          
+          // NOTE: We do NOT call sendWorkflowCompleted here to avoid duplicate messages
+          // The GitHub Actions workflow will call the /api/execution/:id/slack-update endpoint
+          // which will properly update the main thread
+        } else {
+          logger.warn('Slack service not available');
+        }
+      } catch (slackError) {
+        logger.error('Failed to send Slack notification', { slackError, executionId });
+        // Don't fail the request if Slack notification fails
       }
-    } catch (slackError) {
-      logger.error('Failed to send Slack notification', { slackError, executionId });
-      // Don't fail the request if Slack notification fails
+    } else {
+      logger.info('⏭️ Skipping Slack notifications (slackNotifyOnlyFailures=true and test passed)', { testId: id, executionId, status: result.status });
     }
 
     res.json({ success: true, executionId: execId, status: result.status, result });
