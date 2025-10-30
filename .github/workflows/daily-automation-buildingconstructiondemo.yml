@@ -43,7 +43,7 @@ env:
   SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
   ENABLE_SLACK: true
-  SLACK_NOTIFY_ONLY_FAILURES: ${{ inputs.slack_notify_only_failures }}
+  SLACK_NOTIFY_ONLY_FAILURES: true
   HEADLESS: true
 
 jobs:
