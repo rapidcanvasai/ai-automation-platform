@@ -1106,6 +1106,25 @@ export class SlackService {
   }
 
   /**
+   * Mask password values in step data for Slack display
+   */
+  private maskPasswordValue(step: any): string {
+    if (!step.value) {
+      return '';
+    }
+    
+    // Check if this is a password field by looking at the target/selector
+    const target = (step.target || step.selector || '').toLowerCase();
+    
+    // Mask if target contains "password" (case-insensitive)
+    if (target.includes('password')) {
+      return '****';
+    }
+    
+    return step.value;
+  }
+
+  /**
    * Build test steps message for thread
    */
   private buildTestStepsMessage(testSteps: any[]): SlackMessage {
@@ -1114,7 +1133,8 @@ export class SlackService {
     testSteps.forEach((step, index) => {
       text += `${index + 1}. *${step.action}* → ${step.target || step.selector || 'N/A'}`;
       if (step.value) {
-        text += ` (value: "${step.value}")`;
+        const maskedValue = this.maskPasswordValue(step);
+        text += ` (value: "${maskedValue}")`;
       }
       text += `\n`;
     });
@@ -1398,7 +1418,8 @@ export class SlackService {
       testSteps.forEach((step, index) => {
         text += `\n${index + 1}. *${step.action}* → ${step.target || step.selector || 'N/A'}`;
         if (step.value) {
-          text += ` (value: "${step.value}")`;
+          const maskedValue = this.maskPasswordValue(step);
+          text += ` (value: "${maskedValue}")`;
         }
       });
     }
