@@ -55,7 +55,7 @@ router.post('/:id/run', async (req: Request, res: Response) => {
             
             // Send test steps as thread reply if steps exist
             if (test.steps && test.steps.length > 0) {
-              await slackService.sendTestSteps(test.steps, test.id);
+              await slackService.sendTestSteps(test.steps, test.id, test.slackMention);
             }
           }
           
@@ -73,11 +73,12 @@ router.post('/:id/run', async (req: Request, res: Response) => {
             result, 
             id, // testId for thread management
             test.steps,
-            test.description
+            test.description,
+            test.slackMention
           );
           
           // Send detailed execution results as thread reply
-          await slackService.sendExecutionDetails(result, id);
+          await slackService.sendExecutionDetails(result, id, test.slackMention);
           
           // NOTE: We do NOT call sendWorkflowCompleted here to avoid duplicate messages
           // The GitHub Actions workflow will call the /api/execution/:id/slack-update endpoint

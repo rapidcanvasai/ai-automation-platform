@@ -32,6 +32,7 @@ export interface Test {
   createdBy: string;
   version: number;
   workflowRunUrl?: string;
+  slackMention?: string; // Slack user ID or username to mention in thread replies (e.g., "U123456" or "@Leonardo")
 }
 
 export interface TestExecution {

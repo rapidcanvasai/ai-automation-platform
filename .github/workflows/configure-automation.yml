@@ -56,6 +56,10 @@ on:
         required: false
         type: boolean
         default: false
+      slack_mention:
+        description: 'Slack user to mention in thread replies (e.g., "Leonardo", "@Bruno", or user ID like "U123456")'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -176,6 +180,7 @@ jobs:
               --argjson headless "${{ inputs.headless }}" \
               --argjson enable_slack "${{ inputs.enable_slack }}" \
               --argjson slack_notify_only_failures "${{ inputs.slack_notify_only_failures }}" \
+              --arg slack_mention "${{ inputs.slack_mention }}" \
               --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --arg created_by "${{ github.actor }}" \
               '{
@@ -187,6 +192,7 @@ jobs:
                 headless: $headless,
                 enable_slack: $enable_slack,
                 slack_notify_only_failures: $slack_notify_only_failures,
+                slack_mention: $slack_mention,
                 created_at: $created_at,
                 created_by: $created_by,
                 last_updated: $created_at,
@@ -496,6 +502,7 @@ jobs:
         ENABLE_SLACK=$(echo "$SELECTED_CONFIG" | jq -r '.enable_slack // true')
         SLACK_NOTIFY_ONLY_FAILURES=$(echo "$SELECTED_CONFIG" | jq -r '.slack_notify_only_failures // false')
         HEADLESS=$(echo "$SELECTED_CONFIG" | jq -r '.headless // true')
+        SLACK_MENTION=$(echo "$SELECTED_CONFIG" | jq -r '.slack_mention // ""')
         # TEST_DESCRIPTION already safely extracted above, don't override it
 
         echo "Debug: Extracted config values:"
@@ -504,6 +511,7 @@ jobs:
         echo "  ENABLE_SLACK: $ENABLE_SLACK"
         echo "  SLACK_NOTIFY_ONLY_FAILURES: $SLACK_NOTIFY_ONLY_FAILURES"
         echo "  HEADLESS: $HEADLESS"
+        echo "  SLACK_MENTION: $SLACK_MENTION"
         echo "  TEST_DESCRIPTION: [Length: ${#TEST_DESCRIPTION} characters]"
 
         # Replace environment variables with hardcoded values from user configuration
@@ -554,6 +562,9 @@ jobs:
           echo "  ENABLE_SLACK: ENABLE_SLACK_PLACEHOLDER"
           echo "  SLACK_NOTIFY_ONLY_FAILURES: SLACK_NOTIFY_ONLY_FAILURES_PLACEHOLDER"
           echo "  HEADLESS: HEADLESS_PLACEHOLDER"
+          if [ -n "$SLACK_MENTION" ]; then
+            echo "  SLACK_MENTION: 'SLACK_MENTION_PLACEHOLDER'"
+          fi
           echo ""
         } > /tmp/new_env_section.txt
         
@@ -581,6 +592,9 @@ jobs:
         sed -i "s/ENABLE_SLACK_PLACEHOLDER/$ENABLE_SLACK/g" /tmp/new_env_section_final.txt
         sed -i "s/SLACK_NOTIFY_ONLY_FAILURES_PLACEHOLDER/$SLACK_NOTIFY_ONLY_FAILURES/g" /tmp/new_env_section_final.txt
         sed -i "s/HEADLESS_PLACEHOLDER/$HEADLESS/g" /tmp/new_env_section_final.txt
+        if [ -n "$SLACK_MENTION" ]; then
+          sed -i "s/SLACK_MENTION_PLACEHOLDER/$SLACK_MENTION/g" /tmp/new_env_section_final.txt
+        fi
         
         # Convert escaped GitHub Actions expressions back to proper format
         tr -d '\\' < /tmp/new_env_section_final.txt > /tmp/new_env_section_converted.txt
@@ -891,6 +905,9 @@ jobs:
             echo "**Slack Channel:** ${{ inputs.slack_channel }}" >> $GITHUB_STEP_SUMMARY
             echo "**Headless Mode:** ${{ inputs.headless }}" >> $GITHUB_STEP_SUMMARY
             echo "**Slack Notifications:** ${{ inputs.enable_slack }}" >> $GITHUB_STEP_SUMMARY
+            if [ -n "${{ inputs.slack_mention }}" ]; then
+              echo "**Slack Mention:** ${{ inputs.slack_mention }}" >> $GITHUB_STEP_SUMMARY
+            fi
             echo "" >> $GITHUB_STEP_SUMMARY
             echo " **Configuration saved:** \`$SANITIZED_CONFIG_NAME\`" >> $GITHUB_STEP_SUMMARY
             echo " **Automated workflow created:** \`.github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml\`" >> $GITHUB_STEP_SUMMARY

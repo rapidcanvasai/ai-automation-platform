@@ -195,7 +195,8 @@ export class SlackService {
     result: ExecutionResult,
     testId: string,
     testSteps?: any[],
-    testDescription?: string
+    testDescription?: string,
+    mention?: string
   ): Promise<boolean> {
     try {
       const threadTs = this.threadTimestamps.get(testId);
@@ -211,7 +212,7 @@ export class SlackService {
       }
 
       // Send result summary
-      const resultMessage = this.buildTestResultSummary(testName, executionId, result, testSteps);
+      const resultMessage = this.buildTestResultSummary(testName, executionId, result, testSteps, mention);
       resultMessage.thread_ts = threadTs;
       
       // Use API if available, otherwise skip thread replies
@@ -224,7 +225,7 @@ export class SlackService {
         logger.warn('Cannot send thread replies without bot token', { testId });
       }
 
-      logger.info('Test result sent to Slack successfully', { executionId, testName });
+      logger.info('Test result sent to Slack successfully', { executionId, testName, mention });
       return true;
     } catch (error) {
       logger.error('Failed to send test result to Slack', { error, executionId, testName });
@@ -1065,7 +1066,8 @@ export class SlackService {
    */
   async sendTestSteps(
     testSteps: any[],
-    testId: string
+    testId: string,
+    mention?: string
   ): Promise<boolean> {
     try {
       const threadTs = this.threadTimestamps.get(testId);
@@ -1074,13 +1076,13 @@ export class SlackService {
         return false;
       }
 
-      const message = this.buildTestStepsMessage(testSteps);
+      const message = this.buildTestStepsMessage(testSteps, mention);
       message.thread_ts = threadTs;
       
       // Use API if available, otherwise skip thread replies
       if (this.config.botToken) {
         await this.sendMessageViaAPI(message);
-        logger.info('Test steps sent to Slack thread via API', { testId });
+        logger.info('Test steps sent to Slack thread via API', { testId, mention });
       } else {
         logger.warn('Cannot send thread replies without bot token', { testId });
       }
@@ -1125,9 +1127,35 @@ export class SlackService {
   }
 
   /**
+   * Format Slack mention from user ID or username
+   * Supports both formats: "U123456" or "@Leonardo" or "Leonardo"
+   */
+  private formatSlackMention(mention?: string): string {
+    if (!mention) {
+      return '';
+    }
+    
+    // If it's already in the correct format (<@U123456>), return as is
+    if (mention.startsWith('<@') && mention.endsWith('>')) {
+      return mention;
+    }
+    
+    // If it starts with @, remove it and format
+    const cleanMention = mention.startsWith('@') ? mention.substring(1) : mention;
+    
+    // If it looks like a user ID (starts with U), format as <@U123456>
+    if (cleanMention.startsWith('U') && cleanMention.length > 1) {
+      return `<@${cleanMention}>`;
+    }
+    
+    // Otherwise, assume it's a username and format as <@username>
+    return `<@${cleanMention}>`;
+  }
+
+  /**
    * Build test steps message for thread
    */
-  private buildTestStepsMessage(testSteps: any[]): SlackMessage {
+  private buildTestStepsMessage(testSteps: any[], mention?: string): SlackMessage {
     let text = `📋 *Test Steps:*\n\n`;
     
     testSteps.forEach((step, index) => {
@@ -1138,6 +1166,12 @@ export class SlackService {
       }
       text += `\n`;
     });
+
+    // Add mention at the end if provided
+    if (mention) {
+      const formattedMention = this.formatSlackMention(mention);
+      text += `\n${formattedMention}`;
+    }
 
     return {
       text,
@@ -1170,7 +1204,8 @@ export class SlackService {
     testName: string,
     executionId: string,
     result: ExecutionResult,
-    testSteps?: any[]
+    testSteps?: any[],
+    mention?: string
   ): SlackMessage {
     const status = result.status;
     const statusEmoji = status === 'passed' ? '✅' : '❌';
@@ -1187,6 +1222,12 @@ export class SlackService {
       `*Started:* ${new Date(result.startedAt).toLocaleString()}\n` +
       `*Completed:* ${new Date(result.completedAt).toLocaleString()}`;
 
+    // Add mention if provided (especially important for failures)
+    if (mention) {
+      const formattedMention = this.formatSlackMention(mention);
+      text += `\n\n${formattedMention}`;
+    }
+
     // Attachments are now handled separately in thread messages
 
     return {
@@ -1201,7 +1242,8 @@ export class SlackService {
    */
   async sendExecutionDetails(
     result: ExecutionResult,
-    testId: string
+    testId: string,
+    mention?: string
   ): Promise<boolean> {
     try {
       const threadTs = this.threadTimestamps.get(testId);
@@ -1216,13 +1258,13 @@ export class SlackService {
         return false;
       }
 
-      const message = this.buildExecutionDetailsMessage(result);
+      const message = this.buildExecutionDetailsMessage(result, mention);
       message.thread_ts = threadTs;
       
       // Use API if available, otherwise skip thread replies
       if (this.config.botToken) {
         await this.sendMessageViaAPI(message);
-        logger.info('Execution details sent to Slack thread via API', { testId });
+        logger.info('Execution details sent to Slack thread via API', { testId, mention });
       } else {
         logger.warn('Cannot send thread replies without bot token', { testId });
       }
@@ -1237,7 +1279,7 @@ export class SlackService {
   /**
    * Build detailed execution results message for thread
    */
-  private buildExecutionDetailsMessage(result: ExecutionResult): SlackMessage {
+  private buildExecutionDetailsMessage(result: ExecutionResult, mention?: string): SlackMessage {
     const failedSteps = result.steps.filter(step => step.status === 'failed');
 
     let text = `📊 *Execution Details:*\n\n`;
@@ -1254,6 +1296,12 @@ export class SlackService {
         }
         text += `\n`;
       });
+      
+      // Add mention for failures so the person is notified
+      if (mention) {
+        const formattedMention = this.formatSlackMention(mention);
+        text += `${formattedMention}`;
+      }
     } else {
       text += `✅ All steps passed successfully!`;
     }

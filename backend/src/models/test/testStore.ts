@@ -18,6 +18,7 @@ export function createTest(testInput: Partial<Test>): Test {
     createdBy: testInput.createdBy || 'system',
     version: testInput.version || 1,
     workflowRunUrl: testInput.workflowRunUrl,
+    slackMention: testInput.slackMention,
   };
   testsById.set(id, test);
   return test;

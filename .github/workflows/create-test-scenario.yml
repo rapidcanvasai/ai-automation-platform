@@ -30,6 +30,10 @@ on:
         required: false
         type: boolean
         default: false
+      slack_mention:
+        description: 'Slack user to mention in thread replies (e.g., "Leonardo", "@Bruno", or user ID like "U123456")'
+        required: false
+        type: string
 
 env:
   TEST_DESCRIPTION: ${{ inputs.test_description }}
@@ -41,6 +45,7 @@ env:
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
   ENABLE_SLACK: ${{ inputs.enable_slack }}
   SLACK_NOTIFY_ONLY_FAILURES: ${{ inputs.slack_notify_only_failures }}
+  SLACK_MENTION: ${{ inputs.slack_mention }}
 
 jobs:
   create-test-scenario:
@@ -259,19 +264,38 @@ jobs:
         fi
         
         # Create test payload using jq to properly escape JSON (matching frontend behavior)
-        jq -n \
-          --arg name "$TEST_NAME" \
-          --arg description "${{ env.TEST_DESCRIPTION }}" \
-          --argjson steps "$STEPS_DATA" \
-          --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-          --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
-          '{
-            name: $name,
-            description: $description,
-            steps: $steps,
-            workflowRunUrl: $workflowRunUrl,
-            slackNotifyOnlyFailures: $slackNotifyOnlyFailures
-          }' > /tmp/test-payload.json
+        # Include slackMention if provided
+        if [ -n "${{ env.SLACK_MENTION }}" ]; then
+          jq -n \
+            --arg name "$TEST_NAME" \
+            --arg description "${{ env.TEST_DESCRIPTION }}" \
+            --argjson steps "$STEPS_DATA" \
+            --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
+            --arg slackMention "${{ env.SLACK_MENTION }}" \
+            '{
+              name: $name,
+              description: $description,
+              steps: $steps,
+              workflowRunUrl: $workflowRunUrl,
+              slackNotifyOnlyFailures: $slackNotifyOnlyFailures,
+              slackMention: $slackMention
+            }' > /tmp/test-payload.json
+        else
+          jq -n \
+            --arg name "$TEST_NAME" \
+            --arg description "${{ env.TEST_DESCRIPTION }}" \
+            --argjson steps "$STEPS_DATA" \
+            --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
+            '{
+              name: $name,
+              description: $description,
+              steps: $steps,
+              workflowRunUrl: $workflowRunUrl,
+              slackNotifyOnlyFailures: $slackNotifyOnlyFailures
+            }' > /tmp/test-payload.json
+        fi
         
         echo "Creating test in platform..."
         CREATE_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/tests -H "Content-Type: application/json" -d @/tmp/test-payload.json -w "\n%{http_code}")

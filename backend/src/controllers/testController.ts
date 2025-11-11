@@ -53,7 +53,7 @@ router.post('/', async (req: Request, res: Response) => {
           
           // Send test steps as thread reply if steps exist
           if (test.steps && test.steps.length > 0) {
-            await slackService.sendTestSteps(test.steps, test.id);
+            await slackService.sendTestSteps(test.steps, test.id, test.slackMention);
           }
         }
       } catch (slackError) {

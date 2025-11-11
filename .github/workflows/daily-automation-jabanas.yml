@@ -269,12 +269,14 @@ jobs:
           --argjson steps "$STEPS_DATA" \
           --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
           --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
+          --arg slackMention "Pablo Souza" \
           '{
             name: $name,
             description: $description,
             steps: $steps,
             workflowRunUrl: $workflowRunUrl,
-            slackNotifyOnlyFailures: $slackNotifyOnlyFailures
+            slackNotifyOnlyFailures: $slackNotifyOnlyFailures,
+            slackMention: $slackMention
           }' > /tmp/test-payload.json
         
         echo "Creating test in platform..."
