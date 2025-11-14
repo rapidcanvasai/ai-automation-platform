@@ -212,7 +212,7 @@ export class SlackService {
       }
 
       // Send result summary
-      const resultMessage = this.buildTestResultSummary(testName, executionId, result, testSteps, mention);
+      const resultMessage = this.buildTestResultSummary(testName, executionId, result, testSteps);
       resultMessage.thread_ts = threadTs;
       
       // Use API if available, otherwise skip thread replies
@@ -225,7 +225,7 @@ export class SlackService {
         logger.warn('Cannot send thread replies without bot token', { testId });
       }
 
-      logger.info('Test result sent to Slack successfully', { executionId, testName, mention });
+      logger.info('Test result sent to Slack successfully', { executionId, testName });
       return true;
     } catch (error) {
       logger.error('Failed to send test result to Slack', { error, executionId, testName });
@@ -1066,8 +1066,7 @@ export class SlackService {
    */
   async sendTestSteps(
     testSteps: any[],
-    testId: string,
-    mention?: string
+    testId: string
   ): Promise<boolean> {
     try {
       const threadTs = this.threadTimestamps.get(testId);
@@ -1076,13 +1075,13 @@ export class SlackService {
         return false;
       }
 
-      const message = this.buildTestStepsMessage(testSteps, mention);
+      const message = this.buildTestStepsMessage(testSteps);
       message.thread_ts = threadTs;
       
       // Use API if available, otherwise skip thread replies
       if (this.config.botToken) {
         await this.sendMessageViaAPI(message);
-        logger.info('Test steps sent to Slack thread via API', { testId, mention });
+        logger.info('Test steps sent to Slack thread via API', { testId });
       } else {
         logger.warn('Cannot send thread replies without bot token', { testId });
       }
@@ -1128,7 +1127,13 @@ export class SlackService {
 
   /**
    * Format Slack mention from user ID or username
-   * Supports both formats: "U123456" or "@Leonardo" or "Leonardo"
+   * NOTE: Slack requires user IDs (like U123456) for proper mentions, not usernames.
+   * Usernames will be displayed as text but won't actually notify the user.
+   * 
+   * Supports formats:
+   * - User ID: "U123456" or "U1234567890" → <@U123456>
+   * - Already formatted: "<@U123456>" → <@U123456>
+   * - Username (not recommended): "Gustavo" → <@Gustavo> (won't notify)
    */
   private formatSlackMention(mention?: string): string {
     if (!mention) {
@@ -1140,22 +1145,30 @@ export class SlackService {
       return mention;
     }
     
-    // If it starts with @, remove it and format
+    // If it starts with @, remove it
     const cleanMention = mention.startsWith('@') ? mention.substring(1) : mention;
     
-    // If it looks like a user ID (starts with U), format as <@U123456>
-    if (cleanMention.startsWith('U') && cleanMention.length > 1) {
+    // If it looks like a user ID (starts with U followed by alphanumeric, typically 8-11 chars)
+    // Slack user IDs are like: U01234567, U0123456789, etc.
+    // Also check for W (workspace user) and B (bot) prefixes
+    if (cleanMention.match(/^[UW][0-9A-Z]{8,11}$/i)) {
       return `<@${cleanMention}>`;
     }
     
-    // Otherwise, assume it's a username and format as <@username>
+    // Otherwise, assume it's a username (will display but won't notify)
+    // Log a warning that user ID is preferred
+    logger.warn('Slack mention using username instead of user ID - mention may not work properly', { 
+      mention: cleanMention,
+      note: 'Use Slack user ID (e.g., U1234567890) for proper mentions. Find it in Slack user profile or via API.'
+    });
     return `<@${cleanMention}>`;
   }
 
   /**
    * Build test steps message for thread
+   * NOTE: Mentions are NOT added here - they should only appear in the last message (execution details)
    */
-  private buildTestStepsMessage(testSteps: any[], mention?: string): SlackMessage {
+  private buildTestStepsMessage(testSteps: any[]): SlackMessage {
     let text = `📋 *Test Steps:*\n\n`;
     
     testSteps.forEach((step, index) => {
@@ -1166,12 +1179,6 @@ export class SlackService {
       }
       text += `\n`;
     });
-
-    // Add mention at the end if provided
-    if (mention) {
-      const formattedMention = this.formatSlackMention(mention);
-      text += `\n${formattedMention}`;
-    }
 
     return {
       text,
@@ -1199,13 +1206,13 @@ export class SlackService {
 
   /**
    * Build test result summary message
+   * NOTE: Mentions are NOT added here - they should only appear in the last message (execution details)
    */
   private buildTestResultSummary(
     testName: string,
     executionId: string,
     result: ExecutionResult,
-    testSteps?: any[],
-    mention?: string
+    testSteps?: any[]
   ): SlackMessage {
     const status = result.status;
     const statusEmoji = status === 'passed' ? '✅' : '❌';
@@ -1221,12 +1228,6 @@ export class SlackService {
       `*Execution ID:* ${executionId}\n` +
       `*Started:* ${new Date(result.startedAt).toLocaleString()}\n` +
       `*Completed:* ${new Date(result.completedAt).toLocaleString()}`;
-
-    // Add mention if provided (especially important for failures)
-    if (mention) {
-      const formattedMention = this.formatSlackMention(mention);
-      text += `\n\n${formattedMention}`;
-    }
 
     // Attachments are now handled separately in thread messages
 
@@ -1264,7 +1265,7 @@ export class SlackService {
       // Use API if available, otherwise skip thread replies
       if (this.config.botToken) {
         await this.sendMessageViaAPI(message);
-        logger.info('Execution details sent to Slack thread via API', { testId, mention });
+        logger.info('Execution details sent to Slack thread via API', { testId });
       } else {
         logger.warn('Cannot send thread replies without bot token', { testId });
       }
@@ -1278,6 +1279,7 @@ export class SlackService {
 
   /**
    * Build detailed execution results message for thread
+   * NOTE: This is the LAST message in the thread, so mentions are added here only
    */
   private buildExecutionDetailsMessage(result: ExecutionResult, mention?: string): SlackMessage {
     const failedSteps = result.steps.filter(step => step.status === 'failed');
@@ -1296,14 +1298,15 @@ export class SlackService {
         }
         text += `\n`;
       });
-      
-      // Add mention for failures so the person is notified
-      if (mention) {
-        const formattedMention = this.formatSlackMention(mention);
-        text += `${formattedMention}`;
-      }
     } else {
       text += `✅ All steps passed successfully!`;
+    }
+    
+    // Add mention at the very end (ONLY in the last message) if provided
+    // This ensures the user is notified and the mention appears only once at the end
+    if (mention) {
+      const formattedMention = this.formatSlackMention(mention);
+      text += `\n\n${formattedMention}`;
     }
 
     return {
