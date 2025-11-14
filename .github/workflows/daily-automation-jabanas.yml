@@ -45,6 +45,7 @@ env:
   ENABLE_SLACK: true
   SLACK_NOTIFY_ONLY_FAILURES: true
   HEADLESS: true
+  SLACK_MENTION: 'U08HRLKPTKJ'  # Use Slack user ID (e.g., U1234567890) for proper mentions, or username (e.g., Pablo Souza)
 
 jobs:
   create-test-scenario:
@@ -269,7 +270,7 @@ jobs:
           --argjson steps "$STEPS_DATA" \
           --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
           --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
-          --arg slackMention "Pablo Souza" \
+          --arg slackMention "U08HRLKPTKJ" \
           '{
             name: $name,
             description: $description,
