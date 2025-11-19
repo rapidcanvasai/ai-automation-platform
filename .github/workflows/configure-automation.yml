@@ -56,8 +56,12 @@ on:
         required: false
         type: boolean
         default: false
-      slack_mention:
-        description: 'Slack user to mention in thread replies (e.g., "Leonardo", "@Bruno", or user ID like "U123456")'
+      dataapp_name:
+        description: 'DataApp name to display in Slack notifications (only shown for failed tests)'
+        required: false
+        type: string
+      tenant_name:
+        description: 'Tenant name to display in Slack notifications (only shown for failed tests)'
         required: false
         type: string
 
@@ -182,7 +186,8 @@ jobs:
               --argjson headless "${{ inputs.headless }}" \
               --argjson enable_slack "${{ inputs.enable_slack }}" \
               --argjson slack_notify_only_failures "${{ inputs.slack_notify_only_failures }}" \
-              --arg slack_mention "${{ inputs.slack_mention }}" \
+              --arg dataapp_name "${{ inputs.dataapp_name }}" \
+              --arg tenant_name "${{ inputs.tenant_name }}" \
               --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --arg created_by "${{ github.actor }}" \
               '{
@@ -194,9 +199,9 @@ jobs:
                 headless: $headless,
                 enable_slack: $enable_slack,
                 slack_notify_only_failures: $slack_notify_only_failures,
-                slack_mention: $slack_mention,
-                dataapp_name: "",
-                tenant_name: "",
+                slack_mention: "",
+                dataapp_name: $dataapp_name,
+                tenant_name: $tenant_name,
                 created_at: $created_at,
                 created_by: $created_by,
                 last_updated: $created_at,
