@@ -599,8 +599,8 @@ export class SlackService {
         for (const step of steps) {
           if (step.action === 'navigate' && step.target) {
             const url = step.target;
-            // Check if it's a rapidcanvas.ai URL with a specific app path (prioritize these)
-            if (url.includes('rapidcanvas.ai') && (url.includes('/dataapps-ui/') || url.includes('/apps/'))) {
+            // Check if it's a rapidcanvas URL (ai or orionic.com) with a specific app path (prioritize these)
+            if ((url.includes('rapidcanvas.ai') || url.includes('rapidcanvas.orionic.com')) && (url.includes('/dataapps-ui/') || url.includes('/apps/'))) {
               return url;
             }
           }
@@ -608,20 +608,20 @@ export class SlackService {
         
         // If no steps or no URL found in steps, try to extract from test description
         if (testDescription) {
-          // Look for specific app URLs first (with /dataapps-ui/ or /apps/)
-          const specificUrlMatch = testDescription.match(/https:\/\/app\.rapidcanvas\.ai\/(?:dataapps-ui\/[^\s]+|apps\/[^\s]+)/);
+          // Look for specific app URLs first (with /dataapps-ui/ or /apps/) - support both rapidcanvas.ai and rapidcanvas.orionic.com
+          const specificUrlMatch = testDescription.match(/https:\/\/(?:app\.)?rapidcanvas\.(?:ai|orionic\.com)\/(?:dataapps-ui\/[^\s]+|apps\/[^\s]+)/);
           if (specificUrlMatch) {
             return specificUrlMatch[0];
           }
           
-          // Look for any rapidcanvas.ai URL with a path (not just the base URL)
-          const urlWithPathMatch = testDescription.match(/https:\/\/app\.rapidcanvas\.ai\/[^\s\*]+/);
+          // Look for any rapidcanvas URL with a path (not just the base URL) - support both domains
+          const urlWithPathMatch = testDescription.match(/https:\/\/(?:app\.)?rapidcanvas\.(?:ai|orionic\.com)\/[^\s\*]+/);
           if (urlWithPathMatch) {
             return urlWithPathMatch[0];
           }
           
-          // Fallback: look for any rapidcanvas.ai URL
-          const generalUrlMatch = testDescription.match(/https:\/\/[^\s]*rapidcanvas\.ai[^\s\*]+/);
+          // Fallback: look for any rapidcanvas URL (ai or orionic.com)
+          const generalUrlMatch = testDescription.match(/https:\/\/[^\s]*rapidcanvas\.(?:ai|orionic\.com)[^\s\*]+/);
           if (generalUrlMatch) {
             return generalUrlMatch[0];
           }
@@ -633,7 +633,7 @@ export class SlackService {
 
       // Try to get test description from database if testName doesn't contain a URL
       let testDescription = testName;
-      if (!testName.includes('rapidcanvas.ai')) {
+      if (!testName.includes('rapidcanvas.ai') && !testName.includes('rapidcanvas.orionic.com')) {
         try {
           const { getTestById } = await import('../../models/test/testStore');
           const test = getTestById(testId);
