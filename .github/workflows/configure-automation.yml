@@ -3,20 +3,6 @@ name: Configure AI Test Automation
 on:
   workflow_dispatch:
     inputs:
-      action:
-        description: 'Action to perform'
-        required: true
-        type: choice
-        options:
-          - 'create'
-          - 'update'
-          - 'delete'
-          - 'list'
-          - 'view'
-          - 'test-run'
-          - 'enable'
-          - 'disable'
-        default: 'create'
       cron_schedule:
         description: 'Cron schedule (e.g., "0 10 * * *" for daily at 10 AM UTC)'
         required: false
@@ -41,11 +27,6 @@ on:
         required: false
         type: string
         default: 'C09F5F2MH8D'
-      headless:
-        description: 'Run browser in headless mode'
-        required: false
-        type: boolean
-        default: true
       enable_slack:
         description: 'Enable Slack notifications'
         required: false
@@ -119,7 +100,7 @@ jobs:
     - name: Process configuration action
       id: process-action
       run: |
-        echo " Processing action: ${{ inputs.action }}"
+        echo " Processing action: create"
 
         CONFIG_PATH=".github/automation-configs/${{ env.CONFIG_FILE }}"
         CONFIG_NAME="${{ inputs.config_name }}"
@@ -127,7 +108,8 @@ jobs:
         # Parse existing configs
         EXISTING_CONFIGS='${{ steps.load-config.outputs.existing_configs }}'
 
-        case "${{ inputs.action }}" in
+        # Always perform create action
+        case "create" in
           "create"|"update")
             echo " Creating/Updating configuration: $CONFIG_NAME"
 
@@ -175,19 +157,18 @@ jobs:
         fi
 
             # Create new configuration
-            # Note: dataapp_name and tenant_name are not in inputs (to stay within 10 input limit)
-            # They can be manually added to generated workflow files or extracted from test_description URL
             NEW_CONFIG=$(jq -n \
               --arg name "$CONFIG_NAME" \
               --arg cron "${{ inputs.cron_schedule }}" \
               --arg description "$TEST_DESCRIPTION" \
               --arg slack_channel "${{ inputs.slack_channel }}" \
               --arg slack_channel_id "${{ inputs.slack_channel_id }}" \
-              --argjson headless "${{ inputs.headless }}" \
+              --argjson headless "true" \
               --argjson enable_slack "${{ inputs.enable_slack }}" \
               --argjson slack_notify_only_failures "${{ inputs.slack_notify_only_failures }}" \
               --arg dataapp_name "${{ inputs.dataapp_name }}" \
               --arg tenant_name "${{ inputs.tenant_name }}" \
+              --arg slack_mention "" \
               --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --arg created_by "${{ github.actor }}" \
               '{
@@ -328,7 +309,7 @@ jobs:
             ;;
 
           *)
-            echo " Unknown action: ${{ inputs.action }}"
+            echo " Unknown action: create"
             exit 1
             ;;
         esac
@@ -354,10 +335,9 @@ jobs:
         cat "$CONFIG_PATH"
 
     - name: Create scheduled workflow file
-      if: inputs.action == 'create' || inputs.action == 'update'
       run: |
         echo " Creating scheduled workflow file..."
-        echo " Debug: inputs.action = ${{ inputs.action }}"
+        echo " Debug: action = create"
         echo " Debug: steps.process-action.outputs.config_name = ${{ steps.process-action.outputs.config_name }}"
         echo " Debug: steps.process-action.outputs.updated_configs = [JSON data provided]"
 
@@ -762,9 +742,9 @@ jobs:
         echo " Current branch: $(git branch --show-current)"
 
     - name: Manage workflow file for enable/disable actions
-      if: inputs.action == 'enable' || inputs.action == 'disable'
+      if: false
       run: |
-        echo " Managing workflow file for action: ${{ inputs.action }}"
+        echo " Managing workflow file for action: create"
         
         CONFIG_NAME="${{ steps.process-action.outputs.config_name }}"
         SANITIZED_CONFIG_NAME=$(echo "$CONFIG_NAME" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
@@ -775,7 +755,7 @@ jobs:
         if [ -f "$WORKFLOW_FILE" ]; then
           echo " Workflow file exists, updating schedule..."
           
-          if [ "${{ inputs.action }}" = "enable" ]; then
+          if [ "create" = "enable" ]; then
             echo " Enabling scheduled runs..."
             # Ensure schedule is present and active
             if ! grep -q "schedule:" "$WORKFLOW_FILE"; then
@@ -834,26 +814,7 @@ jobs:
           # Don't exit with error, just continue
         else
           # Commit with descriptive message
-          case "${{ inputs.action }}" in
-            "create")
-              COMMIT_MSG=" Create automation configuration: ${{ steps.process-action.outputs.config_name }}"
-              ;;
-            "update")
-              COMMIT_MSG=" Update automation configuration: ${{ steps.process-action.outputs.config_name }}"
-              ;;
-            "delete")
-              COMMIT_MSG=" Delete automation configuration: ${{ steps.process-action.outputs.config_name }}"
-              ;;
-            "test-run")
-              COMMIT_MSG=" Test run for configuration: ${{ steps.process-action.outputs.config_name }}"
-              ;;
-            "enable")
-              COMMIT_MSG=" Enable automation configuration: ${{ steps.process-action.outputs.config_name }}"
-              ;;
-            "disable")
-              COMMIT_MSG=" Disable automation configuration: ${{ steps.process-action.outputs.config_name }}"
-              ;;
-          esac
+          COMMIT_MSG=" Create automation configuration: ${{ steps.process-action.outputs.config_name }}"
 
           # Add workflow file info to commit message
           SANITIZED_CONFIG_NAME=$(echo "${{ steps.process-action.outputs.config_name }}" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
@@ -889,7 +850,7 @@ jobs:
 
 
     - name: Run test execution
-      if: inputs.action == 'test-run'
+      if: false
       run: |
         echo " Running test execution for configuration: ${{ steps.process-action.outputs.config_name }}"
 
@@ -905,26 +866,23 @@ jobs:
       run: |
         echo "## 🚀 Scheduled Jobs Management Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Action Performed:** ${{ inputs.action }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Action Performed:** create" >> $GITHUB_STEP_SUMMARY
         echo "**Configuration:** ${{ steps.process-action.outputs.config_name }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
 
         # Calculate sanitized config name for display
         SANITIZED_CONFIG_NAME=$(echo "${{ steps.process-action.outputs.config_name }}" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
 
-        case "${{ inputs.action }}" in
+        case "create" in
           "create"|"update")
-            echo " **Configuration ${{ inputs.action }}d successfully!**" >> $GITHUB_STEP_SUMMARY
+            echo " **Configuration created successfully!**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Configuration Name:** ${{ steps.process-action.outputs.config_name }}" >> $GITHUB_STEP_SUMMARY
             echo "**Cron Schedule:** ${{ inputs.cron_schedule }}" >> $GITHUB_STEP_SUMMARY
             echo "**Test Description:** [Provided successfully]" >> $GITHUB_STEP_SUMMARY
             echo "**Slack Channel:** ${{ inputs.slack_channel }}" >> $GITHUB_STEP_SUMMARY
-            echo "**Headless Mode:** ${{ inputs.headless }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Headless Mode:** true" >> $GITHUB_STEP_SUMMARY
             echo "**Slack Notifications:** ${{ inputs.enable_slack }}" >> $GITHUB_STEP_SUMMARY
-            if [ -n "${{ inputs.slack_mention }}" ]; then
-              echo "**Slack Mention:** ${{ inputs.slack_mention }}" >> $GITHUB_STEP_SUMMARY
-            fi
             echo "" >> $GITHUB_STEP_SUMMARY
             echo " **Configuration saved:** \`$SANITIZED_CONFIG_NAME\`" >> $GITHUB_STEP_SUMMARY
             echo " **Automated workflow created:** \`.github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml\`" >> $GITHUB_STEP_SUMMARY
