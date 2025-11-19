@@ -199,7 +199,7 @@ jobs:
                 headless: $headless,
                 enable_slack: $enable_slack,
                 slack_notify_only_failures: $slack_notify_only_failures,
-                slack_mention: "",
+                slack_mention: $slack_mention,
                 dataapp_name: $dataapp_name,
                 tenant_name: $tenant_name,
                 created_at: $created_at,
