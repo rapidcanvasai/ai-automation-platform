@@ -37,6 +37,10 @@ on:
         required: false
         type: boolean
         default: false
+      slack_mention:
+        description: 'Slack user to mention in thread replies (e.g., "Leonardo", "@Bruno", or user ID like "U123456")'
+        required: false
+        type: string
       dataapp_name:
         description: 'DataApp name to display in Slack notifications (only shown for failed tests)'
         required: false
@@ -168,7 +172,7 @@ jobs:
               --argjson slack_notify_only_failures "${{ inputs.slack_notify_only_failures }}" \
               --arg dataapp_name "${{ inputs.dataapp_name }}" \
               --arg tenant_name "${{ inputs.tenant_name }}" \
-              --arg slack_mention "" \
+              --arg slack_mention "${{ inputs.slack_mention }}" \
               --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --arg created_by "${{ github.actor }}" \
               '{
@@ -883,6 +887,9 @@ jobs:
             echo "**Slack Channel:** ${{ inputs.slack_channel }}" >> $GITHUB_STEP_SUMMARY
             echo "**Headless Mode:** true" >> $GITHUB_STEP_SUMMARY
             echo "**Slack Notifications:** ${{ inputs.enable_slack }}" >> $GITHUB_STEP_SUMMARY
+            if [ -n "${{ inputs.slack_mention }}" ]; then
+              echo "**Slack Mention:** ${{ inputs.slack_mention }}" >> $GITHUB_STEP_SUMMARY
+            fi
             echo "" >> $GITHUB_STEP_SUMMARY
             echo " **Configuration saved:** \`$SANITIZED_CONFIG_NAME\`" >> $GITHUB_STEP_SUMMARY
             echo " **Automated workflow created:** \`.github/workflows/daily-automation-$SANITIZED_CONFIG_NAME.yml\`" >> $GITHUB_STEP_SUMMARY
