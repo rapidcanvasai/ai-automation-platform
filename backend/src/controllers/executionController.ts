@@ -107,7 +107,7 @@ router.post('/:id/run', async (req: Request, res: Response) => {
 router.post('/:id/slack-update', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { testName, status, workflowRunUrl } = req.body;
+    const { testName, status, workflowRunUrl, dataAppName, tenantName } = req.body;
     
     if (!testName || !status) {
       return res.status(400).json({ 
@@ -137,12 +137,15 @@ router.post('/:id/slack-update', async (req: Request, res: Response) => {
           status: status as 'passed' | 'failed'
         };
         
-        // Update main thread with pass/fail status
+        // Update main thread with pass/fail status, passing dataApp name and tenant name
         const success = await slackService.updateMainThreadWithResult(
           execution.testId, 
           testName, 
           customResult, 
-          workflowRunUrl
+          workflowRunUrl,
+          undefined, // testDescription - not needed here as it's fetched from DB
+          dataAppName,
+          tenantName
         );
         
         if (success) {

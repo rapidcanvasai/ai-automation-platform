@@ -34,6 +34,14 @@ on:
         description: 'Slack user to mention in thread replies (e.g., "Leonardo", "@Bruno", or user ID like "U123456")'
         required: false
         type: string
+      dataapp_name:
+        description: 'DataApp name to display in Slack notifications (only shown for failed tests)'
+        required: false
+        type: string
+      tenant_name:
+        description: 'Tenant name to display in Slack notifications (only shown for failed tests)'
+        required: false
+        type: string
 
 env:
   TEST_DESCRIPTION: ${{ inputs.test_description }}
@@ -46,6 +54,8 @@ env:
   ENABLE_SLACK: ${{ inputs.enable_slack }}
   SLACK_NOTIFY_ONLY_FAILURES: ${{ inputs.slack_notify_only_failures }}
   SLACK_MENTION: ${{ inputs.slack_mention }}
+  DATAAPP_NAME: ${{ inputs.dataapp_name }}
+  TENANT_NAME: ${{ inputs.tenant_name }}
 
 jobs:
   create-test-scenario:
@@ -443,15 +453,19 @@ jobs:
           
           echo "🔄 Calling Slack update API..."
           
-          # Prepare the update payload
+          # Prepare the update payload with dataApp name and tenant name (only shown for failed tests)
           UPDATE_PAYLOAD=$(jq -n \
             --arg testName "GitHub Action Test - ${{ github.run_id }}" \
             --arg status "${{ env.TEST_STATUS }}" \
             --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg dataAppName "${{ env.DATAAPP_NAME }}" \
+            --arg tenantName "${{ env.TENANT_NAME }}" \
             '{
               testName: $testName,
               status: $status,
-              workflowRunUrl: $workflowRunUrl
+              workflowRunUrl: $workflowRunUrl,
+              dataAppName: (if $dataAppName == "" then null else $dataAppName end),
+              tenantName: (if $tenantName == "" then null else $tenantName end)
             }')
           
           echo "📋 Update payload:"

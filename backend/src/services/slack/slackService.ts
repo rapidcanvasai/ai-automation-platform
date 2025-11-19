@@ -525,7 +525,10 @@ export class SlackService {
     testId: string,
     testName: string,
     result: ExecutionResult,
-    workflowRunUrl?: string
+    workflowRunUrl?: string,
+    testDescription?: string,
+    dataAppName?: string,
+    tenantName?: string
   ): Promise<boolean> {
     try {
       logger.info('🔄 updateMainThreadWithResult called', { testId, testName, status: result.status });
@@ -631,26 +634,37 @@ export class SlackService {
         return testName;
       };
 
-      // Try to get test description from database if testName doesn't contain a URL
-      let testDescription = testName;
-      if (!testName.includes('rapidcanvas.ai') && !testName.includes('rapidcanvas.orionic.com')) {
+      // Use provided test description, or try to get from database if not provided
+      let finalTestDescription = testDescription || testName;
+      // If test description was not provided and testName doesn't contain a rapidcanvas URL, try to fetch from database
+      if (!testDescription && !testName.includes('rapidcanvas.ai') && !testName.includes('rapidcanvas.orionic.com')) {
         try {
           const { getTestById } = await import('../../models/test/testStore');
           const test = getTestById(testId);
           if (test && test.description) {
-            testDescription = test.description;
+            finalTestDescription = test.description;
           }
         } catch (error) {
           logger.warn('Could not fetch test description from database', { testId, error });
         }
       }
 
-      const mainUrl = extractMainUrl(result.steps, testDescription);
+      const mainUrl = extractMainUrl(result.steps, finalTestDescription);
       
       // Build updated message - Simplified format with main URL and status icons (no failed count)
       let text = `🧪 TEST ${statusEmoji} ${statusText}: ${mainUrl}\n\n`;
       text += `*Test ID:* ${testId}`;
       text += `\n*Status:* ${statusEmoji} ${statusText}`;
+      
+      // Add dataApp name and tenant name only for failed tests
+      if (result.status === 'failed') {
+        if (dataAppName) {
+          text += `\n*DataApp:* ${dataAppName}`;
+        }
+        if (tenantName) {
+          text += `\n*Tenant:* ${tenantName}`;
+        }
+      }
 
       // Add workflow run link if available
       if (workflowRunUrl) {
@@ -658,6 +672,33 @@ export class SlackService {
       }
 
       // Build blocks for better formatting
+      const fields: Array<{ type: string; text: string }> = [
+        {
+          type: 'mrkdwn',
+          text: `*Test ID:*\n${testId}`
+        },
+        {
+          type: 'mrkdwn',
+          text: `*Status:*\n${statusEmoji} ${statusText}`
+        }
+      ];
+      
+      // Add dataApp name and tenant name to fields only for failed tests
+      if (result.status === 'failed') {
+        if (dataAppName) {
+          fields.push({
+            type: 'mrkdwn',
+            text: `*DataApp:*\n${dataAppName}`
+          });
+        }
+        if (tenantName) {
+          fields.push({
+            type: 'mrkdwn',
+            text: `*Tenant:*\n${tenantName}`
+          });
+        }
+      }
+      
       const blocks: SlackBlock[] = [
         {
           type: 'section',
@@ -668,16 +709,7 @@ export class SlackService {
         },
         {
           type: 'section',
-          fields: [
-            {
-              type: 'mrkdwn',
-              text: `*Test ID:*\n${testId}`
-            },
-            {
-              type: 'mrkdwn',
-              text: `*Status:*\n${statusEmoji} ${statusText}`
-            }
-          ]
+          fields: fields
         }
       ];
 
