@@ -659,7 +659,7 @@ export class SlackService {
       // Add dataApp name and tenant name only for failed tests
       if (result.status === 'failed') {
         if (dataAppName) {
-          text += `\n*DataApp:* ${dataAppName}`;
+          text += `\n*DataApp Name:* ${dataAppName}`;
         }
         if (tenantName) {
           text += `\n*Tenant:* ${tenantName}`;
@@ -688,7 +688,7 @@ export class SlackService {
         if (dataAppName) {
           fields.push({
             type: 'mrkdwn',
-            text: `*DataApp:*\n${dataAppName}`
+            text: `*DataApp Name:*\n${dataAppName}`
           });
         }
         if (tenantName) {

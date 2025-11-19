@@ -46,6 +46,8 @@ env:
   SLACK_NOTIFY_ONLY_FAILURES: true
   HEADLESS: true
   SLACK_MENTION: 'U0969CKGK9A'  # Use Slack user ID (e.g., U1234567890) for proper mentions, or username (e.g., Bruno)
+  DATAAPP_NAME: 'Keystone Textiles App'
+  TENANT_NAME: 'RC-Retail'
 
 jobs:
   create-test-scenario:
@@ -340,7 +342,8 @@ jobs:
           curl -X GET ${BACKEND_URL:-http://localhost:3001}/health | jq '.' || echo "Health check failed"
           
           echo "🚀 Executing test..."
-          EXEC_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}" --max-time 600)
+          # Increased timeout to 45 minutes (2700 seconds) to accommodate tests with multiple long waits
+          EXEC_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}" --max-time 2700)
           EXEC_HTTP_CODE=$(echo "$EXEC_RESPONSE" | tail -n1)
           EXEC_BODY=$(echo "$EXEC_RESPONSE" | sed '$d')
           echo "Execution HTTP Code: $EXEC_HTTP_CODE"
@@ -424,15 +427,19 @@ jobs:
           
           echo "🔄 Calling Slack update API..."
           
-          # Prepare the update payload
+          # Prepare the update payload with dataApp name and tenant name (only shown for failed tests)
           UPDATE_PAYLOAD=$(jq -n \
             --arg testName "GitHub Action Test - ${{ github.run_id }}" \
             --arg status "${{ env.TEST_STATUS }}" \
             --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg dataAppName "${{ env.DATAAPP_NAME }}" \
+            --arg tenantName "${{ env.TENANT_NAME }}" \
             '{
               testName: $testName,
               status: $status,
-              workflowRunUrl: $workflowRunUrl
+              workflowRunUrl: $workflowRunUrl,
+              dataAppName: (if $dataAppName == "" then null else $dataAppName end),
+              tenantName: (if $tenantName == "" then null else $tenantName end)
             }')
           
           echo "📋 Update payload:"
