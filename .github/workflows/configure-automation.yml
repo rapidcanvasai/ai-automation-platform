@@ -60,14 +60,6 @@ on:
         description: 'Slack user to mention in thread replies (e.g., "Leonardo", "@Bruno", or user ID like "U123456")'
         required: false
         type: string
-      dataapp_name:
-        description: 'DataApp name to display in Slack notifications (only shown for failed tests)'
-        required: false
-        type: string
-      tenant_name:
-        description: 'Tenant name to display in Slack notifications (only shown for failed tests)'
-        required: false
-        type: string
 
 permissions:
   contents: write
@@ -179,6 +171,8 @@ jobs:
         fi
 
             # Create new configuration
+            # Note: dataapp_name and tenant_name are not in inputs (to stay within 10 input limit)
+            # They can be manually added to generated workflow files or extracted from test_description URL
             NEW_CONFIG=$(jq -n \
               --arg name "$CONFIG_NAME" \
               --arg cron "${{ inputs.cron_schedule }}" \
@@ -189,8 +183,6 @@ jobs:
               --argjson enable_slack "${{ inputs.enable_slack }}" \
               --argjson slack_notify_only_failures "${{ inputs.slack_notify_only_failures }}" \
               --arg slack_mention "${{ inputs.slack_mention }}" \
-              --arg dataapp_name "${{ inputs.dataapp_name }}" \
-              --arg tenant_name "${{ inputs.tenant_name }}" \
               --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --arg created_by "${{ github.actor }}" \
               '{
@@ -203,8 +195,8 @@ jobs:
                 enable_slack: $enable_slack,
                 slack_notify_only_failures: $slack_notify_only_failures,
                 slack_mention: $slack_mention,
-                dataapp_name: $dataapp_name,
-                tenant_name: $tenant_name,
+                dataapp_name: "",
+                tenant_name: "",
                 created_at: $created_at,
                 created_by: $created_by,
                 last_updated: $created_at,
