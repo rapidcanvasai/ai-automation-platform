@@ -270,7 +270,7 @@ jobs:
           --argjson steps "$STEPS_DATA" \
           --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
           --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
-          --arg slackMention "U0969CKGK9A}" \
+          --arg slackMention "U0969CKGK9A" \
           '{
             name: $name,
             description: $description,
