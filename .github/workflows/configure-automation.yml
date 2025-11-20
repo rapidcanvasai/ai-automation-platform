@@ -585,7 +585,7 @@ jobs:
           mv /tmp/new_env_section_final.txt.tmp /tmp/new_env_section_final.txt
         fi
         
-        # Replace other placeholders using perl for safe handling of special characters
+        # Replace other placeholders using Python for safe handling of special characters
         # Escape single quotes in values for YAML (YAML uses '' to escape single quotes in single-quoted strings)
         ESCAPED_SLACK_CHANNEL=$(printf '%s' "$SLACK_CHANNEL" | sed "s/'/''/g")
         ESCAPED_SLACK_CHANNEL_ID=$(printf '%s' "$SLACK_CHANNEL_ID" | sed "s/'/''/g")
@@ -593,17 +593,42 @@ jobs:
         ESCAPED_DATAAPP_NAME=$(printf '%s' "$DATAAPP_NAME" | sed "s/'/''/g")
         ESCAPED_TENANT_NAME=$(printf '%s' "$TENANT_NAME" | sed "s/'/''/g")
         
-        # Use perl with proper escaping - use \Q...\E to quote regex special chars, and escape single quotes for YAML
-        perl -i -pe "s/SLACK_CHANNEL_PLACEHOLDER/'$ESCAPED_SLACK_CHANNEL'/g" /tmp/new_env_section_final.txt
-        perl -i -pe "s/SLACK_CHANNEL_ID_PLACEHOLDER/'$ESCAPED_SLACK_CHANNEL_ID'/g" /tmp/new_env_section_final.txt
-        perl -i -pe "s/ENABLE_SLACK_PLACEHOLDER/$ENABLE_SLACK/g" /tmp/new_env_section_final.txt
-        perl -i -pe "s/SLACK_NOTIFY_ONLY_FAILURES_PLACEHOLDER/$SLACK_NOTIFY_ONLY_FAILURES/g" /tmp/new_env_section_final.txt
-        perl -i -pe "s/HEADLESS_PLACEHOLDER/$HEADLESS/g" /tmp/new_env_section_final.txt
-        if [ -n "$SLACK_MENTION" ]; then
-          perl -i -pe "s/SLACK_MENTION_PLACEHOLDER/'$ESCAPED_SLACK_MENTION'/g" /tmp/new_env_section_final.txt
-        fi
-        perl -i -pe "s/DATAAPP_NAME_PLACEHOLDER/'$ESCAPED_DATAAPP_NAME'/g" /tmp/new_env_section_final.txt
-        perl -i -pe "s/TENANT_NAME_PLACEHOLDER/'$ESCAPED_TENANT_NAME'/g" /tmp/new_env_section_final.txt
+        # Use Python for safe string replacement that handles all special characters
+        # Write values to a temp file to avoid shell expansion issues
+        printf '%s\n' "$ESCAPED_SLACK_CHANNEL" "$ESCAPED_SLACK_CHANNEL_ID" "$ENABLE_SLACK" "$SLACK_NOTIFY_ONLY_FAILURES" "$HEADLESS" "$ESCAPED_SLACK_MENTION" "$ESCAPED_DATAAPP_NAME" "$ESCAPED_TENANT_NAME" > /tmp/replacement_values.txt
+        
+        # Write Python script to file using printf to avoid YAML parsing issues
+        printf 'import sys\n\n' > /tmp/replace_placeholders.py
+        printf '# Read replacement values from file\n' >> /tmp/replace_placeholders.py
+        printf 'with open("/tmp/replacement_values.txt", "r") as f:\n' >> /tmp/replace_placeholders.py
+        printf '    values = [line.rstrip("\\n") for line in f.readlines()]\n\n' >> /tmp/replace_placeholders.py
+        printf 'slack_channel = values[0]\n' >> /tmp/replace_placeholders.py
+        printf 'slack_channel_id = values[1]\n' >> /tmp/replace_placeholders.py
+        printf 'enable_slack = values[2]\n' >> /tmp/replace_placeholders.py
+        printf 'slack_notify_only_failures = values[3]\n' >> /tmp/replace_placeholders.py
+        printf 'headless = values[4]\n' >> /tmp/replace_placeholders.py
+        printf 'slack_mention = values[5]\n' >> /tmp/replace_placeholders.py
+        printf 'dataapp_name = values[6]\n' >> /tmp/replace_placeholders.py
+        printf 'tenant_name = values[7]\n\n' >> /tmp/replace_placeholders.py
+        printf '# Read the template file\n' >> /tmp/replace_placeholders.py
+        printf 'with open("/tmp/new_env_section_final.txt", "r") as f:\n' >> /tmp/replace_placeholders.py
+        printf '    content = f.read()\n\n' >> /tmp/replace_placeholders.py
+        printf '# Perform replacements safely\n' >> /tmp/replace_placeholders.py
+        printf "content = content.replace('SLACK_CHANNEL_PLACEHOLDER', \"'\" + slack_channel + \"'\")\n" >> /tmp/replace_placeholders.py
+        printf "content = content.replace('SLACK_CHANNEL_ID_PLACEHOLDER', \"'\" + slack_channel_id + \"'\")\n" >> /tmp/replace_placeholders.py
+        printf "content = content.replace('ENABLE_SLACK_PLACEHOLDER', enable_slack)\n" >> /tmp/replace_placeholders.py
+        printf "content = content.replace('SLACK_NOTIFY_ONLY_FAILURES_PLACEHOLDER', slack_notify_only_failures)\n" >> /tmp/replace_placeholders.py
+        printf "content = content.replace('HEADLESS_PLACEHOLDER', headless)\n" >> /tmp/replace_placeholders.py
+        printf 'if slack_mention:\n' >> /tmp/replace_placeholders.py
+        printf "    content = content.replace('SLACK_MENTION_PLACEHOLDER', \"'\" + slack_mention + \"'\")\n" >> /tmp/replace_placeholders.py
+        printf "content = content.replace('DATAAPP_NAME_PLACEHOLDER', \"'\" + dataapp_name + \"'\")\n" >> /tmp/replace_placeholders.py
+        printf "content = content.replace('TENANT_NAME_PLACEHOLDER', \"'\" + tenant_name + \"'\")\n\n" >> /tmp/replace_placeholders.py
+        printf '# Write back\n' >> /tmp/replace_placeholders.py
+        printf 'with open("/tmp/new_env_section_final.txt", "w") as f:\n' >> /tmp/replace_placeholders.py
+        printf '    f.write(content)\n' >> /tmp/replace_placeholders.py
+        
+        # Execute the Python script
+        python3 /tmp/replace_placeholders.py
         
         # Convert escaped GitHub Actions expressions back to proper format
         tr -d '\\' < /tmp/new_env_section_final.txt > /tmp/new_env_section_converted.txt
