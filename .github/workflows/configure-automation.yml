@@ -603,20 +603,69 @@ jobs:
           mv /tmp/new_env_section_final.txt.tmp /tmp/new_env_section_final.txt
         fi
         
-        # Replace other placeholders
-        sed -i "s/SLACK_CHANNEL_PLACEHOLDER/$SLACK_CHANNEL/g" /tmp/new_env_section_final.txt
-        sed -i "s/SLACK_CHANNEL_ID_PLACEHOLDER/$SLACK_CHANNEL_ID/g" /tmp/new_env_section_final.txt
-        sed -i "s/ENABLE_SLACK_PLACEHOLDER/$ENABLE_SLACK/g" /tmp/new_env_section_final.txt
-        sed -i "s/SLACK_NOTIFY_ONLY_FAILURES_PLACEHOLDER/$SLACK_NOTIFY_ONLY_FAILURES/g" /tmp/new_env_section_final.txt
-        sed -i "s/HEADLESS_PLACEHOLDER/$HEADLESS/g" /tmp/new_env_section_final.txt
-        if [ -n "$SLACK_MENTION" ]; then
-          sed -i "s/SLACK_MENTION_PLACEHOLDER/$SLACK_MENTION/g" /tmp/new_env_section_final.txt
-        fi
-        if [ -n "$DATAAPP_NAME" ]; then
-          sed -i "s/DATAAPP_NAME_PLACEHOLDER/$DATAAPP_NAME/g" /tmp/new_env_section_final.txt
-        fi
-        if [ -n "$TENANT_NAME" ]; then
-          sed -i "s/TENANT_NAME_PLACEHOLDER/$TENANT_NAME/g" /tmp/new_env_section_final.txt
+        # Replace other placeholders using Python for safe string replacement
+        # Write replacement values to a file to avoid shell escaping issues
+        {
+          echo "$SLACK_CHANNEL"
+          echo "$SLACK_CHANNEL_ID"
+          echo "$ENABLE_SLACK"
+          echo "$SLACK_NOTIFY_ONLY_FAILURES"
+          echo "$HEADLESS"
+          echo "$SLACK_MENTION"
+          echo "$DATAAPP_NAME"
+          echo "$TENANT_NAME"
+        } > /tmp/replacement_values.txt
+        
+        # Write Python script to file using printf to avoid heredoc YAML issues
+        {
+          printf 'import sys\n'
+          printf '\n'
+          printf '# Read replacement values from file\n'
+          printf 'with open("/tmp/replacement_values.txt", "r") as f:\n'
+          printf '    values = [line.rstrip("\\n") for line in f.readlines()]\n'
+          printf '\n'
+          printf 'slack_channel = values[0]\n'
+          printf 'slack_channel_id = values[1]\n'
+          printf 'enable_slack = values[2]\n'
+          printf 'slack_notify_only_failures = values[3]\n'
+          printf 'headless = values[4]\n'
+          printf 'slack_mention = values[5]\n'
+          printf 'dataapp_name = values[6]\n'
+          printf 'tenant_name = values[7]\n'
+          printf '\n'
+          printf '# Read the template file\n'
+          printf 'with open("/tmp/new_env_section_final.txt", "r") as f:\n'
+          printf '    content = f.read()\n'
+          printf '\n'
+          printf '# Escape single quotes for YAML (single quote becomes two single quotes)\n'
+          printf "def escape_yaml(value):\n"
+          printf "    return value.replace(\"'\", \"''\")\n"
+          printf '\n'
+          printf '# Perform replacements safely\n'
+          printf "# Replace placeholders - template has quotes, so we replace just the placeholder text\n"
+          printf "content = content.replace('SLACK_CHANNEL_PLACEHOLDER', escape_yaml(slack_channel))\n"
+          printf "content = content.replace('SLACK_CHANNEL_ID_PLACEHOLDER', escape_yaml(slack_channel_id))\n"
+          printf "content = content.replace('ENABLE_SLACK_PLACEHOLDER', enable_slack)\n"
+          printf "content = content.replace('SLACK_NOTIFY_ONLY_FAILURES_PLACEHOLDER', slack_notify_only_failures)\n"
+          printf "content = content.replace('HEADLESS_PLACEHOLDER', headless)\n"
+          printf "if slack_mention:\n"
+          printf "    content = content.replace('SLACK_MENTION_PLACEHOLDER', escape_yaml(slack_mention))\n"
+          printf "if dataapp_name:\n"
+          printf "    content = content.replace('DATAAPP_NAME_PLACEHOLDER', escape_yaml(dataapp_name))\n"
+          printf "if tenant_name:\n"
+          printf "    content = content.replace('TENANT_NAME_PLACEHOLDER', escape_yaml(tenant_name))\n"
+          printf '\n'
+          printf '# Write back\n'
+          printf 'with open("/tmp/new_env_section_final.txt", "w") as f:\n'
+          printf '    f.write(content)\n'
+        } > /tmp/replace_placeholders.py
+        
+        # Execute Python script
+        if ! python3 /tmp/replace_placeholders.py; then
+          echo "❌ ERROR: Python script failed"
+          echo "Python script content:"
+          cat /tmp/replace_placeholders.py
+          exit 1
         fi
         
         # Convert escaped GitHub Actions expressions back to proper format
@@ -664,9 +713,9 @@ jobs:
         
         # Verify the replacement worked
         echo "🔍 VERIFICATION: Checking for remaining inputs.headless references..."
-        if grep -q "\${{ inputs.headless }}" "$WORKFLOW_FILE"; then
+        if grep -q '\$\{\{ inputs\.headless \}\}' "$WORKFLOW_FILE"; then
           echo "❌ WARNING: Found remaining inputs.headless references:"
-          grep "\${{ inputs.headless }}" "$WORKFLOW_FILE"
+          grep '\$\{\{ inputs\.headless \}\}' "$WORKFLOW_FILE" || true
         else
           echo "✅ SUCCESS: inputs.headless replaced with env.HEADLESS"
         fi
@@ -686,7 +735,7 @@ jobs:
         grep "HEADLESS:" "$WORKFLOW_FILE" || echo "HEADLESS not found"
         
         # Critical validation: Ensure TEST_DESCRIPTION is hardcoded, not using inputs
-        if grep -q "TEST_DESCRIPTION: \${{ inputs.test_description }}" "$WORKFLOW_FILE"; then
+        if grep -q 'TEST_DESCRIPTION: \$\{\{ inputs\.test_description \}\}' "$WORKFLOW_FILE"; then
           echo "❌ CRITICAL ERROR: TEST_DESCRIPTION still using input variable!"
           echo "The environment variable replacement failed."
           exit 1
