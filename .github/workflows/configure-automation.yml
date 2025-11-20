@@ -552,18 +552,18 @@ jobs:
           echo "    TEST_DESCRIPTION_PLACEHOLDER"
           echo "  OPENAI_API_KEY: \$\{\{ secrets.OPENAI_API_KEY \}\}"
           echo "  OPENAI_MODEL: gpt-4o-mini"
-          echo "  SLACK_CHANNEL: 'SLACK_CHANNEL_PLACEHOLDER'"
-          echo "  SLACK_CHANNEL_ID: 'SLACK_CHANNEL_ID_PLACEHOLDER'"
+          echo "  SLACK_CHANNEL: SLACK_CHANNEL_PLACEHOLDER"
+          echo "  SLACK_CHANNEL_ID: SLACK_CHANNEL_ID_PLACEHOLDER"
           echo "  SLACK_BOT_TOKEN: \$\{\{ secrets.SLACK_BOT_TOKEN \}\}"
           echo "  SLACK_WEBHOOK_URL: \$\{\{ secrets.SLACK_WEBHOOK_URL \}\}"
           echo "  ENABLE_SLACK: ENABLE_SLACK_PLACEHOLDER"
           echo "  SLACK_NOTIFY_ONLY_FAILURES: SLACK_NOTIFY_ONLY_FAILURES_PLACEHOLDER"
           echo "  HEADLESS: HEADLESS_PLACEHOLDER"
           if [ -n "$SLACK_MENTION" ]; then
-            echo "  SLACK_MENTION: 'SLACK_MENTION_PLACEHOLDER'"
+            echo "  SLACK_MENTION: SLACK_MENTION_PLACEHOLDER"
           fi
-          echo "  DATAAPP_NAME: 'DATAAPP_NAME_PLACEHOLDER'"
-          echo "  TENANT_NAME: 'TENANT_NAME_PLACEHOLDER'"
+          echo "  DATAAPP_NAME: DATAAPP_NAME_PLACEHOLDER"
+          echo "  TENANT_NAME: TENANT_NAME_PLACEHOLDER"
           echo ""
         } > /tmp/new_env_section.txt
         
@@ -585,17 +585,25 @@ jobs:
           mv /tmp/new_env_section_final.txt.tmp /tmp/new_env_section_final.txt
         fi
         
-        # Replace other placeholders
-        sed -i "s/SLACK_CHANNEL_PLACEHOLDER/$SLACK_CHANNEL/g" /tmp/new_env_section_final.txt
-        sed -i "s/SLACK_CHANNEL_ID_PLACEHOLDER/$SLACK_CHANNEL_ID/g" /tmp/new_env_section_final.txt
-        sed -i "s/ENABLE_SLACK_PLACEHOLDER/$ENABLE_SLACK/g" /tmp/new_env_section_final.txt
-        sed -i "s/SLACK_NOTIFY_ONLY_FAILURES_PLACEHOLDER/$SLACK_NOTIFY_ONLY_FAILURES/g" /tmp/new_env_section_final.txt
-        sed -i "s/HEADLESS_PLACEHOLDER/$HEADLESS/g" /tmp/new_env_section_final.txt
+        # Replace other placeholders using perl for safe handling of special characters
+        # Escape single quotes in values for YAML (YAML uses '' to escape single quotes in single-quoted strings)
+        ESCAPED_SLACK_CHANNEL=$(printf '%s' "$SLACK_CHANNEL" | sed "s/'/''/g")
+        ESCAPED_SLACK_CHANNEL_ID=$(printf '%s' "$SLACK_CHANNEL_ID" | sed "s/'/''/g")
+        ESCAPED_SLACK_MENTION=$(printf '%s' "$SLACK_MENTION" | sed "s/'/''/g")
+        ESCAPED_DATAAPP_NAME=$(printf '%s' "$DATAAPP_NAME" | sed "s/'/''/g")
+        ESCAPED_TENANT_NAME=$(printf '%s' "$TENANT_NAME" | sed "s/'/''/g")
+        
+        # Use perl with proper escaping - use \Q...\E to quote regex special chars, and escape single quotes for YAML
+        perl -i -pe "s/SLACK_CHANNEL_PLACEHOLDER/'$ESCAPED_SLACK_CHANNEL'/g" /tmp/new_env_section_final.txt
+        perl -i -pe "s/SLACK_CHANNEL_ID_PLACEHOLDER/'$ESCAPED_SLACK_CHANNEL_ID'/g" /tmp/new_env_section_final.txt
+        perl -i -pe "s/ENABLE_SLACK_PLACEHOLDER/$ENABLE_SLACK/g" /tmp/new_env_section_final.txt
+        perl -i -pe "s/SLACK_NOTIFY_ONLY_FAILURES_PLACEHOLDER/$SLACK_NOTIFY_ONLY_FAILURES/g" /tmp/new_env_section_final.txt
+        perl -i -pe "s/HEADLESS_PLACEHOLDER/$HEADLESS/g" /tmp/new_env_section_final.txt
         if [ -n "$SLACK_MENTION" ]; then
-          sed -i "s/SLACK_MENTION_PLACEHOLDER/$SLACK_MENTION/g" /tmp/new_env_section_final.txt
+          perl -i -pe "s/SLACK_MENTION_PLACEHOLDER/'$ESCAPED_SLACK_MENTION'/g" /tmp/new_env_section_final.txt
         fi
-        sed -i "s/DATAAPP_NAME_PLACEHOLDER/$DATAAPP_NAME/g" /tmp/new_env_section_final.txt
-        sed -i "s/TENANT_NAME_PLACEHOLDER/$TENANT_NAME/g" /tmp/new_env_section_final.txt
+        perl -i -pe "s/DATAAPP_NAME_PLACEHOLDER/'$ESCAPED_DATAAPP_NAME'/g" /tmp/new_env_section_final.txt
+        perl -i -pe "s/TENANT_NAME_PLACEHOLDER/'$ESCAPED_TENANT_NAME'/g" /tmp/new_env_section_final.txt
         
         # Convert escaped GitHub Actions expressions back to proper format
         tr -d '\\' < /tmp/new_env_section_final.txt > /tmp/new_env_section_converted.txt
