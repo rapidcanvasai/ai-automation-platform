@@ -121,9 +121,9 @@ jobs:
         # Parse existing configs
         EXISTING_CONFIGS='${{ steps.load-config.outputs.existing_configs }}'
 
-        # Hardcode headless to true and slack_notify_only_failures to false
+        # Hardcode headless to true and slack_notify_only_failures to true (only send alerts on failure)
         HEADLESS=true
-        SLACK_NOTIFY_ONLY_FAILURES=false
+        SLACK_NOTIFY_ONLY_FAILURES=true
 
         case "${{ inputs.action }}" in
           "create"|"update")
@@ -506,7 +506,7 @@ jobs:
         SLACK_CHANNEL=$(echo "$SELECTED_CONFIG" | jq -r '.slack_channel // "general"')
         SLACK_CHANNEL_ID=$(echo "$SELECTED_CONFIG" | jq -r '.slack_channel_id // "C09F5F2MH8D"')
         ENABLE_SLACK=$(echo "$SELECTED_CONFIG" | jq -r '.enable_slack // true')
-        SLACK_NOTIFY_ONLY_FAILURES=$(echo "$SELECTED_CONFIG" | jq -r '.slack_notify_only_failures // false')
+        SLACK_NOTIFY_ONLY_FAILURES=$(echo "$SELECTED_CONFIG" | jq -r '.slack_notify_only_failures // true')
         HEADLESS=$(echo "$SELECTED_CONFIG" | jq -r '.headless // true')
         SLACK_MENTION=$(echo "$SELECTED_CONFIG" | jq -r '.slack_mention // ""')
         DATAAPP_NAME=$(echo "$SELECTED_CONFIG" | jq -r '.dataapp_name // ""')
@@ -932,7 +932,7 @@ jobs:
             echo "**Slack Channel ID:** ${{ inputs.slack_channel_id }}" >> $GITHUB_STEP_SUMMARY
             echo "**Headless Mode:** true (hardcoded)" >> $GITHUB_STEP_SUMMARY
             echo "**Slack Notifications:** ${{ inputs.enable_slack }}" >> $GITHUB_STEP_SUMMARY
-            echo "**Slack Notify Only Failures:** false (hardcoded)" >> $GITHUB_STEP_SUMMARY
+            echo "**Slack Notify Only Failures:** true (hardcoded - alerts only on failure)" >> $GITHUB_STEP_SUMMARY
             if [ -n "${{ inputs.slack_mention }}" ]; then
               echo "**Slack Mention:** ${{ inputs.slack_mention }}" >> $GITHUB_STEP_SUMMARY
             fi
