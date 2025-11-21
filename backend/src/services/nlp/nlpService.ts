@@ -78,6 +78,98 @@ export class NLPService {
     return sentences;
   }
 
+  /**
+   * Parse inputA pattern by finding the LAST occurrence of " in ", " into ", or " on "
+   * This handles cases like: "Enter Show orphan functions in system 'Oracle' in Ask WingMan..."
+   * Where we want: value = "Show orphan functions in system 'Oracle'", target = "Ask WingMan..."
+   */
+  private parseInputAWithLastOccurrence(sentence: string): RegExpMatchArray | null {
+    // Match the action prefix (enter, type, input, fill)
+    const actionMatch = sentence.match(/^(?:enter|type|input|fill)\s+/i);
+    if (!actionMatch) return null;
+
+    // Get the text after the action
+    const afterAction = sentence.substring(actionMatch[0].length);
+
+    // Check if it ends with " with ai" and remove it for parsing
+    const withAISuffix = /\s+with\s+ai$/i;
+    const hasWithAI = withAISuffix.test(afterAction);
+    const textToParse = hasWithAI ? afterAction.replace(withAISuffix, '') : afterAction;
+
+    // Find the last occurrence of " in ", " into ", or " on " by searching backwards
+    const separators = [' in ', ' into ', ' on '];
+    let lastIndex = -1;
+    let matchedSeparator = '';
+
+    // Case-insensitive search - find the rightmost occurrence of any separator
+    const lowerTextToParse = textToParse.toLowerCase();
+    
+    for (const separator of separators) {
+      const lowerSeparator = separator.toLowerCase();
+      const foundIndex = lowerTextToParse.lastIndexOf(lowerSeparator);
+      if (foundIndex > lastIndex) {
+        lastIndex = foundIndex;
+        // Get the actual separator from the original string (preserving case)
+        matchedSeparator = textToParse.substring(foundIndex, foundIndex + separator.length);
+      }
+    }
+
+    // If no match found, return null
+    if (lastIndex === -1) return null;
+
+    // Split at the last occurrence
+    const value = textToParse.substring(0, lastIndex).trim();
+    const target = textToParse.substring(lastIndex + matchedSeparator.length).trim();
+
+    // Return a match array similar to what regex.match() would return
+    // [fullMatch, value, target]
+    const fullMatch = sentence;
+    return [fullMatch, value, target] as RegExpMatchArray;
+  }
+
+  /**
+   * Parse inputAI pattern by finding the LAST occurrence of " in ", " into ", or " on "
+   * Similar to parseInputAWithLastOccurrence but for AI-powered patterns
+   */
+  private parseInputAIWithLastOccurrence(sentence: string): RegExpMatchArray | null {
+    // Match the action prefix (enter, type, input, fill) and " with ai" suffix
+    const actionMatch = sentence.match(/^(?:enter|type|input|fill)\s+(.+?)\s+with\s+ai$/i);
+    if (!actionMatch) return null;
+
+    // Get the text after the action (before " with ai")
+    const afterAction = actionMatch[1];
+
+    // Find the last occurrence of " in ", " into ", or " on " by searching backwards
+    const separators = [' in ', ' into ', ' on '];
+    let lastIndex = -1;
+    let matchedSeparator = '';
+
+    // Case-insensitive search - find the rightmost occurrence of any separator
+    const lowerAfterAction = afterAction.toLowerCase();
+    
+    for (const separator of separators) {
+      const lowerSeparator = separator.toLowerCase();
+      const foundIndex = lowerAfterAction.lastIndexOf(lowerSeparator);
+      if (foundIndex > lastIndex) {
+        lastIndex = foundIndex;
+        // Get the actual separator from the original string (preserving case)
+        matchedSeparator = afterAction.substring(foundIndex, foundIndex + separator.length);
+      }
+    }
+
+    // If no match found, return null
+    if (lastIndex === -1) return null;
+
+    // Split at the last occurrence
+    const value = afterAction.substring(0, lastIndex).trim();
+    const target = afterAction.substring(lastIndex + matchedSeparator.length).trim();
+
+    // Return a match array similar to what regex.match() would return
+    // [fullMatch, value, target]
+    const fullMatch = sentence;
+    return [fullMatch, value, target] as RegExpMatchArray;
+  }
+
   private parseSentence(sentence: string, stepNumber: number): ParsedTestStep | null {
     logger.info('Parsing sentence', { sentence, stepNumber });
     
@@ -87,7 +179,8 @@ export class NLPService {
       logger.info('Matched clickAI pattern', { match: clickAIMatch });
       return this.createParsedStep('clickAI', clickAIMatch, stepNumber, sentence);
     }
-    const inputAIMatch = sentence.match(this.actionPatterns.inputAI);
+    // For inputAI pattern, we also need to find the LAST occurrence of " in ", " into ", or " on "
+    const inputAIMatch = this.parseInputAIWithLastOccurrence(sentence);
     if (inputAIMatch) {
       logger.info('Matched inputAI pattern', { match: inputAIMatch });
       return this.createParsedStep('inputAI', inputAIMatch, stepNumber, sentence);
@@ -146,7 +239,8 @@ export class NLPService {
     }
 
     // Custom handling for input patterns to prefer value/target ordering
-    const inputAMatch = sentence.match(this.actionPatterns.inputA);
+    // For inputA pattern, we need to find the LAST occurrence of " in ", " into ", or " on "
+    const inputAMatch = this.parseInputAWithLastOccurrence(sentence);
     if (inputAMatch) return this.createParsedStep('input', inputAMatch, stepNumber, sentence);
     const inputBMatch = sentence.match(this.actionPatterns.inputB);
     if (inputBMatch) return this.createParsedStep('inputB', inputBMatch, stepNumber, sentence);

@@ -3443,16 +3443,40 @@ Please respond with JSON:
             await this.tryClick(page, candidates, undefined, target);
           }
         }
-      } else if (/enter\s+(.+?)\s+in\s+(.+?)(?:\s+with\s+ai)?/i.test(action)) {
-        const match = action.match(/enter\s+(.+?)\s+in\s+(.+?)(?:\s+with\s+ai)?/i);
-        if (match) {
-          const value = match[1].trim();
-          const target = match[2].trim();
-          if (useAI) {
-            await this.performAIInput(page, target, value);
-          } else {
-            const candidates = this.inputLocators(page, target);
-            await this.tryFill(page, candidates, value);
+      } else if (/enter\s+.+\s+(?:in|into|on)\s+.+/i.test(action)) {
+        // Find the last occurrence of " in ", " into ", or " on " to handle cases like:
+        // "Enter Show orphan functions in system 'Oracle' in Ask WingMan..."
+        const actionMatch = action.match(/^enter\s+/i);
+        if (actionMatch) {
+          const afterAction = action.substring(actionMatch[0].length);
+          // Check if it ends with " with ai" and remove it for parsing
+          const withAISuffix = /\s+with\s+ai$/i;
+          const textToParse = afterAction.replace(withAISuffix, '');
+          
+          // Find the last occurrence of " in ", " into ", or " on "
+          const separators = [' in ', ' into ', ' on '];
+          let lastIndex = -1;
+          let matchedSeparator = '';
+          
+          const lowerTextToParse = textToParse.toLowerCase();
+          for (const separator of separators) {
+            const lowerSeparator = separator.toLowerCase();
+            const foundIndex = lowerTextToParse.lastIndexOf(lowerSeparator);
+            if (foundIndex > lastIndex) {
+              lastIndex = foundIndex;
+              matchedSeparator = textToParse.substring(foundIndex, foundIndex + separator.length);
+            }
+          }
+          
+          if (lastIndex !== -1) {
+            const value = textToParse.substring(0, lastIndex).trim();
+            const target = textToParse.substring(lastIndex + matchedSeparator.length).trim();
+            if (useAI) {
+              await this.performAIInput(page, target, value);
+            } else {
+              const candidates = this.inputLocators(page, target);
+              await this.tryFill(page, candidates, value);
+            }
           }
         }
       } else if (/verify\s+(.+?)(?:\s+with\s+ai)?/i.test(action)) {
