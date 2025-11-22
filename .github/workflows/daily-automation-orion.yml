@@ -2,7 +2,7 @@ name: Daily AI Test Automation - orion
 
 on:
   schedule:
-    - cron: '0 10 * * *'
+    - cron: '0 10 * * 1-5'
   workflow_dispatch:
     inputs:
       test_description:
