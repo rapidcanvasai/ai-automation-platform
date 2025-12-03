@@ -140,10 +140,23 @@ jobs:
         
         # Convert spaces back to newlines for action keywords (same as web interface)
         # Handle conditional statements as complete lines: "If(text=X) then Action"
-        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/ Open https:/\nOpen https:/g' | sed 's/ Enter /\nEnter /g' | sed 's/ Verify /\nVerify /g' | sed 's/ Wait /\nWait /g' | sed 's/ If(/\nIf(/g')
+        # Handle "If " (with space) before "If(" to avoid conflicts - for patterns like "If text = ..." or "If variable = ..."
+        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/ Open https:/\nOpen https:/g' | sed 's/ Enter /\nEnter /g' | sed 's/ Verify /\nVerify /g' | sed 's/ Wait /\nWait /g' | sed 's/\([^n]\) If /\1\nIf /g' | sed 's/ If(/\nIf(/g')
+        
+        # Handle End if / Endif statements (case insensitive)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) End if/\1\nEnd if/gi' | sed 's/\([^n]\) Endif/\1\nEndif/gi')
+        
+        # Handle Set statements for variable assignment
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Set /\1\nSet /g')
+        
+        # Handle Else statements
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Else /\1\nElse /gi')
         
         # Handle Click statements - split only standalone Click, not those after "then"
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Click /\1\nClick /g')
+        
+        # Handle Upload statements - split only standalone Upload, not those after "then"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Upload /\1\nUpload /g')
         
         echo "Restored description with newlines:"
         echo "$TEST_DESC_WITH_NEWLINES"
