@@ -17,6 +17,7 @@ export interface ExecutionResult {
 export class TestExecutorService {
   private aiPageAnalysisService: AIPageAnalysisService;
   private openai: OpenAI | null = null;
+  private variables: Map<string, string> = new Map(); // Variable storage for test execution
 
   constructor() {
     this.aiPageAnalysisService = new AIPageAnalysisService();
@@ -221,6 +222,9 @@ export class TestExecutorService {
         }
       }
 
+      // Clear variables at the start of test execution
+      this.variables.clear();
+      
       // Execute steps with conditional logic support
       await this.executeStepsWithConditionals(test.steps, page!, emit, stepsResult, executionId, screenshotsDir);
 
@@ -282,8 +286,12 @@ export class TestExecutorService {
   }
 
   public async performStep(page: Page, step: ParsedTestStep, emit?: Function): Promise<void> {
-    // If target contains explicit locator hints, prioritize accordingly
-    const target = step.target?.trim() || '';
+    // Substitute variables in target and value before processing
+    const target = this.substituteVariables(step.target?.trim() || '');
+    const value = step.value ? this.substituteVariables(step.value) : step.value;
+    
+    // Create a step with substituted variables
+    const stepWithVars = { ...step, target, value };
     
     // Skip error checking for now to avoid interference
     
@@ -481,20 +489,21 @@ export class TestExecutorService {
       case 'input': {
         // Check if AI-powered discovery is requested
         if ((step as any).useAI) {
-          await this.performAIInput(page, step.target, step.value ?? '');
+          await this.performAIInput(page, target, value ?? '');
           return;
         }
         
-        console.log(`Attempting to fill input with target: "${step.target}", value: "${step.value}"`);
-        const candidates = this.inputLocators(page, step.target);
+        console.log(`Attempting to fill input with target: "${target}", value: "${value}"`);
+        const candidates = this.inputLocators(page, target);
         console.log(`Generated ${candidates.length} input locator strategies`);
-        await this.tryFill(page, candidates, step.value ?? '');
+        await this.tryFill(page, candidates, value ?? '');
         return;
       }
       // Special upload syntax: value='file:/absolute/or/url'
       case 'upload': {
         const resolveFilePath = (): string => {
           let fp = (step.value || '').trim();
+          logger.info('Resolving file path for upload', { originalPath: fp, value: step.value });
           // strip trailing word 'file'
           fp = fp.replace(/\s+file$/i, '');
           if (/^file:/i.test(fp)) return fp.replace(/^file:/i, '');
@@ -503,42 +512,211 @@ export class TestExecutorService {
           // bare name -> search uploads dir (case-insensitive contains)
           try {
             const uploadsDir = path.resolve('uploads');
+            if (!fs.existsSync(uploadsDir)) {
+              logger.warn('Uploads directory does not exist', { uploadsDir });
+              return fp;
+            }
             const files = fs.readdirSync(uploadsDir);
             const match = files.find(f => f.toLowerCase().includes(fp.toLowerCase()));
-            if (match) return path.join(uploadsDir, match);
-            return path.join(uploadsDir, fp);
-          } catch {
+            const resolvedPath = match ? path.join(uploadsDir, match) : path.join(uploadsDir, fp);
+            logger.info('File path resolved', { originalPath: fp, resolvedPath, matchFound: !!match });
+            return resolvedPath;
+          } catch (error) {
+            logger.error('Error resolving file path', { error, originalPath: fp });
             return fp;
           }
         };
 
         const trySetOnCandidates = async (cands: ReturnType<TestExecutorService['inputLocators']>): Promise<boolean> => {
           const filePath = resolveFilePath();
+          logger.info('Attempting to set file on candidates', { filePath, candidateCount: cands.length });
+          
+          // Check if file exists
+          if (!fs.existsSync(filePath)) {
+            logger.error('File does not exist', { filePath });
+            throw new Error(`File not found: ${filePath}`);
+          }
+          
           for (const c of cands) {
             try {
+              // Check count first to avoid creating invalid locators
+              const count = await c.count().catch(() => 0);
+              if (count === 0) continue;
+              
+              // Get first element fresh each time
               const first = c.first();
-              await first.setInputFiles(filePath, { timeout: 1500 } as any);
+              
+              logger.info('Trying to set file on candidate', { filePath, selector: c.toString(), count });
+              await first.setInputFiles(filePath, { timeout: 5000 } as any);
+              logger.info('Successfully set file on candidate', { filePath });
               return true;
-            } catch {}
+            } catch (error) {
+              const errorMsg = error instanceof Error ? error.message : String(error);
+              // Skip if object was invalidated (page/frame closed)
+              if (errorMsg.includes('not bound in the connection') || 
+                  errorMsg.includes('Target closed') ||
+                  errorMsg.includes('has been closed')) {
+                logger.warn('Locator invalidated, skipping', { error: errorMsg });
+                continue;
+              }
+              logger.warn('Failed to set file on candidate', { error: errorMsg });
+              continue;
+            }
           }
           return false;
         };
 
         // 1) Try direct set on any file inputs or target-mapped inputs
-        if (await trySetOnCandidates(this.inputLocators(page, target))) return;
-        // 2) If target refers to a button/label (e.g., "Import Files From Local"), click it to reveal file input
+        logger.info('Upload step: trying direct file input', { target, value: step.value });
+        if (await trySetOnCandidates(this.inputLocators(page, target))) {
+          logger.info('Upload successful via direct file input');
+          return;
+        }
+        
+        // 2) Try generic file inputs first (might be visible)
+        logger.info('Upload step: trying generic file inputs');
+        if (await trySetOnCandidates([page.locator('input[type="file"]')])) {
+          logger.info('Upload successful via generic file input');
+          return;
+        }
+        
+        // 3) If target refers to a button/label (e.g., "Click to select CSV file"), click it to reveal file input
+        logger.info('Upload step: clicking target to reveal file input', { target });
+        let clickSuccess = false;
         try {
           const clicks = this.buttonLocators(page, target);
           await this.tryClick(page, clicks, undefined, target);
-        } catch {}
-        // 3) Retry on generic file inputs after click
-        if (await trySetOnCandidates([page.locator('input[type="file"]')])) return;
-        throw new Error('Unable to locate file input for upload');
+          clickSuccess = true;
+          logger.info('Successfully clicked target using standard locators, waiting for file input');
+        } catch (error) {
+          logger.warn('Standard click failed, trying AI', { error: error instanceof Error ? error.message : String(error) });
+          // Try AI-powered click if standard click fails
+          try {
+            await this.performAIClick(page, target);
+            clickSuccess = true;
+            logger.info('Successfully clicked target using AI, waiting for file input');
+          } catch (aiError) {
+            logger.warn('AI click also failed', { error: aiError instanceof Error ? aiError.message : String(aiError) });
+          }
+        }
+        
+        if (clickSuccess) {
+          // Wait for file input to appear after click
+          await page.waitForTimeout(1000);
+          await page.waitForSelector('input[type="file"]', { state: 'attached', timeout: 5000 }).catch(() => {});
+        }
+        
+        // 4) Retry on generic file inputs after click (check all frames)
+        logger.info('Upload step: retrying generic file inputs after click');
+        
+        // Try main frame first
+        if (await trySetOnCandidates([page.locator('input[type="file"]')])) {
+          logger.info('Upload successful via file input after click');
+          return;
+        }
+        
+        // Try all frames (get fresh list each time to avoid stale references)
+        try {
+          const frames = page.frames();
+          logger.info('Checking file inputs in frames', { frameCount: frames.length });
+          for (let i = 0; i < frames.length; i++) {
+            try {
+              const frame = frames[i];
+              // Check if frame is still valid
+              if (!frame) {
+                logger.warn('Frame is null, skipping', { frameIndex: i });
+                continue;
+              }
+              
+              // Try to check if frame is detached (may not be available in all Playwright versions)
+              try {
+                if (typeof frame.isDetached === 'function' && frame.isDetached()) {
+                  logger.warn('Frame is detached, skipping', { frameIndex: i });
+                  continue;
+                }
+              } catch {
+                // isDetached might not be available or might throw, continue anyway
+              }
+              
+              // Create locator fresh for this frame
+              const fileInputs = frame.locator('input[type="file"]');
+              const count = await fileInputs.count().catch(() => 0);
+              if (count > 0) {
+                logger.info('Found file input in frame', { frameIndex: i, frameUrl: frame.url(), count });
+                if (await trySetOnCandidates([fileInputs])) {
+                  logger.info('Upload successful via file input in frame', { frameIndex: i });
+                  return;
+                }
+              }
+            } catch (error) {
+              const errorMsg = error instanceof Error ? error.message : String(error);
+              // Skip if frame was invalidated
+              if (errorMsg.includes('not bound in the connection') || 
+                  errorMsg.includes('Target closed') ||
+                  errorMsg.includes('has been closed') ||
+                  errorMsg.includes('Frame was detached')) {
+                logger.warn('Frame invalidated, skipping', { frameIndex: i, error: errorMsg });
+                continue;
+              }
+              logger.warn('Error checking frame for file input', { frameIndex: i, error: errorMsg });
+            }
+          }
+        } catch (error) {
+          logger.warn('Error accessing frames', { error: error instanceof Error ? error.message : String(error) });
+        }
+        
+        // Try hidden file inputs (some file inputs are hidden and triggered by label clicks)
+        try {
+          const hiddenFileInputs = page.locator('input[type="file"][style*="display: none"], input[type="file"][style*="display:none"], input[type="file"][hidden]');
+          const hiddenCount = await hiddenFileInputs.count().catch(() => 0);
+          if (hiddenCount > 0) {
+            logger.info('Found hidden file inputs, attempting upload', { count: hiddenCount });
+            if (await trySetOnCandidates([hiddenFileInputs])) {
+              logger.info('Upload successful via hidden file input');
+              return;
+            }
+          }
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          // Skip if page was closed
+          if (errorMsg.includes('not bound in the connection') || 
+              errorMsg.includes('Target closed') ||
+              errorMsg.includes('has been closed')) {
+            logger.warn('Page closed while checking hidden file inputs', { error: errorMsg });
+          } else {
+            logger.warn('Error checking hidden file inputs', { error: errorMsg });
+          }
+        }
+        
+        // 5) Try to find file input using AI if available
+        logger.info('Upload step: trying AI to find file input');
+        try {
+          const fileInputTarget = target.includes('file') ? target : `${target} file input`;
+          const aiFound = await this.aiPageAnalysisService.executeStrategyWithRetry(
+            page,
+            fileInputTarget,
+            1
+          );
+          if (aiFound) {
+            // Try to find the file input near the AI-found element
+            const fileInputs = await page.locator('input[type="file"]').count();
+            if (fileInputs > 0) {
+              if (await trySetOnCandidates([page.locator('input[type="file"]')])) {
+                logger.info('Upload successful via AI-found file input');
+                return;
+              }
+            }
+          }
+        } catch (error) {
+          logger.warn('AI file input search failed', { error: error instanceof Error ? error.message : String(error) });
+        }
+        
+        throw new Error(`Unable to locate file input for upload. Target: ${target}, File: ${step.value}`);
       }
       case 'verify': {
         // Check if AI-powered discovery is requested
         if ((step as any).useAI) {
-          await this.performAIVerify(page, step.expectedResult ?? step.target);
+          await this.performAIVerify(page, step.expectedResult ?? target);
           return;
         }
         
@@ -597,6 +775,40 @@ export class TestExecutorService {
       case 'refresh':
         await page.reload({ waitUntil: 'load' });
         return;
+      case 'set':
+      case 'store':
+      case 'assign': {
+        // Variable assignment: set variableName = value or store value in variableName
+        const assignmentMatch = target.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/) || 
+                               target.match(/^(.+?)\s+in\s+([a-zA-Z_][a-zA-Z0-9_]*)$/i);
+        
+        if (assignmentMatch) {
+          let varName: string;
+          let varValue: string;
+          
+          if (target.includes('=')) {
+            varName = assignmentMatch[1].trim();
+            varValue = this.substituteVariables(assignmentMatch[2].trim());
+          } else {
+            varValue = this.substituteVariables(assignmentMatch[1].trim());
+            varName = assignmentMatch[2].trim();
+          }
+          
+          this.variables.set(varName, varValue);
+          logger.info('Variable assigned', { variable: varName, value: varValue });
+          emit?.({ type: 'step:info', message: `Variable ${varName} = ${varValue}` });
+        } else if (value) {
+          // Alternative: value field contains the variable name, target contains the value
+          const varName = value.trim();
+          const varValue = target;
+          this.variables.set(varName, varValue);
+          logger.info('Variable assigned', { variable: varName, value: varValue });
+          emit?.({ type: 'step:info', message: `Variable ${varName} = ${varValue}` });
+        } else {
+          logger.warn('Invalid variable assignment syntax', { target, step });
+        }
+        return;
+      }
       case 'if': {
         const condition = (step as any).condition as string | undefined;
         if (!condition) {
@@ -605,13 +817,14 @@ export class TestExecutorService {
         }
         
         logger.info('Evaluating conditional step', { condition, target, description: step.description });
-        const shouldRun = await this.evaluateCondition(page, condition);
+        const conditionResult = await this.evaluateCondition(page, condition);
+        const shouldRun = conditionResult.result;
         logger.info('Conditional evaluation result', { condition, shouldRun, target });
         
         if (shouldRun && target) {
           logger.info('Executing conditional action', { condition, target });
           try {
-            await this.executeInlineAction(page, target, emit || (() => {}));
+            await this.executeInlineAction(page, this.substituteVariables(target), emit || (() => {}));
             logger.info('Conditional action executed successfully', { condition, target });
           } catch (error) {
             logger.error('Conditional action failed', { condition, target, error: error instanceof Error ? error.message : String(error) });
@@ -619,6 +832,16 @@ export class TestExecutorService {
           }
         } else {
           logger.info('Conditional action skipped', { condition, shouldRun, target });
+          // If condition is false and target contains a variable assignment, set it to false
+          if (!shouldRun && target) {
+            const setVarMatch = target.match(/(?:set|store|assign)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)/i);
+            if (setVarMatch) {
+              const varName = setVarMatch[1].trim();
+              this.variables.set(varName, 'false');
+              logger.info('Variable set to false due to failed condition', { variable: varName, condition });
+              emit?.({ type: 'step:info', message: `Variable ${varName} = false (condition not met)` });
+            }
+          }
         }
         return;
       }
@@ -626,7 +849,7 @@ export class TestExecutorService {
         // This will be handled by the conditional execution logic
         // The else action should only execute if the previous if condition was false
         if (target) {
-          await this.executeInlineAction(page, target, emit || (() => {}));
+          await this.executeInlineAction(page, this.substituteVariables(target), emit || (() => {}));
         }
         return;
       }
@@ -3249,24 +3472,31 @@ Please respond with JSON:
       const stepNum = i + 1;
       
       try {
-        emit({ type: 'step:start', step: stepNum, action: step.action, target: step.target });
+        // Substitute variables in step before processing
+        const stepWithVars = {
+          ...step,
+          target: this.substituteVariables(step.target || ''),
+          value: step.value ? this.substituteVariables(step.value) : step.value
+        };
+        
+        emit({ type: 'step:start', step: stepNum, action: step.action, target: stepWithVars.target });
         
         if (step.action === 'if') {
-          // Handle conditional block
+          // Handle conditional block (use original step for conditional logic, variables substituted inside)
           const conditionalResult = await this.executeConditionalBlock(steps, i, page, emit, stepsResult, executionId, screenshotsDir);
           i = conditionalResult.nextIndex;
         } else {
           // Execute regular step
           if (step.action === 'wait') {
             // Wait steps handle their own timing and should not be subject to step timeout
-            await this.performStep(page, step, emit);
+            await this.performStep(page, stepWithVars, emit);
           } else if (step.action === 'verify' && (step as any).useAI) {
             // AI verification steps need more time for AI analysis and should not be subject to step timeout
-            await this.performStep(page, step, emit);
+            await this.performStep(page, stepWithVars, emit);
           } else {
             // Other steps use adaptive timeout
-          const adaptiveTimeout = this.getAdaptiveTimeout(step);
-          await this.performWithTimeout(() => this.performStep(page, step, emit), adaptiveTimeout);
+          const adaptiveTimeout = this.getAdaptiveTimeout(stepWithVars);
+          await this.performWithTimeout(() => this.performStep(page, stepWithVars, emit), adaptiveTimeout);
           }
           
           // Screenshot on success
@@ -3279,13 +3509,13 @@ Please respond with JSON:
           stepsResult.push({ 
             step: stepNum, 
             action: step.action, 
-            target: step.target, 
+            target: stepWithVars.target, 
             status: 'passed', 
             timestamp: new Date().toISOString(), 
             screenshotPath 
           });
           
-          logger.info('Step passed', { step: stepNum, action: step.action, target: step.target });
+          logger.info('Step passed', { step: stepNum, action: step.action, target: stepWithVars.target });
           emit({ type: 'step:end', step: stepNum, status: 'passed' });
           i++;
         }
@@ -3327,104 +3557,305 @@ Please respond with JSON:
     const ifStep = steps[startIndex];
     const condition = (ifStep as any).condition as string;
     
-    // Evaluate the if condition
-    const conditionMet = await this.evaluateCondition(page, condition);
-    logger.info('Conditional block evaluation', { condition, conditionMet, ifStep });
+    // Evaluate the if condition (now returns { result, storedValue })
+    const conditionResult = await this.evaluateCondition(page, condition);
+    const conditionMet = conditionResult.result;
     
-    // Execute the if action if condition is met
-    if (conditionMet && ifStep.target) {
-      await this.executeInlineAction(page, ifStep.target, emit);
-      
-      // Add if step to results
-      stepsResult.push({
-        step: startIndex + 1,
-        action: ifStep.action,
-        target: ifStep.target,
-        status: 'passed',
-        timestamp: new Date().toISOString(),
-        condition: condition,
-        conditionMet: true
-      });
-    } else {
-      // Add skipped if step to results
-      stepsResult.push({
-        step: startIndex + 1,
-        action: ifStep.action,
-        target: ifStep.target,
-        status: 'skipped',
-        timestamp: new Date().toISOString(),
-        condition: condition,
-        conditionMet: false
-      });
-    }
+    // Log current variable state for debugging
+    const allVariables = Object.fromEntries(this.variables);
+    logger.info('Conditional block evaluation', { 
+      condition, 
+      conditionMet, 
+      ifStep,
+      currentVariables: allVariables,
+      conditionResult 
+    });
     
-    // Check if this is part of a larger if-else-endif block
-    let i = startIndex + 1;
-    let foundElse = false;
-    let foundEndif = false;
-    
-    // Look for else and endif in the next few steps
-    while (i < steps.length && i < startIndex + 10) { // Limit search to avoid infinite loops
-      const step = steps[i];
-      
-      if (step.action === 'else' && !foundElse) {
-        foundElse = true;
-        // Execute else block if if condition was false
-        if (!conditionMet && step.target) {
-          await this.executeInlineAction(page, step.target, emit);
-          
-          // Add else step to results
-          stepsResult.push({
-            step: i + 1,
-            action: step.action,
-            target: step.target,
-            status: 'passed',
-            timestamp: new Date().toISOString(),
-            condition: 'else',
-            conditionMet: !conditionMet
-          });
-        } else {
-          // Add skipped else step to results
-          stepsResult.push({
-            step: i + 1,
-            action: step.action,
-            target: step.target,
-            status: 'skipped',
-            timestamp: new Date().toISOString(),
-            condition: 'else',
-            conditionMet: !conditionMet
-          });
-        }
-        i++;
-      } else if (step.action === 'endif') {
-        foundEndif = true;
-        i++; // Skip the endif
-        break;
-      } else if (step.action === 'if') {
-        // Found another if statement - this is a separate conditional, not part of this block
-        break;
-      } else {
-        // Regular step - this means we're not in a if-else-endif block
-        break;
+    // If condition is false and target contains a variable assignment, set it to false
+    if (!conditionMet && ifStep.target) {
+      const setVarMatch = ifStep.target.match(/(?:set|store|assign)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)/i);
+      if (setVarMatch) {
+        const varName = setVarMatch[1].trim();
+        this.variables.set(varName, 'false');
+        logger.info('Variable set to false due to failed condition', { variable: varName, condition });
+        emit({ type: 'step:info', message: `Variable ${varName} = false (condition not met)` });
       }
     }
     
-    // If we found an endif, return the index after it
-    if (foundEndif) {
-      return { nextIndex: i };
+    // Add if step to results (marker step)
+    stepsResult.push({
+      step: startIndex + 1,
+      action: ifStep.action,
+      target: ifStep.target || '',
+      status: conditionMet ? 'passed' : 'skipped',
+      timestamp: new Date().toISOString(),
+      condition: condition,
+      conditionMet: conditionMet
+    });
+    
+    // Find the boundaries of the if-else-endif block
+    let i = startIndex + 1;
+    let elseIndex = -1;
+    let endifIndex = -1;
+    let nestedIfCount = 0;
+    
+    // Check if this is a standalone if with inline action (target contains action, next step is not else/endif)
+    const hasInlineAction = ifStep.target && /^(?:set|store|assign|click|enter|verify|navigate|wait|upload)/i.test(ifStep.target.trim());
+    const nextStep = i < steps.length ? steps[i] : null;
+    const isStandaloneIf = hasInlineAction && nextStep && nextStep.action !== 'else' && nextStep.action !== 'endif';
+    
+    // Look for else and endif, handling nested if blocks
+    // Skip this if it's a standalone if with inline action
+    if (!isStandaloneIf) {
+    while (i < steps.length && endifIndex === -1) {
+      const step = steps[i];
+      
+      if (step.action === 'if') {
+        nestedIfCount++;
+      } else if (step.action === 'endif') {
+        if (nestedIfCount > 0) {
+          nestedIfCount--;
+        } else {
+          endifIndex = i;
+          break;
+        }
+      } else if (step.action === 'else' && nestedIfCount === 0 && elseIndex === -1) {
+        elseIndex = i;
+      }
+      i++;
+      }
     }
     
-    // If we found an else but no endif, return the index after the else
-    if (foundElse) {
-      return { nextIndex: i };
+    // Execute steps based on condition
+    if (conditionMet) {
+      // For standalone if with inline action, execute the action directly
+      if (isStandaloneIf && ifStep.target) {
+        await this.executeInlineAction(page, this.substituteVariables(ifStep.target), emit);
+        logger.info('Executed inline action for standalone if', { condition, target: ifStep.target });
+      }
+      
+      // Execute IF block steps (from startIndex + 1 to elseIndex or endifIndex)
+      const ifBlockEnd = elseIndex !== -1 ? elseIndex : endifIndex;
+      if (ifBlockEnd !== -1) {
+        for (let j = startIndex + 1; j < ifBlockEnd; j++) {
+          const step = steps[j];
+          const stepNum = j + 1;
+          
+          // Skip nested if blocks - they'll be handled separately
+          if (step.action === 'if') {
+            const nestedResult = await this.executeConditionalBlock(steps, j, page, emit, stepsResult, executionId, screenshotsDir);
+            j = nestedResult.nextIndex - 1; // -1 because loop will increment
+            continue;
+          }
+          
+          if (step.action === 'else' || step.action === 'endif') {
+            break;
+          }
+          
+          try {
+            emit({ type: 'step:start', step: stepNum, action: step.action, target: step.target });
+            
+            // Substitute variables in step target and value
+            const stepWithVars = {
+              ...step,
+              target: this.substituteVariables(step.target || ''),
+              value: step.value ? this.substituteVariables(step.value) : step.value
+            };
+            
+            // Execute the step
+            if (step.action === 'wait') {
+              await this.performStep(page, stepWithVars, emit);
+            } else if (step.action === 'verify' && (step as any).useAI) {
+              await this.performStep(page, stepWithVars, emit);
+            } else {
+              const adaptiveTimeout = this.getAdaptiveTimeout(stepWithVars);
+              await this.performWithTimeout(() => this.performStep(page, stepWithVars, emit), adaptiveTimeout);
+            }
+            
+            // Screenshot on success
+            let screenshotPath: string | undefined;
+            try {
+              screenshotPath = path.join(screenshotsDir, `${executionId}-step-${stepNum}.png`);
+              await page.screenshot({ path: screenshotPath, fullPage: false });
+            } catch {}
+            
+            stepsResult.push({ 
+              step: stepNum, 
+              action: step.action, 
+              target: step.target, 
+              status: 'passed', 
+              timestamp: new Date().toISOString(), 
+              screenshotPath,
+              inConditionalBlock: true
+            });
+            
+            logger.info('Step passed in IF block', { step: stepNum, action: step.action, target: step.target });
+            emit({ type: 'step:end', step: stepNum, status: 'passed' });
+          } catch (err: any) {
+            // Screenshot on failure
+            let screenshotPath: string | undefined;
+            try {
+              screenshotPath = path.join(screenshotsDir, `${executionId}-step-${stepNum}-failed.png`);
+              await page.screenshot({ path: screenshotPath, fullPage: false });
+            } catch {}
+            
+            const errorMsg = err?.message || String(err);
+            stepsResult.push({ 
+              step: stepNum, 
+              action: step.action, 
+              target: step.target, 
+              status: 'failed', 
+              error: errorMsg, 
+              timestamp: new Date().toISOString(), 
+              screenshotPath,
+              inConditionalBlock: true
+            });
+            
+            logger.error('Step failed in IF block', { step: stepNum, stepData: step, error: errorMsg });
+            emit({ type: 'step:end', step: stepNum, status: 'failed', message: errorMsg });
+            throw err;
+          }
+        }
+      } else if (ifStep.target) {
+        // Legacy support: execute inline action if no block structure found
+        await this.executeInlineAction(page, this.substituteVariables(ifStep.target), emit);
+      }
+    } else {
+      // Condition not met - execute ELSE block if it exists
+      if (elseIndex !== -1 && endifIndex !== -1) {
+        for (let j = elseIndex + 1; j < endifIndex; j++) {
+          const step = steps[j];
+          const stepNum = j + 1;
+          
+          // Skip nested if blocks
+          if (step.action === 'if') {
+            const nestedResult = await this.executeConditionalBlock(steps, j, page, emit, stepsResult, executionId, screenshotsDir);
+            j = nestedResult.nextIndex - 1;
+            continue;
+          }
+          
+          if (step.action === 'endif') {
+            break;
+          }
+          
+          try {
+            emit({ type: 'step:start', step: stepNum, action: step.action, target: step.target });
+            
+            // Substitute variables in step target and value
+            const stepWithVars = {
+              ...step,
+              target: this.substituteVariables(step.target || ''),
+              value: step.value ? this.substituteVariables(step.value) : step.value
+            };
+            
+            // Execute the step
+            if (step.action === 'wait') {
+              await this.performStep(page, stepWithVars, emit);
+            } else if (step.action === 'verify' && (step as any).useAI) {
+              await this.performStep(page, stepWithVars, emit);
+            } else {
+              const adaptiveTimeout = this.getAdaptiveTimeout(stepWithVars);
+              await this.performWithTimeout(() => this.performStep(page, stepWithVars, emit), adaptiveTimeout);
+            }
+            
+            // Screenshot on success
+            let screenshotPath: string | undefined;
+            try {
+              screenshotPath = path.join(screenshotsDir, `${executionId}-step-${stepNum}.png`);
+              await page.screenshot({ path: screenshotPath, fullPage: false });
+            } catch {}
+            
+            stepsResult.push({ 
+              step: stepNum, 
+              action: step.action, 
+              target: step.target, 
+              status: 'passed', 
+              timestamp: new Date().toISOString(), 
+              screenshotPath,
+              inConditionalBlock: true,
+              inElseBlock: true
+            });
+            
+            logger.info('Step passed in ELSE block', { step: stepNum, action: step.action, target: step.target });
+            emit({ type: 'step:end', step: stepNum, status: 'passed' });
+          } catch (err: any) {
+            // Screenshot on failure
+            let screenshotPath: string | undefined;
+            try {
+              screenshotPath = path.join(screenshotsDir, `${executionId}-step-${stepNum}-failed.png`);
+              await page.screenshot({ path: screenshotPath, fullPage: false });
+            } catch {}
+            
+            const errorMsg = err?.message || String(err);
+            stepsResult.push({ 
+              step: stepNum, 
+              action: step.action, 
+              target: step.target, 
+              status: 'failed', 
+              error: errorMsg, 
+              timestamp: new Date().toISOString(), 
+              screenshotPath,
+              inConditionalBlock: true,
+              inElseBlock: true
+            });
+            
+            logger.error('Step failed in ELSE block', { step: stepNum, stepData: step, error: errorMsg });
+            emit({ type: 'step:end', step: stepNum, status: 'failed', message: errorMsg });
+            throw err;
+          }
+        }
+      } else if (elseIndex !== -1 && steps[elseIndex].target) {
+        // Legacy support: execute inline else action
+        await this.executeInlineAction(page, this.substituteVariables(steps[elseIndex].target), emit);
+        
+        stepsResult.push({
+          step: elseIndex + 1,
+          action: steps[elseIndex].action,
+          target: steps[elseIndex].target,
+          status: 'passed',
+          timestamp: new Date().toISOString(),
+          condition: 'else',
+          conditionMet: true
+        });
+      }
     }
     
-    // This is a standalone if statement, continue to next step
+    // Add else marker if it exists
+    if (elseIndex !== -1) {
+      stepsResult.push({
+        step: elseIndex + 1,
+        action: 'else',
+        target: steps[elseIndex].target || '',
+        status: !conditionMet ? 'passed' : 'skipped',
+        timestamp: new Date().toISOString(),
+        condition: 'else',
+        conditionMet: !conditionMet
+      });
+    }
+    
+    // Return the index after endif (or after else if no endif found)
+    if (endifIndex !== -1) {
+      return { nextIndex: endifIndex + 1 };
+    }
+    
+    if (elseIndex !== -1) {
+      return { nextIndex: elseIndex + 1 };
+    }
+    
+    // This is a standalone if statement (with inline action or no block), continue to next step
+    if (isStandaloneIf) {
+      return { nextIndex: startIndex + 1 };
+    }
+    
+    // Fallback: continue to next step
     return { nextIndex: startIndex + 1 };
   }
 
   private async executeInlineAction(page: Page, action: string, emit: Function): Promise<void> {
     try {
+      // Substitute variables in action string
+      action = this.substituteVariables(action);
+      
       // Check if action contains "with AI" to prioritize AI execution
       const useAI = /with\s+ai/i.test(action);
       
@@ -3500,6 +3931,16 @@ Please respond with JSON:
           const waitTime = parseInt(match[1].replace('sec', '')) * 1000;
           await page.waitForTimeout(waitTime);
         }
+      } else if (/(?:set|store|assign)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)/i.test(action)) {
+        // Handle variable assignment in inline actions
+        const match = action.match(/(?:set|store|assign)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)/i);
+        if (match) {
+          const varName = match[1].trim();
+          const varValue = this.substituteVariables(match[2].trim());
+          this.variables.set(varName, varValue);
+          logger.info('Variable assigned via inline action', { variable: varName, value: varValue });
+          emit({ type: 'step:info', message: `Variable ${varName} = ${varValue}` });
+        }
       }
     } catch (err: any) {
       logger.warn('Inline action failed', { action, error: err?.message });
@@ -3507,60 +3948,207 @@ Please respond with JSON:
     }
   }
 
-  private async evaluateCondition(page: Page, condition: string): Promise<boolean> {
+  /**
+   * Substitute variables in a string using ${variableName} syntax
+   */
+  private substituteVariables(text: string): string {
+    if (!text) return text;
+    return text.replace(/\$\{([^}]+)\}/g, (match, varName) => {
+      const value = this.variables.get(varName.trim());
+      if (value !== undefined) {
+        logger.info('Variable substitution', { variable: varName.trim(), value });
+        return value;
+      }
+      logger.warn('Variable not found', { variable: varName.trim() });
+      return match; // Return original if variable not found
+    });
+  }
+
+  /**
+   * Evaluate condition and optionally store result in a variable
+   * Supports syntax: condition -> variableName or just condition
+   */
+  private async evaluateCondition(page: Page, condition: string): Promise<{ result: boolean; storedValue?: string }> {
+    // Check if condition includes variable assignment: condition -> variableName
+    const assignmentMatch = condition.match(/^(.+?)\s*->\s*([a-zA-Z_][a-zA-Z0-9_]*)$/);
+    let actualCondition = condition;
+    let variableName: string | undefined;
+    
+    if (assignmentMatch) {
+      actualCondition = assignmentMatch[1].trim();
+      variableName = assignmentMatch[2].trim();
+    }
+    
     // Supported conditional forms:
     // - text=Dashboard (exact text match)
     // - element=button (element exists)
     // - css=..., [data-testid=...] (CSS selector)
     // - Dashboard (simple text search)
-    const trimmed = condition.trim();
-    logger.info('Evaluating condition', { condition: trimmed });
+    const trimmed = actualCondition.trim();
+    logger.info('Evaluating condition', { condition: trimmed, variableName });
     
     try {
+      let result = false;
+      let storedValue: string | undefined;
+      
       if (trimmed.startsWith('text=')) {
-        const textToCheck = trimmed.substring(5).trim();
-        logger.info('Checking for text', { textToCheck });
-        
-        // Try exact text match first
-        let count = await page.getByText(textToCheck, { exact: true }).count();
-        if (count > 0) {
-          logger.info('Found exact text match', { textToCheck, count });
-          return true;
+        let textToCheck = this.substituteVariables(trimmed.substring(5).trim());
+        let useAI = textToCheck.toLowerCase().includes(' with ai');
+        if (useAI) {
+          textToCheck = textToCheck.replace(/\s+with\s+ai$/i, '').trim();
         }
         
-        // Try case-insensitive text match
-        count = await page.getByText(new RegExp(textToCheck, 'i')).count();
-        if (count > 0) {
-          logger.info('Found case-insensitive text match', { textToCheck, count });
-          return true;
+        logger.info('Checking for text', { textToCheck, useAI });
+        
+        if (useAI) {
+          // Use AI to find text with partial matching
+          try {
+            // Use AI service to find the text
+            const found = await this.aiPageAnalysisService.executeStrategyWithRetry(
+              page, 
+              textToCheck, 
+              1
+            );
+            
+            if (found) {
+              // Try to get the actual matched text from the page
+              const allText = await page.evaluate((searchText: string) => {
+                const walker = document.createTreeWalker(
+                  document.body,
+                  NodeFilter.SHOW_TEXT,
+                  null
+                );
+                const texts: string[] = [];
+                let node;
+                while (node = walker.nextNode()) {
+                  const text = node.textContent?.trim() || '';
+                  if (text.toLowerCase().includes(searchText.toLowerCase())) {
+                    texts.push(text);
+                  }
+                }
+                return texts;
+              }, textToCheck);
+              
+              const matchedText = allText.find(t => 
+                t.toLowerCase().includes(textToCheck.toLowerCase())
+              ) || textToCheck;
+              
+              result = true;
+              storedValue = matchedText;
+              logger.info('AI text match found', { textToCheck, matchedText });
+            } else {
+              result = false;
+              logger.info('AI text match not found', { textToCheck });
+            }
+          } catch (error) {
+            logger.warn('AI text matching failed, falling back to regular matching', { error });
+            // Fall through to regular matching
+            useAI = false;
+          }
         }
         
-        // Try partial text match
-        count = await page.getByText(new RegExp(textToCheck.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')).count();
-        logger.info('Text search result', { textToCheck, count });
-        return count > 0;
+        if (!useAI || !result) {
+          // Try exact text match first
+          let count = await page.getByText(textToCheck, { exact: true }).count();
+          if (count > 0) {
+            logger.info('Found exact text match', { textToCheck, count });
+            result = true;
+            storedValue = textToCheck;
+          } else {
+            // Try case-insensitive text match
+            count = await page.getByText(new RegExp(textToCheck, 'i')).count();
+            if (count > 0) {
+              logger.info('Found case-insensitive text match', { textToCheck, count });
+              result = true;
+              storedValue = textToCheck;
+            } else {
+              // Try partial text match
+              count = await page.getByText(new RegExp(textToCheck.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')).count();
+              logger.info('Text search result', { textToCheck, count });
+              result = count > 0;
+              if (result) storedValue = textToCheck;
+            }
+          }
+        }
       } else if (trimmed.startsWith('element=')) {
-        const elementToCheck = trimmed.substring(8).trim();
+        const elementToCheck = this.substituteVariables(trimmed.substring(8).trim());
         logger.info('Checking for element', { elementToCheck });
         const count = await page.locator(elementToCheck).count();
         logger.info('Element search result', { elementToCheck, count });
-        return count > 0;
+        result = count > 0;
+        if (result) storedValue = elementToCheck;
       } else if (/^(css=|xpath=|\[|#|\.|\/\/)/i.test(trimmed)) {
-        logger.info('Checking CSS/XPath selector', { selector: trimmed });
-        const loc = page.locator(trimmed);
+        const selector = this.substituteVariables(trimmed);
+        logger.info('Checking CSS/XPath selector', { selector });
+        const loc = page.locator(selector);
         const count = await loc.count();
-        logger.info('Selector search result', { selector: trimmed, count });
-        return count > 0;
+        logger.info('Selector search result', { selector, count });
+        result = count > 0;
+        if (result) storedValue = selector;
+      } else if (trimmed.includes('=') && !trimmed.startsWith('text=') && !trimmed.startsWith('element=')) {
+        // Variable comparison: variableName = value or variable variableName = value or variableName == value
+        // Support formats: "variableName = value", "variable variableName = value", "variableName == value", "variable variableName == value"
+        let normalizedCondition = trimmed;
+        // Remove "variable" keyword if present
+        normalizedCondition = normalizedCondition.replace(/^variable\s+/i, '');
+        // Replace == with = for consistency
+        normalizedCondition = normalizedCondition.replace(/==/g, '=');
+        
+        const varMatch = normalizedCondition.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/);
+        if (varMatch) {
+          const varName = varMatch[1].trim();
+          const expectedValue = this.substituteVariables(varMatch[2].trim());
+          const actualValue = this.variables.get(varName);
+          
+          // Handle boolean string comparisons (true/false)
+          const expectedLower = expectedValue.toLowerCase().trim();
+          const actualLower = actualValue?.toLowerCase().trim() || '';
+          
+          // Direct comparison
+          if (actualValue === expectedValue) {
+            result = true;
+          }
+          // Handle boolean string comparisons
+          else if ((expectedLower === 'true' || expectedLower === 'false') && 
+                   (actualLower === 'true' || actualLower === 'false')) {
+            result = actualLower === expectedLower;
+          }
+          // Case-insensitive comparison for other values
+          else {
+            result = actualLower === expectedLower;
+          }
+          
+          logger.info('Variable comparison', { variable: varName, expected: expectedValue, actual: actualValue, result, expectedLower, actualLower });
+          if (result) storedValue = actualValue;
+        } else {
+          // Treat as visible text search
+          const text = this.substituteVariables(trimmed);
+          logger.info('Checking for visible text', { text });
+          const count = await page.getByText(new RegExp(text, 'i')).count();
+          logger.info('Visible text search result', { text, count });
+          result = count > 0;
+          if (result) storedValue = text;
+        }
+      } else {
+        // Treat as visible text search
+        const text = this.substituteVariables(trimmed);
+        logger.info('Checking for visible text', { text });
+        const count = await page.getByText(new RegExp(text, 'i')).count();
+        logger.info('Visible text search result', { text, count });
+        result = count > 0;
+        if (result) storedValue = text;
       }
       
-      // Treat as visible text search
-      logger.info('Checking for visible text', { text: trimmed });
-      const count = await page.getByText(new RegExp(trimmed, 'i')).count();
-      logger.info('Visible text search result', { text: trimmed, count });
-      return count > 0;
+      // Store value in variable if assignment was requested
+      if (variableName && storedValue) {
+        this.variables.set(variableName, storedValue);
+        logger.info('Stored condition result in variable', { variableName, value: storedValue });
+      }
+      
+      return { result, storedValue };
     } catch (error) {
       logger.error('Condition evaluation failed', { condition: trimmed, error: error instanceof Error ? error.message : String(error) });
-      return false;
+      return { result: false };
     }
   }
 
@@ -3682,3 +4270,4 @@ Please respond with JSON:
     }
   }
 }
+
