@@ -371,9 +371,10 @@ jobs:
           curl -X GET ${BACKEND_URL:-http://localhost:3001}/health | jq '.' || echo "Health check failed"
           
           echo "🚀 Executing test..."
-          # Increased timeout to 45 minutes (2700 seconds) to accommodate tests with multiple long waits
-          # Test includes multiple "Wait 100sec" steps which can easily exceed 10 minutes
-          EXEC_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}" --max-time 2700)
+          # Increased timeout to 90 minutes (5400 seconds) to accommodate tests with many long waits
+          # This test includes 20+ "Wait 100sec" steps (2000+ seconds) plus 1 "Wait 150sec" and execution time
+          # Total wait time alone is ~37+ minutes, so 90 minutes provides safe buffer
+          EXEC_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}" --max-time 5400)
           EXEC_HTTP_CODE=$(echo "$EXEC_RESPONSE" | tail -n1)
           EXEC_BODY=$(echo "$EXEC_RESPONSE" | sed '$d')
           echo "Execution HTTP Code: $EXEC_HTTP_CODE"
