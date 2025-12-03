@@ -26,15 +26,23 @@ export class NLPService {
     back: /(?:go\s+back|navigate\s+back|back)/i,
     refresh: /(?:refresh|reload)/i,
     // Conditional patterns - proper if-else logic
+    // Variable comparison pattern (must come before generic ifcond)
+    ifvar: /^(?:if)\s+(?:variable\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:==|=)\s*(.+?)\s+(?:then|,\s*then)\s*(.*)$/i,
     ifcond: /^(?:if)\s+(.+?)\s*(?:then|,\s*then)?\s*(.*)$/i,
     iftext: /^(?:if)\s*\(\s*text\s*=\s*([^)]+)\s*\)\s*(?:then|,\s*then)?\s*(.*)$/i,
     iftextOld: /^(?:if)\s+text\s*=\s*([^\s]+)\s*(?:then|,\s*then)?\s*(.*)$/i,
     iftextSimple: /^(?:if)\s*\(\s*text\s*=\s*([^)]+)\s*\)\s*(?:then|,\s*then)?\s*(.*)$/i,
     iftextNoParen: /^(?:if)\s+text\s*=\s*([^\s]+)\s*(?:then|,\s*then)?\s*(.*)$/i,
+    // Pattern for "If text = ... then" (without parentheses, multi-word)
+    // Handles both "text=" and "text = " with spaces
+    iftextMultiWord: /^(?:if)\s+text\s*=\s*(.+?)\s+(?:then|,\s*then)\s+(.*)$/i,
     ifelement: /^(?:if)\s+element\s+(.+?)\s+(?:exists|is\s+visible|is\s+present)\s*(?:then|,\s*then)?\s*(.*)$/i,
     else: /^(?:else|otherwise)\s*(.*)$/i,
     endif: /^(?:end\s*if|endif|end)$/i,
     upload: /^(?:upload)\s+(.+?)\s+(?:to|into|in)\s+(.+)/i,
+    // Variable assignment patterns
+    setVar: /^(?:set|store|assign)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/i,
+    storeVar: /^(?:store|save)\s+(.+?)\s+(?:in|to|as)\s+([a-zA-Z_][a-zA-Z0-9_]*)$/i,
   };
 
   async parseNaturalLanguage(input: NaturalLanguageInput): Promise<ParsedTestStep[]> {
@@ -128,6 +136,53 @@ export class NLPService {
   }
 
   /**
+   * Parse upload pattern by finding the FIRST occurrence of " to ", " into ", or " in "
+   * This handles cases like: "Upload Manifest_Data_Year2025.csv to Click to select CSV file"
+   * Where we want: file = "Manifest_Data_Year2025.csv", target = "Click to select CSV file"
+   * We use FIRST occurrence because filenames typically don't contain " to ", so the first one
+   * is the separator between filename and target.
+   */
+  private parseUploadWithLastOccurrence(sentence: string): RegExpMatchArray | null {
+    // Match the action prefix (upload)
+    const actionMatch = sentence.match(/^(?:upload)\s+/i);
+    if (!actionMatch) return null;
+
+    // Get the text after the action
+    const afterAction = sentence.substring(actionMatch[0].length);
+
+    // Find the FIRST occurrence of " to ", " into ", or " in " 
+    // (we use first because filenames don't typically contain these separators)
+    const separators = [' to ', ' into ', ' in '];
+    let firstIndex = -1;
+    let matchedSeparator = '';
+
+    // Case-insensitive search - find the leftmost occurrence of any separator
+    const lowerAfterAction = afterAction.toLowerCase();
+    
+    for (const separator of separators) {
+      const lowerSeparator = separator.toLowerCase();
+      const foundIndex = lowerAfterAction.indexOf(lowerSeparator);
+      if (foundIndex !== -1 && (firstIndex === -1 || foundIndex < firstIndex)) {
+        firstIndex = foundIndex;
+        // Get the actual separator from the original string (preserving case)
+        matchedSeparator = afterAction.substring(foundIndex, foundIndex + separator.length);
+      }
+    }
+
+    // If no match found, return null
+    if (firstIndex === -1) return null;
+
+    // Split at the first occurrence
+    const file = afterAction.substring(0, firstIndex).trim();
+    const target = afterAction.substring(firstIndex + matchedSeparator.length).trim();
+
+    // Return a match array similar to what regex.match() would return
+    // [fullMatch, file, target]
+    const fullMatch = sentence;
+    return [fullMatch, file, target] as RegExpMatchArray;
+  }
+
+  /**
    * Parse inputAI pattern by finding the LAST occurrence of " in ", " into ", or " on "
    * Similar to parseInputAWithLastOccurrence but for AI-powered patterns
    */
@@ -197,6 +252,12 @@ export class NLPService {
     }
 
     // Conditional patterns - handle if-else logic (high priority)
+    // Check multi-word text pattern first (before single-word patterns)
+    const iftextMultiWordMatch = sentence.match(this.actionPatterns.iftextMultiWord);
+    if (iftextMultiWordMatch) {
+      logger.info('Matched iftextMultiWord pattern', { match: iftextMultiWordMatch });
+      return this.createParsedStep('iftext', iftextMultiWordMatch, stepNumber, sentence);
+    }
     const iftextMatch = sentence.match(this.actionPatterns.iftext);
     if (iftextMatch) {
       logger.info('Matched iftext pattern', { match: iftextMatch });
@@ -222,6 +283,12 @@ export class NLPService {
       logger.info('Matched ifelement pattern', { match: ifelementMatch });
       return this.createParsedStep('ifelement', ifelementMatch, stepNumber, sentence);
     }
+    // Check for variable comparison before generic condition
+    const ifvarMatch = sentence.match(this.actionPatterns.ifvar);
+    if (ifvarMatch) {
+      logger.info('Matched ifvar pattern', { match: ifvarMatch });
+      return this.createParsedStep('ifvar', ifvarMatch, stepNumber, sentence);
+    }
     const condMatch = sentence.match(this.actionPatterns.ifcond);
     if (condMatch) {
       logger.info('Matched ifcond pattern', { match: condMatch });
@@ -237,6 +304,21 @@ export class NLPService {
       logger.info('Matched endif pattern', { match: endifMatch });
       return this.createParsedStep('endif', endifMatch, stepNumber, sentence);
     }
+    const setVarMatch = sentence.match(this.actionPatterns.setVar);
+    if (setVarMatch) {
+      logger.info('Matched setVar pattern', { match: setVarMatch });
+      return this.createParsedStep('setVar', setVarMatch, stepNumber, sentence);
+    }
+    const storeVarMatch = sentence.match(this.actionPatterns.storeVar);
+    if (storeVarMatch) {
+      logger.info('Matched storeVar pattern', { match: storeVarMatch });
+      return this.createParsedStep('storeVar', storeVarMatch, stepNumber, sentence);
+    }
+
+    // Upload pattern - check before click to avoid false matches
+    // Need to find the LAST occurrence of " to ", " into ", or " in " (similar to input pattern)
+    const uploadMatch = this.parseUploadWithLastOccurrence(sentence);
+    if (uploadMatch) return this.createParsedStep('upload', uploadMatch, stepNumber, sentence);
 
     // Custom handling for input patterns to prefer value/target ordering
     // For inputA pattern, we need to find the LAST occurrence of " in ", " into ", or " on "
@@ -268,8 +350,6 @@ export class NLPService {
     if (waitSecondsMatch) return this.createParsedStep('waitSeconds', waitSecondsMatch, stepNumber, sentence);
     const waitMatch = sentence.match(this.actionPatterns.wait);
     if (waitMatch) return this.createParsedStep('wait', waitMatch, stepNumber, sentence);
-    const uploadMatch = sentence.match(this.actionPatterns.upload);
-    if (uploadMatch) return this.createParsedStep('upload', uploadMatch, stepNumber, sentence);
 
     return this.createGenericStep(sentence, stepNumber);
   }
@@ -466,6 +546,20 @@ export class NLPService {
           condition: `element=${elementToCheck}`,
         } as any;
       }
+      case 'ifvar': {
+        const varName = clean(match[1]);
+        const varValue = clean(match[2]);
+        const remainder = clean(match[3] || '');
+        // Construct condition as "variableName = value" format that evaluateCondition expects
+        const condition = `${varName} = ${varValue}`;
+        return {
+          action: 'if',
+          target: remainder || '',
+          confidence: 0.9,
+          description: originalText,
+          condition,
+        } as any;
+      }
       case 'ifcond': {
         const condition = clean(match[1]);
         const remainder = clean(match[2] || '');
@@ -502,6 +596,26 @@ export class NLPService {
           confidence: 0.9,
           description: originalText,
         };
+      case 'setVar': {
+        const varName = clean(match[1]);
+        const varValue = clean(match[2]);
+        return {
+          action: 'set',
+          target: `${varName} = ${varValue}`,
+          confidence: 0.9,
+          description: originalText,
+        };
+      }
+      case 'storeVar': {
+        const varValue = clean(match[1]);
+        const varName = clean(match[2]);
+        return {
+          action: 'store',
+          target: `${varName} = ${varValue}`,
+          confidence: 0.9,
+          description: originalText,
+        };
+      }
 
       default:
         return this.createGenericStep(originalText, stepNumber);
