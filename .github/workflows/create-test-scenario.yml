@@ -139,24 +139,55 @@ jobs:
         echo "Original input: ${{ env.TEST_DESCRIPTION }}"
         
         # Convert spaces back to newlines for action keywords (same as web interface)
-        # Handle conditional statements as complete lines: "If(text=X) then Action"
-        # Handle "If " (with space) before "If(" to avoid conflicts - for patterns like "If text = ..." or "If variable = ..."
-        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/ Open https:/\nOpen https:/g' | sed 's/ Enter /\nEnter /g' | sed 's/ Verify /\nVerify /g' | sed 's/ Wait /\nWait /g' | sed 's/\([^n]\) If /\1\nIf /g' | sed 's/ If(/\nIf(/g')
+        # The NLP service splits on newlines, so we need to restore them from spaces
+        # Strategy: Split on action keywords, then fix known bad splits
+        
+        # Handle Open (only for URLs - most reliable pattern)
+        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/ Open https:/\nOpen https:/g')
+        
+        # Handle Enter - pattern: " Enter X in Y" (X is value, Y is target)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Enter \([^ ]*\) in /\1\nEnter \2 in /g')
+        
+        # Handle Wait - pattern: " Wait Xsec" (time value)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Wait \([0-9]/\1\nWait \2/g')
+        
+        # Handle If statements - "If " (with space) for patterns like "If text = ..." or "If variable = ..."
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) If /\1\nIf /g' | sed 's/ If(/\nIf(/g')
         
         # Handle End if / Endif statements (case insensitive)
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) End if/\1\nEnd if/gi' | sed 's/\([^n]\) Endif/\1\nEndif/gi')
         
-        # Handle Set statements for variable assignment
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Set /\1\nSet /g')
+        # Handle Set statements - pattern: " Set variable="
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Set \([a-zA-Z_][a-zA-Z0-9_]*=\)/\1\nSet \2/g')
         
         # Handle Else statements
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Else /\1\nElse /gi')
         
-        # Handle Click statements - split only standalone Click, not those after "then"
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Click /\1\nClick /g')
+        # Handle Upload - pattern: " Upload filename.csv to target"
+        # Important: "Upload X.csv to Click to select" should stay as ONE line
+        # Only split if "Upload" is clearly a new step (not part of a longer phrase)
+        # Pattern: split on " Upload " followed by filename, but keep "to target" together
+        # We'll split but then merge back if "to" follows
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Upload \([A-Za-z0-9_][^ ]*\.csv\)/\1\nUpload \2/g')
         
-        # Handle Upload statements - split only standalone Upload, not those after "then"
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Upload /\1\nUpload /g')
+        # Merge back: "Upload X.csv\nto" should be "Upload X.csv to" (one step)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed ':a;N;$!ba;s/\(Upload [^ ]*\.csv\)\nto/\1 to/g')
+        
+        # Handle Click - pattern: " Click X" or " Click on X"
+        # But NOT "Click to select" (that's part of upload target)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Click on /\1\nClick on /g' | sed 's/\([^n]\) Click \([^t][^o][^ ]\)/\1\nClick \2/g')
+        
+        # Handle Verify - be conservative: only split if NOT followed by action keywords
+        # Pattern: " Verify X" where X is NOT Upload, Click, Enter, Wait, Set, If, Else, End, Open
+        # We'll split on " Verify " followed by capital letter, but exclude action keywords
+        # Use a pattern that matches " Verify " + word, but then fix bad splits
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Verify \([A-Z][a-z]*\)/\1\nVerify \2/g')
+        
+        # Fix bad splits: merge "Verify\nUpload" back to "Verify Upload" (Upload is target, not new action)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed ':a;N;$!ba;s/\nVerify\nUpload/ Verify Upload/g')
+        
+        # Fix bad splits: merge "Upload X.csv\nto Click" back to "Upload X.csv to Click"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed ':a;N;$!ba;s/\(Upload [^ ]*\.csv\)\nto Click/\1 to Click/g')
         
         echo "Restored description with newlines:"
         echo "$TEST_DESC_WITH_NEWLINES"
