@@ -47,7 +47,7 @@ env:
   HEADLESS: true
   SLACK_MENTION: 'U08C44TEXKR'  # Use Slack user ID (e.g., U1234567890) for proper mentions, or username (e.g., Gustavo)
   DATAAPP_NAME: 'Untitled DataApp'
-  TENANT_NAME: 'Demo Sales and Cooperations Planning'
+  TENANT_NAME: 'Demo Sales and operations Planning'
 
 jobs:
   create-test-scenario:

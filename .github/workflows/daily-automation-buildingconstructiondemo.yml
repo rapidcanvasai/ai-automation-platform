@@ -46,8 +46,8 @@ env:
   SLACK_NOTIFY_ONLY_FAILURES: true
   HEADLESS: true
   SLACK_MENTION: 'U0969CKGK9A'  # Use Slack user ID (e.g., U1234567890) for proper mentions, or username (e.g., Bruno)
-  DATAAPP_NAME: 'RC-Retail'
-  TENANT_NAME: 'DemoCorp_App'
+  DATAAPP_NAME: 'DemoCorp_App'
+  TENANT_NAME: 'RC-Retail'
 
 jobs:
   create-test-scenario:
