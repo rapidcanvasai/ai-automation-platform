@@ -148,14 +148,35 @@ jobs:
         # Normalize multiple spaces to single space first
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+/ /g')
         
+        # CRITICAL: Split Open URLs FIRST before adding spaces
+        # This ensures URLs are on separate lines before we process other patterns
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Open https:/\nOpen https:/g')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/^Open https:/Open https:/g')
+        
         # CRITICAL: Add spaces before action keywords when they're concatenated
         # This handles cases like "Wait 2secEnter" -> "Wait 2sec Enter"
         # Pattern: lowercase/digit followed by uppercase action keyword
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9])(Wait \d+sec)/$1 $2/gi')
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9])(Enter )/$1 $2/gi')
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9])(Click )/$1 $2/gi')
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9])(Verify )/$1 $2/gi')
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9])(Open https:)/$1 $2/gi')
+        
+        # First, handle action keywords that appear immediately after words (no space)
+        # Pattern: word ending (letter/digit/URL chars) followed by action keyword (capital letter)
+        # Include / for URLs like "https://app.rapidcanvas.ai/Wait"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-zA-Z0-9@\/])(Enter )/$1 $2/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-zA-Z0-9@\/])(Click )/$1 $2/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-zA-Z0-9@\/])(Wait \d+sec)/$1 $2/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-zA-Z0-9@\/])(Verify )/$1 $2/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-zA-Z0-9@\/])(Open https:)/$1 $2/gi')
+        
+        # Handle specific concatenated patterns
+        # "NextEnter" -> "Next Enter"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([A-Z][a-z]+)(Enter )/$1 $2/gi')
+        # "PasswordClick" -> "Password Click"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([A-Z][a-z]+)(Click )/$1 $2/gi')
+        # "InWait" -> "In Wait"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([A-Z][a-z]+)(Wait \d+sec)/$1 $2/gi')
+        # "2secVerify" -> "2sec Verify"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(\d+sec)(Verify )/$1 $2/gi')
+        # "DashboardWait" -> "Dashboard Wait"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([A-Z][a-z]+)(Wait \d+sec)/$1 $2/gi')
         
         # Handle concatenated patterns like "Wait 2secEnter" -> "Wait 2sec Enter"
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Wait \d+sec)(Enter )/$1 $2/gi')
@@ -164,10 +185,6 @@ jobs:
         
         # Handle "Verify XEnter" -> "Verify X Enter"
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Verify [^E]+(?:with AI)?)(Enter )/$1 $2/gi')
-        
-        # Handle Open URLs first (most specific pattern)
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Open https:/\nOpen https:/g')
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/^Open https:/Open https:/g')
         
         # CRITICAL: Handle combined Wait patterns BEFORE general Wait splitting
         # Handle "Wait Xsec Enter Y" pattern - split into two steps
@@ -197,6 +214,7 @@ jobs:
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/^Verify ([A-Za-z])/Verify $1/g')
         
         # Handle Enter - split on " Enter X in Y" or "Enter X in Y" at start
+        # Pattern: "Enter X in Y" where X can contain @ symbols (for emails)
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Enter ([^C][^l][^i][^c][^k][^E][^n][^t][^e][^r]+) in /\nEnter $1 in /g')
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/^Enter ([^C][^l][^i][^c][^k][^E][^n][^t][^e][^r]+) in /Enter $1 in /g')
         
@@ -234,10 +252,14 @@ jobs:
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9])(Click on )/$1\n$2/gi')
         
         # Split on " Click X" (where X starts with capital) or "Click X" at start
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Click ([A-Z])/\nClick $1/g')
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/^Click ([A-Z])/Click $1/g')
-        # Handle concatenated: "XClick X" -> "X\nClick X"
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9])(Click [A-Z])/$1\n$2/gi')
+        # Pattern: "Click Next", "Click Sign In", "Click New chat", etc.
+        # Must handle multi-word targets like "Sign In", "New chat", "Send message"
+        # Must not be followed immediately by another action keyword (to avoid splitting "Click Enter")
+        # Pattern matches: "Click [Capital][words and spaces] followed by action keyword or end"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Click ([A-Z][A-Za-z\s]+?)(?=\s+(?:Click|Verify|Wait|Enter|Open|Set|If|Else|End|Upload|$))/\nClick $1/g')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/^Click ([A-Z][A-Za-z\s]+?)(?=\s+(?:Click|Verify|Wait|Enter|Open|Set|If|Else|End|Upload|$))/\nClick $1/g')
+        # Handle concatenated: "XClick X" -> "X\nClick X" (fallback for single-word targets)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9])(Click [A-Z][A-Za-z\s]+?)(?=\s+(?:Click|Verify|Wait|Enter|Open|Set|If|Else|End|Upload|$))/$1\n$2/gi')
         
         # Fix: merge back "Click to" (part of upload target, not a new action)
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\nClick\s+to/ Click to/gi')
