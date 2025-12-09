@@ -148,10 +148,34 @@ jobs:
         # Normalize multiple spaces to single space first
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+/ /g')
         
+        # CRITICAL: Add space after URLs that end with / and are followed by action keywords
+        # This must happen BEFORE splitting URLs, to ensure spaces exist
+        # Pattern: URL ending with / followed immediately by action keyword (NO SPACE - this is the key!)
+        # Handle: "https://app.rapidcanvas.ai/Wait" -> "https://app.rapidcanvas.ai/ Wait"
+        # Match URL ending with / followed immediately by capital letter (start of action keyword)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's|(https://[^\s]+/)([A-Z])|$1 $2|g')
+        
+        # CRITICAL: Also handle URLs that don't end with / but are followed by action keywords
+        # Pattern: URL (without trailing /) followed immediately by action keyword
+        # Handle: "https://app.rapidcanvas.ai/apps/Yale_ask_AI/Yale%20ApplianceWait" -> "https://app.rapidcanvas.ai/apps/Yale_ask_AI/Yale%20Appliance Wait"
+        # Match URL followed immediately by "Wait", "Enter", "Click", "Verify", or "Open" (capital letter)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's|(https://[^\s]+)(Wait\s+\d+sec)|$1 $2|gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's|(https://[^\s]+)(Enter\s+)|$1 $2|gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's|(https://[^\s]+)(Click\s+)|$1 $2|gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's|(https://[^\s]+)(Verify\s+)|$1 $2|gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's|(https://[^\s]+)(Open\s+https:)|$1 $2|gi')
+        
         # CRITICAL: Split Open URLs FIRST before adding spaces
         # This ensures URLs are on separate lines before we process other patterns
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Open https:/\nOpen https:/g')
+        # Handle "Open https://" at start of string OR after space
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/^Open https:/Open https:/g')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Open https:/\nOpen https:/g')
+        
+        # Split on newlines after URLs (after we've added spaces and split)
+        # Pattern: Match "Open https://..." followed by space
+        # This ensures the full URL (including path like "Yale%20Appliance") stays together
+        # Since we've already added spaces before action keywords, we can safely split on space after URL
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's|(Open https://[^\s]+)\s|$1\n|g')
         
         # CRITICAL: Add spaces before action keywords when they're concatenated
         # This handles cases like "Wait 2secEnter" -> "Wait 2sec Enter"
@@ -182,6 +206,8 @@ jobs:
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Wait \d+sec)(Enter )/$1 $2/gi')
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Wait \d+sec)(Click )/$1 $2/gi')
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Wait \d+sec)(Verify )/$1 $2/gi')
+        # Handle "Wait XsecOpen" -> "Wait Xsec Open"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Wait \d+sec)(Open https:)/$1 $2/gi')
         
         # Handle "Verify XEnter" -> "Verify X Enter"
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Verify [^E]+(?:with AI)?)(Enter )/$1 $2/gi')
@@ -195,6 +221,12 @@ jobs:
         
         # Handle Wait - pattern: "Wait Xsec" (now with spaces normalized)
         # This comes AFTER the combined patterns above
+        # CRITICAL: Also handle "xpath=...Wait" or "]Wait" patterns (action keywords after xpath)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(\])(Wait \d+sec)/$1\n$2/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(\])(Enter )/$1\n$2/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(\])(Click )/$1\n$2/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(\])(Verify )/$1\n$2/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(\])(Open https:)/$1\n$2/gi')
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Wait (\d+sec)/\nWait $1/g')
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/^Wait (\d+sec)/Wait $1/g')
         
