@@ -464,6 +464,13 @@ export class TestExecutorService {
         const isMenuButton = target.includes('-menu') || target.includes('menu-') || 
                             (target.includes('menu') && (target.startsWith('top-nav-bar-') || target.includes('workspace-menu')));
         
+        // For menu buttons, wait a bit longer to ensure the page is fully loaded
+        if (isMenuButton) {
+          console.log(`🔄 Menu button "${target}" detected - waiting for page stability before clicking...`);
+          await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+          await page.waitForTimeout(2000); // Additional 2 second wait for menu buttons
+        }
+        
         if ((this.isDropdownElement(target) || this.isAdvancedSettingsElement(target)) && !isMenuButton) {
           console.log(`🔄 Checking if "${target}" is already selected...`);
           const isAlreadySelected = await this.checkIfElementIsSelected(page, target);
@@ -919,7 +926,19 @@ export class TestExecutorService {
     // Hints: xpath=..., css=..., id=..., link=..., partialLink=...
     // Check for direct locator paths FIRST before creating RegExp (which can fail on xpath syntax)
     if (/^xpath\s*=\s*/i.test(target) || target.startsWith('//')) {
-      const expr = target.replace(/^xpath\s*=\s*/i, '');
+      let expr = target.replace(/^xpath\s*=\s*/i, '');
+      
+      // Fix xpath expressions with unquoted attribute values
+      // Pattern: @attribute=value should become @attribute="value"
+      // But only if value doesn't already have quotes
+      expr = expr.replace(/@(\w+)=([^"'\s=]+)(?=[\s\[\]])/g, (match, attr, value) => {
+        // Only add quotes if value doesn't already have them and is not a number
+        if (!value.match(/^["'].*["']$/) && !value.match(/^\d+$/)) {
+          return `@${attr}="${value}"`;
+        }
+        return match;
+      });
+      
       return [page.locator(expr)];
     }
     

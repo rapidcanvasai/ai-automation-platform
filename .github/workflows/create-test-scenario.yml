@@ -474,7 +474,15 @@ jobs:
           fi
           
           echo "Execution HTTP Code: $EXEC_HTTP_CODE"
-          echo "Execution Response: $EXEC_BODY"
+          echo "Execution Response (first 500 chars):"
+          echo "$EXEC_BODY" | head -c 500
+          echo ""
+          
+          # Validate JSON before parsing
+          if ! echo "$EXEC_BODY" | jq empty 2>/dev/null; then
+            echo "⚠️ Warning: Response is not valid JSON. Raw response:"
+            echo "$EXEC_BODY"
+          fi
           
           # Try to parse HTTP code - if it's not a number, curl likely failed
           if ! echo "$EXEC_HTTP_CODE" | grep -qE '^[0-9]+$'; then
@@ -502,15 +510,26 @@ jobs:
           elif [ "$EXEC_HTTP_CODE" -eq 200 ]; then
             echo "✅ Test executed successfully!"
             echo "Execution Result:"
-            echo "$EXEC_BODY" | jq '.'
-            EXECUTION_ID=$(echo "$EXEC_BODY" | jq -r '.executionId // "unknown"')
-            TEST_STATUS=$(echo "$EXEC_BODY" | jq -r '.status // "unknown"')
+            # Validate JSON before parsing
+            if echo "$EXEC_BODY" | jq empty >/dev/null 2>&1; then
+              echo "$EXEC_BODY" | jq '.'
+              EXECUTION_ID=$(echo "$EXEC_BODY" | jq -r '.executionId // "unknown"')
+              TEST_STATUS=$(echo "$EXEC_BODY" | jq -r '.status // "unknown"')
+            else
+              echo "⚠️ Warning: Response is not valid JSON. Attempting to extract data..."
+              echo "Raw response (first 1000 chars):"
+              echo "$EXEC_BODY" | head -c 1000
+              echo ""
+              # Try to extract execution ID and status using grep/sed as fallback
+              EXECUTION_ID=$(echo "$EXEC_BODY" | grep -o '"executionId"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"executionId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "unknown")
+              TEST_STATUS=$(echo "$EXEC_BODY" | grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "unknown")
+            fi
             echo "EXECUTION_ID=$EXECUTION_ID" >> $GITHUB_ENV
             echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
             echo "TEST_ID=$TEST_ID" >> $GITHUB_ENV
             
             # Check if execution actually completed
-            STEPS_EXECUTED=$(echo "$EXEC_BODY" | jq '.result.steps | length' 2>/dev/null || echo "0")
+            STEPS_EXECUTED=$(echo "$EXEC_BODY" | jq '.result.steps | length' 2>/dev/null || echo "$EXEC_BODY" | grep -o '"step"' | wc -l || echo "0")
             echo "Steps executed: $STEPS_EXECUTED"
             if [ "$STEPS_EXECUTED" -eq 0 ]; then
               echo "⚠️ WARNING: No steps were executed in the browser."
