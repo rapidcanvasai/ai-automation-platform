@@ -151,7 +151,29 @@ jobs:
         
         # Handle Wait - pattern: " Wait Xsec" (time value)
         # Split on " Wait " (space before) or "Wait " (at start), followed by digits and "sec"
+        # IMPORTANT: Do this FIRST to split "Wait 100sec Verify" correctly
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ Wait \([0-9][0-9]*sec\)/\nWait \1/g' | sed 's/^Wait \([0-9][0-9]*sec\)/Wait \1/g')
+        
+        # Handle "Wait Xsec Verify" pattern explicitly - split into two steps
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Wait [0-9]+sec)\s+Verify /$1\nVerify /g')
+        
+        # Handle "Verify X Enter Y" pattern - split into two steps
+        # Pattern: "Verify ... Enter" where Enter starts a new action
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Verify [^E]+(?:with AI)?)\s+Enter ([A-Z])/$1\nEnter $2/g')
+        
+        # Handle "Verify X with AI Enter Y" pattern - split into two steps
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Verify [^E]+with AI)\s+Enter ([A-Z])/$1\nEnter $2/g')
+        
+        # Handle Verify - split on " Verify " followed by capital letter
+        # But preserve "with AI" as part of Verify step
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ Verify \([A-Z][a-z]*\)/\nVerify \1/g' | sed 's/^Verify \([A-Z][a-z]*\)/Verify \1/g')
+        
+        # Handle Enter - pattern: " Enter X in Y" or " Enter X" (X is value, Y is target)
+        # Split on " Enter " (space before) or "Enter " (at start), followed by capital letter
+        # This handles "Enter Which models..." patterns
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ Enter \([A-Z][^ ]*\) in /\nEnter \1 in /g' | sed 's/^Enter \([A-Z][^ ]*\) in /Enter \1 in /g')
+        # Handle "Enter X" without "in" (for AI input fields) - must be followed by capital letter
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Enter ([A-Z][^V][^e][^r][^i][^f][^y][^C][^l][^i][^c][^k][^ ]+)(?=\s+(?:Click|Verify|Wait|Enter|Open|Set|If|Else|End|Upload|$))/\nEnter $1/g')
         
         # Handle If statements - "If " (with space) for patterns like "If text = ..." or "If variable = ..."
         # Split on " If " (space before) or "If " (at start), and also handle "If(" pattern
@@ -192,11 +214,6 @@ jobs:
         # Pattern: "then action" where action is Click, Enter, Wait, Verify, Set, etc.
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ then Click/\nthen Click/g' | sed 's/ then Enter/\nthen Enter/g' | sed 's/ then Wait/\nthen Wait/g' | sed 's/ then Verify/\nthen Verify/g' | sed 's/ then Set/\nthen Set/g')
         
-        # Handle Verify - be conservative: only split if NOT followed by action keywords
-        # Pattern: " Verify X" where X is NOT Upload, Click, Enter, Wait, Set, If, Else, End, Open
-        # Split on " Verify " (space before) or "Verify " (at start), followed by capital letter
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ Verify \([A-Z][a-z]*\)/\nVerify \1/g' | sed 's/^Verify \([A-Z][a-z]*\)/Verify \1/g')
-        
         # Fix bad splits using perl (works on both BSD and GNU sed environments)
         # Merge "Verify\nUpload" back to "Verify Upload" (Upload is target, not new action)
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\nVerify\nUpload/ Verify Upload/g')
@@ -206,6 +223,12 @@ jobs:
         
         # Fix bad splits: merge "Upload X.csv\nto Click" back to "Upload X.csv to Click"
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Upload [^ ]*\.csv)\nto Click/$1 to Click/g')
+        
+        # Clean up: Remove any double newlines that might have been created
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\n\n+/\n/g')
+        
+        # Clean up: Remove leading/trailing whitespace from each line
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/^\s+//; s/\s+$//')
         
         echo "Restored description with newlines:"
         echo "$TEST_DESC_WITH_NEWLINES"
