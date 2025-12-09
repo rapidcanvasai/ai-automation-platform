@@ -328,6 +328,31 @@ export class TestExecutorService {
             return;
           } catch (error) {
             console.log(`Direct locator click failed: ${(error as Error).message}`);
+            
+            // If xpath fails, try to extract data-testid and use simpler locator
+            if (/^xpath\s*=/i.test(target)) {
+              const xpathExpr = target.replace(/^xpath\s*=\s*/i, '');
+              const dataTestIdMatch = xpathExpr.match(/@data-testid\s*=\s*["']?([^"'\s=\]]+)["']?/i);
+              const testIdMatch = xpathExpr.match(/@test-id\s*=\s*["']?([^"'\s=\]]+)["']?/i);
+              
+              if (dataTestIdMatch || testIdMatch) {
+                const testIdValue = dataTestIdMatch?.[1] || testIdMatch?.[1];
+                console.log(`🔄 XPath failed, trying fallback with data-testid: "${testIdValue}"`);
+                try {
+                  const fallbackCandidates = [
+                    page.getByTestId(testIdValue!),
+                    page.locator(`[data-testid="${testIdValue}"]`),
+                    page.locator(`[test-id="${testIdValue}"]`),
+                    page.locator(`[data-test-id="${testIdValue}"]`)
+                  ];
+                  await this.tryClick(page, fallbackCandidates, (step as any).index, target);
+                  return;
+                } catch (fallbackError) {
+                  console.log(`Fallback locator also failed: ${(fallbackError as Error).message}`);
+                }
+              }
+            }
+            
             throw error;
           }
         }
@@ -930,8 +955,9 @@ export class TestExecutorService {
       
       // Fix xpath expressions with unquoted attribute values
       // Pattern: @attribute=value should become @attribute="value"
-      // But only if value doesn't already have quotes
-      expr = expr.replace(/@(\w+)=([^"'\s=]+)(?=[\s\[\]])/g, (match, attr, value) => {
+      // Support attributes with hyphens like data-testid, test-id, etc.
+      // Match: @data-testid=value or @test-id=value (without quotes)
+      expr = expr.replace(/@([a-zA-Z0-9_-]+)=([^"'\s=\]]+)(?=[\s\[\]\/])/g, (match, attr, value) => {
         // Only add quotes if value doesn't already have them and is not a number
         if (!value.match(/^["'].*["']$/) && !value.match(/^\d+$/)) {
           return `@${attr}="${value}"`;
@@ -939,7 +965,30 @@ export class TestExecutorService {
         return match;
       });
       
-      return [page.locator(expr)];
+      // Also try to extract data-testid from xpath and add as fallback locator
+      const dataTestIdMatch = expr.match(/@data-testid\s*=\s*["']?([^"'\s=\]]+)["']?/i);
+      const testIdMatch = expr.match(/@test-id\s*=\s*["']?([^"'\s=\]]+)["']?/i);
+      
+      const locators = [page.locator(expr)];
+      
+      // Add fallback locators using data-testid if found
+      if (dataTestIdMatch) {
+        const testIdValue = dataTestIdMatch[1];
+        locators.push(
+          page.getByTestId(testIdValue),
+          page.locator(`[data-testid="${testIdValue}"]`)
+        );
+      }
+      
+      if (testIdMatch) {
+        const testIdValue = testIdMatch[1];
+        locators.push(
+          page.locator(`[test-id="${testIdValue}"]`),
+          page.locator(`[data-test-id="${testIdValue}"]`)
+        );
+      }
+      
+      return locators;
     }
     
     const slug = this.slug(target);
