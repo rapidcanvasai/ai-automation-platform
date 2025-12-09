@@ -362,7 +362,14 @@ export class NLPService {
   ): ParsedTestStep {
     const clean = (s: string) => s.trim().replace(/[\s]+$/,'').replace(/^[\s]+/,'').replace(/[，,.;]+$/,'');
     const normalizeTarget = (s: string) => {
-      // Handle test-id="value" format
+      // If it's already a direct locator path (xpath=, css=, etc.), return as-is
+      // This preserves full xpath expressions like xpath=//*[@test-id="..."]/li[1]
+      if (/^(xpath\s*=|css\s*=|id\s*=|link\s*=|partialLink\s*=|\[|#|\.|\/\/)/i.test(s.trim())) {
+        console.log(`Direct locator path detected: "${s}" - returning as-is`);
+        return s.trim();
+      }
+      
+      // Handle test-id="value" format (only if not part of a full xpath/css expression)
       const mTestId = s.match(/(?:test[-_]?id|data[-_]?testid)\s*=\s*"?([^"\s]+)"?/i);
       if (mTestId) {
         console.log(`Extracted test-id: "${mTestId[1]}" from "${s}"`);

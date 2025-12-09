@@ -317,6 +317,21 @@ export class TestExecutorService {
           return;
         }
         
+        // Direct locator path detection - if user provides full locator path (xpath=, css=, etc.),
+        // click it directly like Playwright/Selenium without any smart logic
+        const isDirectLocator = /^(xpath\s*=|css\s*=|id\s*=|link\s*=|partialLink\s*=|\[|#|\.|\/\/)/i.test(target.trim());
+        if (isDirectLocator) {
+          console.log(`🎯 Direct locator path detected: "${target}" - clicking directly without smart logic`);
+          try {
+            const candidates = this.buttonLocators(page, target);
+            await this.tryClick(page, candidates, (step as any).index, target);
+            return;
+          } catch (error) {
+            console.log(`Direct locator click failed: ${(error as Error).message}`);
+            throw error;
+          }
+        }
+        
         console.log(`🔧 Using regular click for: "${target}"`);
         console.log(`🆕 IFRAME SUPPORT: Testing new iframe detection for "${target}"`);
         console.error(`🆕 IFRAME SUPPORT: Testing new iframe detection for "${target}"`);
@@ -445,7 +460,11 @@ export class TestExecutorService {
         }
         
         // Special handling for dropdown/select elements that might already be selected
-        if (this.isDropdownElement(target) || this.isAdvancedSettingsElement(target)) {
+        // BUT: Menu buttons (like top-nav-bar-workspace-menu) should always be clicked to open the menu
+        const isMenuButton = target.includes('-menu') || target.includes('menu-') || 
+                            (target.includes('menu') && (target.startsWith('top-nav-bar-') || target.includes('workspace-menu')));
+        
+        if ((this.isDropdownElement(target) || this.isAdvancedSettingsElement(target)) && !isMenuButton) {
           console.log(`🔄 Checking if "${target}" is already selected...`);
           const isAlreadySelected = await this.checkIfElementIsSelected(page, target);
           if (isAlreadySelected) {
@@ -460,6 +479,8 @@ export class TestExecutorService {
             console.log(`✅ Smart dropdown interaction successful for "${target}"`);
             return;
           }
+        } else if (isMenuButton) {
+          console.log(`🔄 Menu button "${target}" detected - will always click to open menu (ignoring selection state)`);
         }
         
         // Only wait for DataApp to load if it's a DataApp-related click
@@ -895,13 +916,21 @@ export class TestExecutorService {
   }
 
   private buttonLocators(page: Page, target: string) {
-    const nameRe = new RegExp(target, 'i');
-    const slug = this.slug(target);
-
     // Hints: xpath=..., css=..., id=..., link=..., partialLink=...
+    // Check for direct locator paths FIRST before creating RegExp (which can fail on xpath syntax)
     if (/^xpath\s*=\s*/i.test(target) || target.startsWith('//')) {
       const expr = target.replace(/^xpath\s*=\s*/i, '');
       return [page.locator(expr)];
+    }
+    
+    const slug = this.slug(target);
+    // Only create RegExp if target is not a direct locator path (to avoid regex errors with xpath syntax)
+    let nameRe: RegExp;
+    try {
+      nameRe = new RegExp(target, 'i');
+    } catch (error) {
+      // If RegExp creation fails (e.g., due to xpath syntax), use a simple string match instead
+      nameRe = new RegExp(target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
     }
     if (/^css\s*=\s*/i.test(target)) {
       const sel = target.replace(/^css\s*=\s*/i, '');
@@ -1081,14 +1110,23 @@ export class TestExecutorService {
   }
 
   private inputLocators(page: Page, target: string) {
-    const nameRe = new RegExp(target, 'i');
-    const slug = this.slug(target);
-    const isPassword = /password/i.test(target);
-    const isEmail = /email/i.test(target);
-
+    // Check for direct locator paths FIRST before creating RegExp (which can fail on xpath syntax)
     if (/^xpath\s*=\s*/i.test(target) || target.startsWith('//')) {
       const expr = target.replace(/^xpath\s*=\s*/i, '');
       return [page.locator(expr)];
+    }
+    
+    const slug = this.slug(target);
+    const isPassword = /password/i.test(target);
+    const isEmail = /email/i.test(target);
+    
+    // Only create RegExp if target is not a direct locator path (to avoid regex errors with xpath syntax)
+    let nameRe: RegExp;
+    try {
+      nameRe = new RegExp(target, 'i');
+    } catch (error) {
+      // If RegExp creation fails (e.g., due to xpath syntax), use a simple string match instead
+      nameRe = new RegExp(target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
     }
     if (/^css\s*=\s*/i.test(target)) {
       const sel = target.replace(/^css\s*=\s*/i, '');
@@ -1158,8 +1196,25 @@ export class TestExecutorService {
   }
 
   private verifyLocators(page: Page, target: string) {
-    const nameRe = new RegExp(target, 'i');
+    // Check for direct locator paths FIRST before creating RegExp (which can fail on xpath syntax)
+    if (/^xpath\s*=\s*/i.test(target) || target.startsWith('//')) {
+      const expr = target.replace(/^xpath\s*=\s*/i, '');
+      return [page.locator(expr)];
+    }
+    if (/^css\s*=\s*/i.test(target)) {
+      const sel = target.replace(/^css\s*=\s*/i, '');
+      return [page.locator(sel)];
+    }
+    
     const slug = this.slug(target);
+    // Only create RegExp if target is not a direct locator path (to avoid regex errors with xpath syntax)
+    let nameRe: RegExp;
+    try {
+      nameRe = new RegExp(target, 'i');
+    } catch (error) {
+      // If RegExp creation fails (e.g., due to xpath syntax), use a simple string match instead
+      nameRe = new RegExp(target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    }
     return [
       page.locator(`#${target}`),
       page.locator(`[id="${target}"]`),
