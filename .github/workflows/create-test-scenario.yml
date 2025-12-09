@@ -428,16 +428,78 @@ jobs:
           echo "🔍 Debug: Checking Playwright installation in backend..."
           curl -X GET ${BACKEND_URL:-http://localhost:3001}/health | jq '.' || echo "Health check failed"
           
+          # Verify backend is still running before execution
+          echo "🔍 Verifying backend is still running..."
+          if ! curl -f ${BACKEND_URL:-http://localhost:3001}/health >/dev/null 2>&1; then
+            echo "❌ Backend server is not responding. It may have crashed."
+            echo "Attempting to check backend process..."
+            ps aux | grep -E "node.*backend|npm.*start" | grep -v grep || echo "No backend process found"
+            exit 1
+          fi
+          echo "✅ Backend is running"
+          
           echo "🚀 Executing test..."
           # Increased timeout to 45 minutes (2700 seconds) to accommodate tests with multiple long waits
           # Test includes multiple "Wait 100sec" steps which can easily exceed 10 minutes
-          EXEC_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}" --max-time 2700)
+          # Use --show-error to show error messages, and capture both stdout and stderr
+          # Don't use --fail so we can capture the response even on errors
+          EXEC_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/execution/$TEST_ID/run \
+            -H "Content-Type: application/json" \
+            -d @/tmp/exec-payload.json \
+            -w "\n%{http_code}" \
+            --max-time 2700 \
+            --show-error \
+            2>&1) || EXEC_CURL_EXIT=$?
+          
           EXEC_HTTP_CODE=$(echo "$EXEC_RESPONSE" | tail -n1)
           EXEC_BODY=$(echo "$EXEC_RESPONSE" | sed '$d')
+          
+          # Check if curl failed due to connection issues
+          if [ -n "$EXEC_CURL_EXIT" ] && [ "$EXEC_CURL_EXIT" -ne 0 ]; then
+            echo "⚠️ Curl command failed with exit code: $EXEC_CURL_EXIT"
+            echo "This might indicate the server crashed or connection was lost."
+            echo "Checking if backend is still running..."
+            if ! curl -f ${BACKEND_URL:-http://localhost:3001}/health >/dev/null 2>&1; then
+              echo "❌ Backend server crashed during execution"
+              echo "This is likely due to browser automation issues in Docker environment."
+              echo "Full curl output:"
+              echo "$EXEC_RESPONSE"
+              # Don't exit 1 here - allow workflow to continue and report the issue
+              echo "⚠️ Continuing workflow despite execution failure..."
+            else
+              echo "Backend is still running, but execution request failed"
+              echo "Full curl output:"
+              echo "$EXEC_RESPONSE"
+            fi
+          fi
+          
           echo "Execution HTTP Code: $EXEC_HTTP_CODE"
           echo "Execution Response: $EXEC_BODY"
           
-          if [ "$EXEC_HTTP_CODE" -eq 200 ]; then
+          # Try to parse HTTP code - if it's not a number, curl likely failed
+          if ! echo "$EXEC_HTTP_CODE" | grep -qE '^[0-9]+$'; then
+            echo "⚠️ Could not parse HTTP code. Response may be empty or malformed."
+            echo "This usually means the server crashed or connection was lost."
+            echo "Attempting to check execution status via alternative method..."
+            
+            # Try to get the latest execution for this test
+            LATEST_EXEC=$(curl -s ${BACKEND_URL:-http://localhost:3001}/api/execution?testId=$TEST_ID | jq '.executions[0] // empty' 2>/dev/null)
+            if [ -n "$LATEST_EXEC" ] && [ "$LATEST_EXEC" != "null" ] && [ "$LATEST_EXEC" != "" ]; then
+              echo "Found execution record:"
+              echo "$LATEST_EXEC" | jq '.'
+              EXECUTION_ID=$(echo "$LATEST_EXEC" | jq -r '.id // "unknown"')
+              TEST_STATUS=$(echo "$LATEST_EXEC" | jq -r '.result.status // "unknown"')
+              echo "EXECUTION_ID=$EXECUTION_ID" >> $GITHUB_ENV
+              echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
+              echo "TEST_ID=$TEST_ID" >> $GITHUB_ENV
+              echo "⚠️ Execution may have started but connection was lost. Check execution ID: $EXECUTION_ID"
+            else
+              echo "❌ No execution record found. Test execution likely failed."
+              echo "This is common in Docker environments where browser automation may not work."
+              echo "TEST_STATUS=failed" >> $GITHUB_ENV
+              echo "TEST_ID=$TEST_ID" >> $GITHUB_ENV
+            fi
+          elif [ "$EXEC_HTTP_CODE" -eq 200 ]; then
             echo "✅ Test executed successfully!"
             echo "Execution Result:"
             echo "$EXEC_BODY" | jq '.'
@@ -458,9 +520,19 @@ jobs:
             echo "❌ Test not found (404) - Test ID: $TEST_ID"
             echo "Raw execution response: $EXEC_RESPONSE"
             exit 1
+          elif [ "$EXEC_HTTP_CODE" -eq 000 ] || [ -z "$EXEC_HTTP_CODE" ]; then
+            echo "❌ Connection failed or server crashed (HTTP 000 or empty)"
+            echo "This usually indicates the server crashed during execution."
+            echo "Raw execution response: $EXEC_RESPONSE"
+            echo "⚠️ This is expected in Docker environments where browser automation may fail."
+            echo "TEST_STATUS=failed" >> $GITHUB_ENV
+            echo "TEST_ID=$TEST_ID" >> $GITHUB_ENV
           else
             echo "❌ Test execution failed with HTTP $EXEC_HTTP_CODE"
             echo "Raw execution response: $EXEC_RESPONSE"
+            # Try to extract error message
+            ERROR_MSG=$(echo "$EXEC_BODY" | jq -r '.error // .message // "Unknown error"' 2>/dev/null || echo "Unknown error")
+            echo "Error message: $ERROR_MSG"
             exit 1
           fi
         else

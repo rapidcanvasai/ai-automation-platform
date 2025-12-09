@@ -3119,14 +3119,26 @@ Please respond with JSON:
       return baseTimeout + 3000; // 13 seconds for AI verification
     }
     
+    // Special handling for workspace menu elements that appear after menu expansion
+    // These elements need more time as the menu needs to fully expand and render
+    // Check this BEFORE isAdvancedSettingsElement to ensure workspace-menu gets priority
+    const targetLower = step.target?.toLowerCase() || '';
+    if (step.action === 'click' && targetLower.includes('workspace-menu')) {
+      return 30000; // 30 seconds for workspace menu elements (menu expansion can be slow)
+    }
+    
     // Special handling for dropdown/select elements that appear after UI expansion
     if (step.action === 'click' && this.isDropdownElement(step.target)) {
       return 20000; // 20 seconds for dropdown elements (need time for UI to expand)
     }
     
     // Special handling for elements that appear after "Advanced Settings" click
+    // Note: This check includes "menu" keyword, but workspace-menu is handled above
     if (step.action === 'click' && this.isAdvancedSettingsElement(step.target)) {
-      return 20000; // 20 seconds for Advanced Settings related elements
+      // Skip if it's a workspace-menu element (already handled above)
+      if (!targetLower.includes('workspace-menu')) {
+        return 20000; // 20 seconds for Advanced Settings related elements
+      }
     }
     
     // Special handling for project creation clicks that cause navigation
