@@ -140,79 +140,111 @@ jobs:
         
         # Convert spaces back to newlines for action keywords (same as web interface)
         # The NLP service splits on newlines, so we need to restore them from spaces
-        # Strategy: Split on action keywords, then fix known bad splits
+        # Strategy: Use perl to split on action keywords that appear after word boundaries
         
-        # Handle Open (only for URLs - most reliable pattern)
-        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/ Open https:/\nOpen https:/g')
+        # Start with the original description
+        TEST_DESC_WITH_NEWLINES="${{ env.TEST_DESCRIPTION }}"
         
-        # Handle Enter - pattern: " Enter X in Y" (X is value, Y is target)
-        # Split on " Enter " (space before) or "Enter " (at start)
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ Enter \([^ ]*\) in /\nEnter \1 in /g' | sed 's/^Enter \([^ ]*\) in /Enter \1 in /g')
+        # Normalize multiple spaces to single space first
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+/ /g')
         
-        # Handle Wait - pattern: " Wait Xsec" (time value)
-        # Split on " Wait " (space before) or "Wait " (at start), followed by digits and "sec"
-        # IMPORTANT: Do this FIRST to split "Wait 100sec Verify" correctly
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ Wait \([0-9][0-9]*sec\)/\nWait \1/g' | sed 's/^Wait \([0-9][0-9]*sec\)/Wait \1/g')
+        # CRITICAL: Add spaces before action keywords when they're concatenated
+        # This handles cases like "Wait 2secEnter" -> "Wait 2sec Enter"
+        # Pattern: lowercase/digit followed by uppercase action keyword
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9])(Wait \d+sec)/$1 $2/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9])(Enter )/$1 $2/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9])(Click )/$1 $2/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9])(Verify )/$1 $2/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9])(Open https:)/$1 $2/gi')
         
-        # Handle "Wait Xsec Verify" pattern explicitly - split into two steps
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Wait [0-9]+sec)\s+Verify /$1\nVerify /g')
+        # Handle concatenated patterns like "Wait 2secEnter" -> "Wait 2sec Enter"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Wait \d+sec)(Enter )/$1 $2/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Wait \d+sec)(Click )/$1 $2/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Wait \d+sec)(Verify )/$1 $2/gi')
         
-        # Handle "Verify X Enter Y" pattern - split into two steps
-        # Pattern: "Verify ... Enter" where Enter starts a new action
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Verify [^E]+(?:with AI)?)\s+Enter ([A-Z])/$1\nEnter $2/g')
+        # Handle "Verify XEnter" -> "Verify X Enter"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Verify [^E]+(?:with AI)?)(Enter )/$1 $2/gi')
         
-        # Handle "Verify X with AI Enter Y" pattern - split into two steps
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Verify [^E]+with AI)\s+Enter ([A-Z])/$1\nEnter $2/g')
+        # Handle Open URLs first (most specific pattern)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Open https:/\nOpen https:/g')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/^Open https:/Open https:/g')
         
-        # Handle Verify - split on " Verify " followed by capital letter
-        # But preserve "with AI" as part of Verify step
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ Verify \([A-Z][a-z]*\)/\nVerify \1/g' | sed 's/^Verify \([A-Z][a-z]*\)/Verify \1/g')
+        # CRITICAL: Handle combined Wait patterns BEFORE general Wait splitting
+        # Handle "Wait Xsec Enter Y" pattern - split into two steps
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Wait \d+sec)\s+Enter ([A-Z])/$1\nEnter $2/gi')
         
-        # Handle Enter - pattern: " Enter X in Y" or " Enter X" (X is value, Y is target)
-        # Split on " Enter " (space before) or "Enter " (at start), followed by capital letter
-        # This handles "Enter Which models..." patterns
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ Enter \([A-Z][^ ]*\) in /\nEnter \1 in /g' | sed 's/^Enter \([A-Z][^ ]*\) in /Enter \1 in /g')
-        # Handle "Enter X" without "in" (for AI input fields) - must be followed by capital letter
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Enter ([A-Z][^V][^e][^r][^i][^f][^y][^C][^l][^i][^c][^k][^ ]+)(?=\s+(?:Click|Verify|Wait|Enter|Open|Set|If|Else|End|Upload|$))/\nEnter $1/g')
+        # Handle "Wait Xsec Verify Y" pattern - split into two steps  
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Wait \d+sec)\s+Verify ([A-Za-z])/$1\nVerify $2/gi')
         
-        # Handle If statements - "If " (with space) for patterns like "If text = ..." or "If variable = ..."
-        # Split on " If " (space before) or "If " (at start), and also handle "If(" pattern
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ If /\nIf /g' | sed 's/^If /If /g' | sed 's/ If(/\nIf(/g')
+        # Handle Wait - pattern: "Wait Xsec" (now with spaces normalized)
+        # This comes AFTER the combined patterns above
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Wait (\d+sec)/\nWait $1/g')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/^Wait (\d+sec)/Wait $1/g')
+        
+        # Handle "Verify X Enter Y" pattern explicitly FIRST - split into two steps
+        # This must come before general Verify splitting to catch combined steps
+        # Pattern: "Verify ... Enter Which..." or "Verify ... Enter Show..."
+        # Match "Verify" followed by text (including "E" characters) until " Enter " (with spaces)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Verify .+?)\s+Enter ([A-Z])/$1\nEnter $2/gi')
+        
+        # Handle "Verify X Verify Y" pattern - split consecutive Verify statements
+        # Pattern: "Verify ... Verify New..." or "Verify ... Verify Yale..."
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Verify [^V]+(?:with AI)?)\s+Verify ([A-Z])/$1\nVerify $2/gi')
+        
+        # Handle Verify - split on " Verify X" or "Verify X" at start
+        # Accept both capital and lowercase first letters (e.g., "Verify no error...")
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Verify ([A-Za-z])/\nVerify $1/g')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/^Verify ([A-Za-z])/Verify $1/g')
+        
+        # Handle Enter - split on " Enter X in Y" or "Enter X in Y" at start
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Enter ([^C][^l][^i][^c][^k][^E][^n][^t][^e][^r]+) in /\nEnter $1 in /g')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/^Enter ([^C][^l][^i][^c][^k][^E][^n][^t][^e][^r]+) in /Enter $1 in /g')
+        
+        # Handle "Enter X" without "in" (for AI input fields starting with capital letter)
+        # Pattern: "Enter Which models..." or "Enter Show me..." etc.
+        # Must not be followed immediately by another action keyword
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Enter ([A-Z][^V][^e][^r][^i][^f][^y][^C][^l][^i][^c][^k]+)(?=\s+(?:Click|Verify|Wait|Enter|Open|Set|If|Else|End|Upload|$))/\nEnter $1/g')
+        
+        # Handle If statements - split before "If" when it appears after a word
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9\s])(If\s+)/$1\n$2/gi')
+        # Handle "If(" pattern
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9\s])(If\()/$1\n$2/gi')
         
         # Handle End if / Endif statements (case insensitive)
-        # Split on " End if" or " Endif" (space before) or at start
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ End if/\nEnd if/gi' | sed 's/^End if/End if/gi' | sed 's/ Endif/\nEndif/gi' | sed 's/^Endif/Endif/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9\s])(End\s+if)/$1\n$2/gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9\s])(Endif)/$1\n$2/gi')
         
-        # Handle Set statements - pattern: " Set variable="
-        # Split on " Set " (space before) or "Set " (at start)
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ Set \([a-zA-Z_][a-zA-Z0-9_]*=\)/\nSet \1/g' | sed 's/^Set \([a-zA-Z_][a-zA-Z0-9_]*=\)/Set \1/g')
+        # Handle Set statements - pattern: "Set variable="
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9\s])(Set\s+[a-zA-Z_][a-zA-Z0-9_]*=)/$1\n$2/gi')
         
         # Handle Else statements
-        # Split on " Else " (space before) or "Else " (at start)
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ Else /\nElse /gi' | sed 's/^Else /Else /gi')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9\s])(Else\s+)/$1\n$2/gi')
         
-        # Handle Upload - pattern: " Upload filename.csv to target"
+        # Handle Upload - pattern: "Upload filename.csv to target"
         # Important: "Upload X.csv to Click to select" should stay as ONE line
-        # Split on " Upload " (space before) or "Upload " (at start), followed by filename
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ Upload \([A-Za-z0-9_][^ ]*\.csv\)/\nUpload \1/g' | sed 's/^Upload \([A-Za-z0-9_][^ ]*\.csv\)/Upload \1/g')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9\s])(Upload\s+[A-Za-z0-9_][^\s]*\.csv)/$1\n$2/gi')
         
         # Merge back: "Upload X.csv\nto" should be "Upload X.csv to" (one step)
-        # Use perl for cross-platform compatibility (works on both BSD and GNU sed)
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Upload [^ ]*\.csv)\nto/$1 to/g')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(Upload\s+[^\s]*\.csv)\nto/$1 to/gi')
         
-        # Handle Click - pattern: " Click X" or " Click on X"
-        # But NOT "Click to select" (that's part of upload target)
-        # Split on " Click on " (space before) or "Click on " (at start)
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ Click on /\nClick on /g' | sed 's/^Click on /Click on /g')
-        # Split on " Click " followed by capital letter, but be careful with "Click to"
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ Click \([A-Z][a-z]*\)/\nClick \1/g' | sed 's/^Click \([A-Z][a-z]*\)/Click \1/g')
+        # Handle Click - split on " Click on X" or "Click on X" at start
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Click on /\nClick on /g')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/^Click on /Click on /g')
+        # Handle concatenated: "XClick on X" -> "X\nClick on X"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9])(Click on )/$1\n$2/gi')
+        
+        # Split on " Click X" (where X starts with capital) or "Click X" at start
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+Click ([A-Z])/\nClick $1/g')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/^Click ([A-Z])/Click $1/g')
+        # Handle concatenated: "XClick X" -> "X\nClick X"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/([a-z0-9])(Click [A-Z])/$1\n$2/gi')
         
         # Fix: merge back "Click to" (part of upload target, not a new action)
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\nClick\nto/ Click to/g')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\nClick\s+to/ Click to/gi')
         
         # Handle "then" clauses - split action after "then"
         # Pattern: "then action" where action is Click, Enter, Wait, Verify, Set, etc.
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ then Click/\nthen Click/g' | sed 's/ then Enter/\nthen Enter/g' | sed 's/ then Wait/\nthen Wait/g' | sed 's/ then Verify/\nthen Verify/g' | sed 's/ then Set/\nthen Set/g')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/\s+then\s+(Click|Enter|Wait|Verify|Set|Open|If|Else|End|Upload)/\nthen $1/gi')
         
         # Fix bad splits using perl (works on both BSD and GNU sed environments)
         # Merge "Verify\nUpload" back to "Verify Upload" (Upload is target, not new action)
