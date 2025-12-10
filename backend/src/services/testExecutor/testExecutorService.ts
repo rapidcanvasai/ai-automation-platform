@@ -951,7 +951,14 @@ export class TestExecutorService {
     // Hints: xpath=..., css=..., id=..., link=..., partialLink=...
     // Check for direct locator paths FIRST before creating RegExp (which can fail on xpath syntax)
     if (/^xpath\s*=\s*/i.test(target) || target.startsWith('//')) {
-      let expr = target.replace(/^xpath\s*=\s*/i, '');
+      let expr = target.replace(/^xpath\s*=\s*/i, '').trim();
+      
+      // Strip outer quotes if present (handles cases like xpath="//div" or xpath='//div')
+      // This is important because the target might come in as xpath="//li[@role="option"][1]"
+      if ((expr.startsWith('"') && expr.endsWith('"')) || (expr.startsWith("'") && expr.endsWith("'"))) {
+        expr = expr.slice(1, -1);
+        console.log(`🔧 Stripped outer quotes from xpath expression`);
+      }
       
       // Fix xpath expressions with unquoted attribute values
       // Pattern: @attribute=value should become @attribute="value"
@@ -965,11 +972,45 @@ export class TestExecutorService {
         return match;
       });
       
+      // Handle xpath numeric predicates at the end (e.g., [1], [2], etc.)
+      // Playwright doesn't support numeric predicates in xpath, so we need to strip them
+      // and use .first(), .nth(), etc. instead
+      let xpathIndex: number | undefined;
+      const numericPredicateMatch = expr.match(/\[(\d+)\]$/);
+      if (numericPredicateMatch) {
+        xpathIndex = parseInt(numericPredicateMatch[1], 10);
+        // Remove the numeric predicate from the xpath
+        expr = expr.replace(/\[\d+\]$/, '');
+        console.log(`🔧 Detected xpath numeric predicate [${xpathIndex}], stripping it and using Playwright's index instead`);
+      }
+      
+      console.log(`🎯 Final xpath expression: ${expr}`);
+      console.log(`🎯 Xpath expression length: ${expr.length}`);
+      console.log(`🎯 Xpath expression starts with //: ${expr.startsWith('//')}`);
+      
       // Also try to extract data-testid from xpath and add as fallback locator
       const dataTestIdMatch = expr.match(/@data-testid\s*=\s*["']?([^"'\s=\]]+)["']?/i);
       const testIdMatch = expr.match(/@test-id\s*=\s*["']?([^"'\s=\]]+)["']?/i);
       
-      const locators = [page.locator(expr)];
+      // Create locator and apply index if needed
+      // Playwright's locator() accepts xpath expressions that start with //
+      // Make sure the expression is a valid xpath
+      if (!expr.startsWith('//')) {
+        console.log(`⚠️ Warning: xpath expression doesn't start with //, this might cause issues`);
+      }
+      let baseLocator = page.locator(expr);
+      console.log(`✅ Created xpath locator for expression: ${expr}`);
+      console.log(`✅ Locator toString(): ${baseLocator.toString()}`);
+      if (xpathIndex !== undefined) {
+        // xpath [1] means first element (index 0 in Playwright)
+        // xpath [2] means second element (index 1 in Playwright)
+        if (xpathIndex === 1) {
+          baseLocator = baseLocator.first();
+        } else {
+          baseLocator = baseLocator.nth(xpathIndex - 1);
+        }
+      }
+      const locators = [baseLocator];
       
       // Add fallback locators using data-testid if found
       if (dataTestIdMatch) {
@@ -1180,8 +1221,38 @@ export class TestExecutorService {
   private inputLocators(page: Page, target: string) {
     // Check for direct locator paths FIRST before creating RegExp (which can fail on xpath syntax)
     if (/^xpath\s*=\s*/i.test(target) || target.startsWith('//')) {
-      const expr = target.replace(/^xpath\s*=\s*/i, '');
-      return [page.locator(expr)];
+      let expr = target.replace(/^xpath\s*=\s*/i, '').trim();
+      
+      // Strip outer quotes if present (handles cases like xpath="//div" or xpath='//div')
+      if ((expr.startsWith('"') && expr.endsWith('"')) || (expr.startsWith("'") && expr.endsWith("'"))) {
+        expr = expr.slice(1, -1);
+        console.log(`🔧 Stripped outer quotes from xpath expression in input locator`);
+      }
+      
+      // Handle xpath numeric predicates at the end (e.g., [1], [2], etc.)
+      // Playwright doesn't support numeric predicates in xpath, so we need to strip them
+      // and use .first(), .nth(), etc. instead
+      let xpathIndex: number | undefined;
+      const numericPredicateMatch = expr.match(/\[(\d+)\]$/);
+      if (numericPredicateMatch) {
+        xpathIndex = parseInt(numericPredicateMatch[1], 10);
+        // Remove the numeric predicate from the xpath
+        expr = expr.replace(/\[\d+\]$/, '');
+        console.log(`🔧 Detected xpath numeric predicate [${xpathIndex}] in input locator, stripping it and using Playwright's index instead`);
+      }
+      
+      // Create locator and apply index if needed
+      let baseLocator = page.locator(expr);
+      if (xpathIndex !== undefined) {
+        // xpath [1] means first element (index 0 in Playwright)
+        // xpath [2] means second element (index 1 in Playwright)
+        if (xpathIndex === 1) {
+          baseLocator = baseLocator.first();
+        } else {
+          baseLocator = baseLocator.nth(xpathIndex - 1);
+        }
+      }
+      return [baseLocator];
     }
     
     const slug = this.slug(target);
@@ -1266,8 +1337,38 @@ export class TestExecutorService {
   private verifyLocators(page: Page, target: string) {
     // Check for direct locator paths FIRST before creating RegExp (which can fail on xpath syntax)
     if (/^xpath\s*=\s*/i.test(target) || target.startsWith('//')) {
-      const expr = target.replace(/^xpath\s*=\s*/i, '');
-      return [page.locator(expr)];
+      let expr = target.replace(/^xpath\s*=\s*/i, '').trim();
+      
+      // Strip outer quotes if present (handles cases like xpath="//div" or xpath='//div')
+      if ((expr.startsWith('"') && expr.endsWith('"')) || (expr.startsWith("'") && expr.endsWith("'"))) {
+        expr = expr.slice(1, -1);
+        console.log(`🔧 Stripped outer quotes from xpath expression in verify locator`);
+      }
+      
+      // Handle xpath numeric predicates at the end (e.g., [1], [2], etc.)
+      // Playwright doesn't support numeric predicates in xpath, so we need to strip them
+      // and use .first(), .nth(), etc. instead
+      let xpathIndex: number | undefined;
+      const numericPredicateMatch = expr.match(/\[(\d+)\]$/);
+      if (numericPredicateMatch) {
+        xpathIndex = parseInt(numericPredicateMatch[1], 10);
+        // Remove the numeric predicate from the xpath
+        expr = expr.replace(/\[\d+\]$/, '');
+        console.log(`🔧 Detected xpath numeric predicate [${xpathIndex}] in verify locator, stripping it and using Playwright's index instead`);
+      }
+      
+      // Create locator and apply index if needed
+      let baseLocator = page.locator(expr);
+      if (xpathIndex !== undefined) {
+        // xpath [1] means first element (index 0 in Playwright)
+        // xpath [2] means second element (index 1 in Playwright)
+        if (xpathIndex === 1) {
+          baseLocator = baseLocator.first();
+        } else {
+          baseLocator = baseLocator.nth(xpathIndex - 1);
+        }
+      }
+      return [baseLocator];
     }
     if (/^css\s*=\s*/i.test(target)) {
       const sel = target.replace(/^css\s*=\s*/i, '');
