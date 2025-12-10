@@ -143,11 +143,28 @@ jobs:
         echo "Original input: ${{ env.TEST_DESCRIPTION }}"
         
         # Convert spaces back to newlines for action keywords (same as web interface)
+        # GitHub Actions converts newlines to spaces, so we need to restore them
+        # The web interface sends text with actual \n characters, so we need to match that
+        # Strategy: Use simple, reliable patterns that work for multi-word values
         # Handle conditional statements as complete lines: "If(text=X) then Action"
-        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/ Open https:/\nOpen https:/g' | sed 's/ Enter /\nEnter /g' | sed 's/ Verify /\nVerify /g' | sed 's/ Wait /\nWait /g' | sed 's/ If(/\nIf(/g')
+        
+        # Start with basic splits on action keywords (order matters - do specific patterns first)
+        # Handle "Click on" BEFORE regular "Click" to avoid splitting "Click on" incorrectly
+        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/ Open https:/\nOpen https:/g' | sed 's/ Click on /\nClick on /g' | sed 's/ Enter /\nEnter /g' | sed 's/ Verify /\nVerify /g' | sed 's/ Wait /\nWait /g' | sed 's/ If(/\nIf(/g')
         
         # Handle Click statements - split only standalone Click, not those after "then"
+        # Use pattern that avoids splitting "Click to" (part of upload targets) and "Click on" (already handled)
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Click /\1\nClick /g')
+        
+        # Handle "then" clauses - split action after "then" (must come after Click handling)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ then Click/\nthen Click/g' | sed 's/ then Enter/\nthen Enter/g' | sed 's/ then Wait/\nthen Wait/g' | sed 's/ then Verify/\nthen Verify/g' | sed 's/ then Set/\nthen Set/g')
+        
+        # Fix bad splits: merge back "Click to" (part of upload target, not a new action)
+        # Use sed -z to handle newlines, or use tr to temporarily replace newlines
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | tr '\n' '\001' | sed 's/\001Click\001to/ Click to/g' | tr '\001' '\n')
+        
+        # Fix bad splits: merge "Verify\nUpload" back to "Verify Upload" (Upload is target, not new action)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | tr '\n' '\001' | sed 's/\001Verify\001Upload/ Verify Upload/g' | tr '\001' '\n')
         
         echo "Restored description with newlines:"
         echo "$TEST_DESC_WITH_NEWLINES"
