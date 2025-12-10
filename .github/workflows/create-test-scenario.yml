@@ -149,17 +149,17 @@ jobs:
         # CRITICAL: Split on "If(" FIRST to keep IF statements intact on their own lines
         TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/ Open https:/\nOpen https:/g' | sed 's/ Enter /\nEnter /g' | sed 's/ Verify /\nVerify /g' | sed 's/ Wait /\nWait /g' | sed 's/ If(/\nIf(/g')
         
-        # Handle "then" clauses FIRST - split "then Click on" as a unit to keep IF statements intact
-        # This must come before splitting standalone "Click on" to avoid breaking IF statements
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ then Click on/\nthen Click on/g' | sed 's/ then Click/\nthen Click/g' | sed 's/ then Enter/\nthen Enter/g' | sed 's/ then Wait/\nthen Wait/g' | sed 's/ then Verify/\nthen Verify/g' | sed 's/ then Set/\nthen Set/g')
+        # Handle "Click on" - split standalone "Click on", but keep IF statements intact
+        # First split on "Click on", then merge back "then\nClick on" to "then Click on" (IF statements)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ Click on /\nClick on /g' | sed 's/^Click on /\nClick on /g')
+        # Merge back "then\nClick on" to keep IF statements intact
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | tr '\n' '\001' | sed 's/\001then\001Click on / then Click on /g' | tr '\001' '\n')
         
-        # Handle "Click on" - split standalone "Click on" (not those already handled by "then" clauses)
-        # Use perl for negative lookbehind to avoid splitting "then Click on" again
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | perl -pe 's/(?<!then ) Click on /\nClick on /g' | sed 's/^Click on /\nClick on /g')
-        
-        # Handle Click statements - split only standalone Click, not those after "then"
-        # Use pattern that avoids splitting "Click to" (part of upload targets) and "Click on" (already handled)
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Click /\1\nClick /g')
+        # Handle Click statements - split standalone "Click", but keep IF statements intact
+        # First split on "Click", then merge back "then\nClick" to "then Click" (IF statements)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Click /\1\nClick /g' | sed 's/^Click /\nClick /g')
+        # Merge back "then\nClick" to keep IF statements intact
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | tr '\n' '\001' | sed 's/\001then\001Click / then Click /g' | tr '\001' '\n')
         
         # Fix bad splits: merge back "Click to" (part of upload target, not a new action)
         # Use sed -z to handle newlines, or use tr to temporarily replace newlines
