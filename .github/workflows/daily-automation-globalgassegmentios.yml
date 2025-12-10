@@ -59,6 +59,7 @@ env:
   HEADLESS: true
   DATAAPP_NAME: 'Seguimentos Dashboard'
   TENANT_NAME: 'Global Gas'
+  SLACK_MENTION: 'U08HRLKPTKJ'  # Use Slack user ID (e.g., U1234567890) for proper mentions, or username (e.g., Pablo Souza)
 
 jobs:
   create-test-scenario:
