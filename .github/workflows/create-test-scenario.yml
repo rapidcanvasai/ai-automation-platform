@@ -149,17 +149,13 @@ jobs:
         # CRITICAL: Split on "If(" FIRST to keep IF statements intact on their own lines
         TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/ Open https:/\nOpen https:/g' | sed 's/ Enter /\nEnter /g' | sed 's/ Verify /\nVerify /g' | sed 's/ Wait /\nWait /g' | sed 's/ If(/\nIf(/g')
         
-        # Handle "Click on" - split standalone "Click on", but keep IF statements intact
-        # First split on "Click on", then merge back "then\nClick on" to "then Click on" (IF statements)
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/ Click on /\nClick on /g' | sed 's/^Click on /\nClick on /g')
-        # Merge back "then\nClick on" to keep IF statements intact
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | tr '\n' '\001' | sed 's/\001then\001Click on / then Click on /g' | tr '\001' '\n')
+        # Handle "Click on" - split ONLY on lines that don't start with "If(" to keep IF statements intact
+        # Use awk to conditionally split: if line starts with "If(", leave it alone; otherwise split on "Click on"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | awk '/^If\(/ {print; next} {gsub(/ Click on /, "\nClick on "); gsub(/^Click on /, "\nClick on "); print}')
         
-        # Handle Click statements - split standalone "Click", but keep IF statements intact
-        # First split on "Click", then merge back "then\nClick" to "then Click" (IF statements)
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | sed 's/\([^n]\) Click /\1\nClick /g' | sed 's/^Click /\nClick /g')
-        # Merge back "then\nClick" to keep IF statements intact
-        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | tr '\n' '\001' | sed 's/\001then\001Click / then Click /g' | tr '\001' '\n')
+        # Handle Click statements - split ONLY on lines that don't start with "If(" to keep IF statements intact
+        # Use awk to conditionally split: if line starts with "If(", leave it alone; otherwise split on standalone "Click"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | awk '/^If\(/ {print; next} {gsub(/ Click /, "\nClick "); gsub(/^Click /, "\nClick "); print}')
         
         # Fix bad splits: merge back "Click to" (part of upload target, not a new action)
         # Use sed -z to handle newlines, or use tr to temporarily replace newlines
