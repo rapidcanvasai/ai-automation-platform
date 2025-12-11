@@ -50,8 +50,8 @@ env:
     Open https://app.rapidcanvas.ai/ Wait 2sec Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Wait 2sec Verify Dashboard Wait 10sec Click on xpath=//*[@data-testid=top-nav-bar-workspace-menu] Wait 5sec Click on xpath=//*[@data-testid=workspace-menu-tenant-name] Wait 5sec Enter milton in Type to search with AI Wait 5sec Click on xpath=//*[@test-id=tenant-menu-tenant-list-items]/li[1] Wait 10sec Open https://app.rapidcanvas.ai/apps/Untitled%20DataApp%201/MiltonCAT Wait 10sec Verify Inventory Alerts & Ordering with AI Verify Demand Forecasting with AI Verify Supply Chain Dashboard with AI Verify Critical Items with AI Verify Total value in stock with AI Verify Items in stock with AI Verify no error messages or exceptions are displayed on UI with AI Click Demand Forecasting with AI Wait 10sec Verify no error messages or exceptions are displayed on UI with AI
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENAI_MODEL: gpt-4o-mini
-  SLACK_CHANNEL: 'rc-demo-alerts'
-  SLACK_CHANNEL_ID: 'C09LBP27N9Y'
+  SLACK_CHANNEL: 'rc-cust-miltoncat-internal'
+  SLACK_CHANNEL_ID: 'C090S4VKZKK'
   SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
   ENABLE_SLACK: true
