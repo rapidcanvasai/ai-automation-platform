@@ -341,14 +341,29 @@ jobs:
         echo " Saving configuration..."
 
         CONFIG_PATH=".github/automation-configs/${{ env.CONFIG_FILE }}"
-        UPDATED_CONFIGS='${{ steps.process-action.outputs.updated_configs }}'
-
-        # Save to file
-        echo "$UPDATED_CONFIGS" | jq '.' > "$CONFIG_PATH"
+        
+        # Use Python to safely write JSON with special characters (like parentheses in xpath)
+        # This completely avoids shell parsing issues by using Python's raw string handling
+        python3 << PYTHON_SCRIPT
+        import json
+        
+        # Read JSON from GitHub Actions output
+        json_data = r'''${{ steps.process-action.outputs.updated_configs }}'''
+        
+        # Write to temp file
+        with open('/tmp/config_output.json', 'w') as f:
+            f.write(json_data)
+        PYTHON_SCRIPT
+        
+        # Validate and format the JSON, then save to final location
+        cat /tmp/config_output.json | jq '.' > "$CONFIG_PATH"
 
         echo " Configuration saved to: $CONFIG_PATH"
         echo " Configuration content:"
         cat "$CONFIG_PATH"
+        
+        # Clean up temp file
+        rm -f /tmp/config_output.json
 
     - name: Create scheduled workflow file
       if: inputs.action == 'create' || inputs.action == 'update'
