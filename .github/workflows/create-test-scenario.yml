@@ -164,6 +164,12 @@ jobs:
         # Fix bad splits: merge "Verify\nUpload" back to "Verify Upload" (Upload is target, not new action)
         TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | tr '\n' '\001' | sed 's/\001Verify\001Upload/ Verify Upload/g' | tr '\001' '\n')
         
+        # Fix bad splits: merge "Enter X in\nEnter Y" back to "Enter X in Enter Y" 
+        # This handles cases like "Enter 30209 in Enter Customer ID" which should be one action
+        # Pattern: "Enter [anything] in\nEnter [anything]" -> "Enter [anything] in Enter [anything]"
+        # Use a more flexible pattern that matches any text between "Enter " and " in" on one line
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | tr '\n' '\001' | sed 's/\001Enter \([^\001]*\) in\001Enter / Enter \1 in Enter /g' | tr '\001' '\n')
+        
         echo "Restored description with newlines:"
         echo "$TEST_DESC_WITH_NEWLINES"
         echo ""
