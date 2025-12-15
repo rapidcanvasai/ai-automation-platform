@@ -2922,14 +2922,16 @@ Please respond with JSON:
     const candidates = await page.evaluate((targetText: string) => {
       const elements: Array<{
         selector: string;
+        xpath: string;
         text: string;
         tagName: string;
         confidence: number;
         reasoning: string;
+        isVisible: boolean;
       }> = [];
       
       const textElements = document.querySelectorAll(
-        'h1, h2, h3, h4, h5, h6, p, span, div, td, th, li, [role="heading"], .title, .heading'
+        'h1, h2, h3, h4, h5, h6, p, span, div, td, th, li, label, [role="heading"], .title, .heading'
       );
       
       const targetLower = targetText.toLowerCase();
@@ -2937,7 +2939,20 @@ Please respond with JSON:
       
       for (const element of Array.from(textElements)) {
         const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        
+        // Check if element is actually visible
+        const isVisible = rect.width > 5 && rect.height > 5 &&
+                         style.display !== 'none' &&
+                         style.visibility !== 'hidden' &&
+                         style.opacity !== '0' &&
+                         !element.hasAttribute('hidden');
+        
+        // Skip hidden elements (but still check them as fallback)
         if (rect.width < 5 || rect.height < 5) continue;
+        
+        // Skip option elements and other hidden form elements
+        if (element.tagName === 'OPTION' && !isVisible) continue;
         
         const text = element.textContent?.trim() || '';
         if (text.length < 3) continue;
@@ -2945,58 +2960,120 @@ Please respond with JSON:
         const textLower = text.toLowerCase();
         const textWords = textLower.split(/\s+/);
         
+        // Generate XPath for this element
+        const xpath = `//*[text()="${text.replace(/"/g, '\\"')}"]`;
+        
         // Exact match
         if (textLower === targetLower) {
           elements.push({
             selector: `text=${text}`,
+            xpath,
             text,
             tagName: element.tagName,
-            confidence: 0.95,
-            reasoning: `Exact text match: "${text}"`
+            confidence: isVisible ? 0.95 : 0.7, // Lower confidence for hidden elements
+            reasoning: `Exact text match: "${text}"${isVisible ? ' (visible)' : ' (hidden)'}`,
+            isVisible
           });
         }
         // All words match
         else if (targetWords.every(word => textWords.includes(word))) {
           elements.push({
             selector: `text=${text}`,
+            xpath,
             text,
             tagName: element.tagName,
-            confidence: 0.8,
-            reasoning: `All words match: "${text}"`
+            confidence: isVisible ? 0.8 : 0.5,
+            reasoning: `All words match: "${text}"${isVisible ? ' (visible)' : ' (hidden)'}`,
+            isVisible
           });
         }
         // Partial match
         else if (textLower.includes(targetLower)) {
           elements.push({
             selector: `text=${text}`,
+            xpath,
             text,
             tagName: element.tagName,
-            confidence: 0.6,
-            reasoning: `Partial text match: "${text}"`
+            confidence: isVisible ? 0.6 : 0.3,
+            reasoning: `Partial text match: "${text}"${isVisible ? ' (visible)' : ' (hidden)'}`,
+            isVisible
           });
         }
       }
       
-      return elements.sort((a, b) => b.confidence - a.confidence);
+      // Sort by visibility first, then confidence
+      return elements.sort((a, b) => {
+        if (a.isVisible !== b.isVisible) {
+          return a.isVisible ? -1 : 1;
+        }
+        return b.confidence - a.confidence;
+      });
     }, target);
     
     if (candidates.length === 0) {
       throw new Error(`AI verification failed: No elements found matching "${target}"`);
     }
     
-    console.log(`AI found ${candidates.length} verification candidates, trying top match...`);
+    console.log(`AI found ${candidates.length} verification candidates, trying visible matches first...`);
     
-    const candidate = candidates[0];
-    console.log(`Verifying AI candidate: ${candidate.reasoning} (confidence: ${candidate.confidence})`);
-    
-    try {
-      const locator = page.locator(candidate.selector).first();
-      await locator.waitFor({ state: 'visible', timeout: 5000 });
+    // Try candidates in order until one works
+    let lastError: Error | null = null;
+    for (let i = 0; i < Math.min(candidates.length, 5); i++) {
+      const candidate = candidates[i];
+      console.log(`Verifying AI candidate ${i + 1}/${Math.min(candidates.length, 5)}: ${candidate.reasoning} (confidence: ${candidate.confidence})`);
       
-      console.log(`AI successfully verified: "${candidate.text}" using ${candidate.selector}`);
-    } catch (error) {
-      throw new Error(`AI verification failed: ${(error as Error).message}`);
+      try {
+        // Try text selector first - get all matches and find visible one
+        const allMatches = page.locator(candidate.selector);
+        const count = await allMatches.count();
+        
+        let foundVisible = false;
+        for (let j = 0; j < count; j++) {
+          const locator = allMatches.nth(j);
+          const isVisible = await locator.isVisible().catch(() => false);
+          if (isVisible) {
+            await locator.waitFor({ state: 'visible', timeout: 5000 });
+            console.log(`AI successfully verified: "${candidate.text}" using ${candidate.selector} (match ${j + 1})`);
+            foundVisible = true;
+            break;
+          }
+        }
+        
+        if (foundVisible) {
+          return; // Success!
+        }
+        
+        throw new Error('No visible elements found with text selector');
+      } catch (error) {
+        lastError = error as Error;
+        console.log(`  ⚠️ Candidate ${i + 1} failed: ${(error as Error).message}`);
+        
+        // Try XPath as fallback for this candidate
+        try {
+          console.log(`  🔄 Trying XPath fallback: ${candidate.xpath}`);
+          const xpathLocator = page.locator(`xpath=${candidate.xpath}`).first();
+          await xpathLocator.waitFor({ state: 'visible', timeout: 5000 });
+          console.log(`AI successfully verified: "${candidate.text}" using XPath ${candidate.xpath}`);
+          return; // Success with XPath!
+        } catch (xpathError) {
+          console.log(`  ⚠️ XPath fallback also failed: ${(xpathError as Error).message}`);
+          // Continue to next candidate
+        }
+      }
     }
+    
+    // If all candidates failed, try the user's suggested XPath
+    try {
+      console.log(`🔄 Trying user-suggested XPath: //*[text()="${target}"]`);
+      const userXPath = page.locator(`xpath=//*[text()="${target}"]`).first();
+      await userXPath.waitFor({ state: 'visible', timeout: 5000 });
+      console.log(`AI successfully verified: "${target}" using user-suggested XPath`);
+      return; // Success!
+    } catch (xpathError) {
+      console.log(`  ⚠️ User-suggested XPath also failed: ${(xpathError as Error).message}`);
+    }
+    
+    throw new Error(`AI verification failed: All ${Math.min(candidates.length, 5)} candidates failed. Last error: ${lastError?.message || 'Unknown error'}`);
   }
 
   private async scrollSweep(page: Page) {
