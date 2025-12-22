@@ -317,6 +317,20 @@ export class TestExecutorService {
           return;
         }
         
+        // Special handling for option elements in select dropdowns
+        // Options cannot be clicked directly - they must be selected via the parent select element
+        const isOptionElement = /option\[/i.test(target) || /\/option/i.test(target);
+        if (isOptionElement) {
+          console.log(`🎯 Option element detected: "${target}" - using selectOption() instead of click()`);
+          try {
+            await this.handleOptionSelection(page, target);
+            return;
+          } catch (error) {
+            console.log(`Option selection failed: ${(error as Error).message}`);
+            throw error;
+          }
+        }
+        
         // Direct locator path detection - if user provides full locator path (xpath=, css=, etc.),
         // click it directly like Playwright/Selenium without any smart logic
         const isDirectLocator = /^(xpath\s*=|css\s*=|id\s*=|link\s*=|partialLink\s*=|\[|#|\.|\/\/)/i.test(target.trim());
@@ -3680,6 +3694,156 @@ Please respond with JSON:
     } catch (error) {
       console.log(`⚠️ Error in smart dropdown interaction: ${(error as Error).message}`);
       return false;
+    }
+  }
+
+  // Handle option element selection in select dropdowns
+  private async handleOptionSelection(page: Page, target: string): Promise<void> {
+    try {
+      console.log(`🎯 Handling option selection for: "${target}"`);
+      
+      // Extract option index from xpath (e.g., //option[2] -> index 1)
+      let optionIndex: number | undefined;
+      const indexMatch = target.match(/option\[(\d+)\]/i);
+      if (indexMatch) {
+        // XPath uses 1-based indexing, but Playwright selectOption uses 0-based
+        optionIndex = parseInt(indexMatch[1], 10) - 1;
+        console.log(`📌 Extracted option index: ${indexMatch[1]} (0-based: ${optionIndex})`);
+      }
+      
+      // Try to find the parent select element
+      const selectSelectors = [
+        'select',
+        'select:visible',
+        '[role="combobox"]',
+        '.MuiSelect-root select',
+        'select[class*="select"]'
+      ];
+      
+      for (const selector of selectSelectors) {
+        try {
+          const selectLocator = page.locator(selector).first();
+          const count = await selectLocator.count();
+          
+          if (count > 0) {
+            console.log(`✅ Found select element using selector: ${selector}`);
+            
+            // Wait for select to be visible and enabled
+            await selectLocator.waitFor({ state: 'visible', timeout: 5000 });
+            await selectLocator.waitFor({ state: 'attached', timeout: 5000 });
+            
+            // If we have an option index, use it
+            if (optionIndex !== undefined && optionIndex >= 0) {
+              console.log(`📌 Selecting option by index: ${optionIndex}`);
+              await selectLocator.selectOption({ index: optionIndex });
+              console.log(`✅ Successfully selected option at index ${optionIndex}`);
+            } else {
+              // Try to find the option element and get its value or index
+              console.log(`🔍 Option index not found, trying to find option element...`);
+              
+              // Extract the xpath expression
+              let xpathExpr = target.replace(/^xpath\s*=\s*/i, '').trim();
+              if ((xpathExpr.startsWith('"') && xpathExpr.endsWith('"')) || 
+                  (xpathExpr.startsWith("'") && xpathExpr.endsWith("'"))) {
+                xpathExpr = xpathExpr.slice(1, -1);
+              }
+              
+              // Try to find the option element
+              const optionLocator = page.locator(xpathExpr).first();
+              const optionCount = await optionLocator.count();
+              
+              if (optionCount > 0) {
+                // Get the option's value or index
+                const optionValue = await optionLocator.getAttribute('value').catch(() => null);
+                const optionText = await optionLocator.textContent().catch(() => null);
+                
+                // Try selecting by value first
+                if (optionValue) {
+                  console.log(`📌 Selecting option by value: ${optionValue}`);
+                  await selectLocator.selectOption(optionValue);
+                  console.log(`✅ Successfully selected option by value: ${optionValue}`);
+                } else if (optionText) {
+                  // Try selecting by label/text
+                  console.log(`📌 Selecting option by label: ${optionText.trim()}`);
+                  await selectLocator.selectOption({ label: optionText.trim() });
+                  console.log(`✅ Successfully selected option by label: ${optionText.trim()}`);
+                } else {
+                  // Fallback: find the option's index within the select
+                  const optionIndexInSelect = await page.evaluate((xpath) => {
+                    const option = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue as HTMLOptionElement;
+                    if (option && option.parentElement) {
+                      const select = option.parentElement as HTMLSelectElement;
+                      return Array.from(select.options).indexOf(option);
+                    }
+                    return -1;
+                  }, xpathExpr);
+                  
+                  if (optionIndexInSelect >= 0) {
+                    console.log(`📌 Selecting option by calculated index: ${optionIndexInSelect}`);
+                    await selectLocator.selectOption({ index: optionIndexInSelect });
+                    console.log(`✅ Successfully selected option at index ${optionIndexInSelect}`);
+                  } else {
+                    throw new Error('Could not determine option index');
+                  }
+                }
+              } else {
+                throw new Error(`Option element not found with xpath: ${xpathExpr}`);
+              }
+            }
+            
+            // Wait a bit for the selection to take effect
+            await page.waitForTimeout(500);
+            return;
+          }
+        } catch (error) {
+          console.log(`⚠️ Selector ${selector} failed: ${(error as Error).message}`);
+          continue;
+        }
+      }
+      
+      // If no select found, try to find it via the option element's parent
+      console.log(`🔄 No select found with standard selectors, trying to find via option parent...`);
+      let xpathExpr = target.replace(/^xpath\s*=\s*/i, '').trim();
+      if ((xpathExpr.startsWith('"') && xpathExpr.endsWith('"')) || 
+          (xpathExpr.startsWith("'") && xpathExpr.endsWith("'"))) {
+        xpathExpr = xpathExpr.slice(1, -1);
+      }
+      
+      // Find the option and get its parent select
+      const optionLocator = page.locator(xpathExpr).first();
+      const optionCount = await optionLocator.count();
+      
+      if (optionCount > 0) {
+        // Get the parent select element
+        const selectElement = await page.evaluate((xpath) => {
+          const option = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue as HTMLOptionElement;
+          if (option && option.parentElement && option.parentElement.tagName === 'SELECT') {
+            return (option.parentElement as HTMLSelectElement).id || 
+                   (option.parentElement as HTMLSelectElement).name ||
+                   null;
+          }
+          return null;
+        }, xpathExpr);
+        
+        if (selectElement) {
+          const selectLocator = page.locator(`select#${selectElement}, select[name="${selectElement}"]`).first();
+          const count = await selectLocator.count();
+          if (count > 0) {
+            if (optionIndex !== undefined && optionIndex >= 0) {
+              await selectLocator.selectOption({ index: optionIndex });
+              console.log(`✅ Successfully selected option at index ${optionIndex} via parent select`);
+              await page.waitForTimeout(500);
+              return;
+            }
+          }
+        }
+      }
+      
+      throw new Error(`Could not find select element for option: ${target}`);
+      
+    } catch (error) {
+      console.log(`❌ Option selection failed: ${(error as Error).message}`);
+      throw error;
     }
   }
 
