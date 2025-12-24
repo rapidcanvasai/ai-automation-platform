@@ -47,7 +47,7 @@ on:
 
 env:
   TEST_DESCRIPTION: |
-    Open https://rapidcanvas.orionic.com/ Enter testAutomation@gmail.com in email Enter testAutomation03@ in Password Click Sign In Verify Dashboard Wait 5sec Open https://rapidcanvas.orionic.com/apps/Code%20Analyzing%20Agent Wait 10sec Click on xpath=//select Wait 1sec Click on xpath=//option[2] Wait 2sec Click Analyze Code with AI Wait 70sec Verify no error messages or exceptions are displayed on UI with AI Wait 1sec Enter How much can I adjust the analysis window in Ask a question about the code... Wait 1sec Click on xpath=//button[@type=submit] Wait 70sec Verify no error messages or exceptions are displayed on UI with AI
+    Open https://rapidcanvas.orionic.com/ Enter testAutomation@gmail.com in email Enter testAutomation03@ in Password Click Sign In Verify Dashboard Wait 5sec Open https://rapidcanvas.orionic.com/apps/Code%20Analyzing%20Agent/OrionTenant Wait 10sec Click on xpath=//select Wait 1sec Click on xpath=//option[2] Wait 2sec Click Analyze Code with AI Wait 70sec Verify no error messages or exceptions are displayed on UI with AI Wait 1sec Enter How much can I adjust the analysis window in Ask a question about the code... Wait 1sec Click on xpath=//button[@type=submit] Wait 70sec Verify no error messages or exceptions are displayed on UI with AI
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENAI_MODEL: gpt-4o-mini
   SLACK_CHANNEL: 'rc-cust-orion-internal'

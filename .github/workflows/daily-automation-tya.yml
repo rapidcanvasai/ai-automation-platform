@@ -35,7 +35,7 @@ on:
 
 env:
   TEST_DESCRIPTION: |
-    Open https://app.rapidcanvas.ai/ Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Verify Dashboard Open https://app.rapidcanvas.ai/apps/TYA_CausalInference?autoLaunch=true Wait 30sec If(text=Relaunch) then Click on Relaunch If(text=Launching) then wait 150sec Wait 100sec Click on Pronóstico de Precios: Departamentos with AI Wait 20sec Verify no error messages or exceptions are displayed on UI with AI Click on Pronóstico de Precios: Casas with AI Wait 30sec Verify no error messages or exceptions are displayed on UI with AI Click on Proyecciones de Absorción with AI Wait 30sec Verify no error messages or exceptions are displayed on UIwith AI
+    Open https://app.rapidcanvas.ai/ Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Verify Dashboard Open https://app.rapidcanvas.ai/apps/TYA_CausalInference/TYA%20Dev-Test?autoLaunch=true Wait 30sec If(text=Relaunch) then Click on Relaunch If(text=Launching) then wait 150sec Wait 100sec Click on Pronóstico de Precios: Departamentos with AI Wait 20sec Verify no error messages or exceptions are displayed on UI with AI Click on Pronóstico de Precios: Casas with AI Wait 30sec Verify no error messages or exceptions are displayed on UI with AI Click on Proyecciones de Absorción with AI Wait 30sec Verify no error messages or exceptions are displayed on UIwith AI
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENAI_MODEL: gpt-4o-mini
   SLACK_CHANNEL: 'rc-cust-tya-internal'
