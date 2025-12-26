@@ -45,7 +45,7 @@ env:
   ENABLE_SLACK: true
   SLACK_NOTIFY_ONLY_FAILURES: true
   HEADLESS: true
-  SLACK_MENTION: 'U08HRLKPTKJ'  # Use Slack user ID (e.g., U1234567890) for proper mentions, or username (e.g., Pablo Souza)
+  SLACK_MENTION: 'U09GWTJPJJF'  # Use Slack user ID (e.g., U1234567890) for proper mentions, or username (e.g., Pablo Souza)
   DATAAPP_NAME: 'Jabanas AI Interface'
   TENANT_NAME: 'Jabanas_AI'
 
