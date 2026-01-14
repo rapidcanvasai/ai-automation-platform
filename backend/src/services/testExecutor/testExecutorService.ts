@@ -842,6 +842,92 @@ export class TestExecutorService {
       case 'refresh':
         await page.reload({ waitUntil: 'load' });
         return;
+      case 'scrollDown':
+      case 'scrollDownAI': {
+        try {
+          // Check if scrolling within a specific panel/container
+          if (target && target.trim() && (target.toLowerCase().includes('panel') || target.toLowerCase().includes('queue'))) {
+            // Try to find panel using multiple locator strategies
+            const locatorStrategies = [
+              page.locator(`[class*="${target}"], [id*="${target}"], [data-testid*="${target}"]`).first(),
+              page.locator(`[aria-label*="${target}" i]`).first(),
+              page.locator(`text=/${target}/i`).first(),
+            ];
+            
+            for (const locator of locatorStrategies) {
+              try {
+                const count = await locator.count();
+                if (count > 0) {
+                  await locator.evaluate((el: any) => {
+                    el.scrollBy({ top: el.clientHeight, behavior: 'smooth' });
+                  });
+                  await page.waitForTimeout(500);
+                  if (emit) emit({ type: 'step:info', message: `Scrolled down in ${target}` });
+                  return;
+                }
+              } catch (error) {
+                // Try next strategy
+                continue;
+              }
+            }
+            
+            logger.warn('Could not find panel for scrolling, falling back to page scroll', { target });
+          }
+          
+          // Default: Scroll down the page using mouse wheel (more reliable)
+          await page.mouse.wheel(0, 800);
+          await page.waitForTimeout(500); // Small delay after scroll
+          if (emit) emit({ type: 'step:info', message: 'Scrolled down' });
+        } catch (error) {
+          logger.error('Scroll down failed', { error });
+          if (emit) emit({ type: 'step:error', message: `Failed to scroll down: ${(error as Error).message}` });
+          throw error;
+        }
+        return;
+      }
+      case 'scrollUp':
+      case 'scrollUpAI': {
+        try {
+          // Check if scrolling within a specific panel/container
+          if (target && target.trim() && (target.toLowerCase().includes('panel') || target.toLowerCase().includes('queue'))) {
+            // Try to find panel using multiple locator strategies
+            const locatorStrategies = [
+              page.locator(`[class*="${target}"], [id*="${target}"], [data-testid*="${target}"]`).first(),
+              page.locator(`[aria-label*="${target}" i]`).first(),
+              page.locator(`text=/${target}/i`).first(),
+            ];
+            
+            for (const locator of locatorStrategies) {
+              try {
+                const count = await locator.count();
+                if (count > 0) {
+                  await locator.evaluate((el: any) => {
+                    el.scrollBy({ top: -el.clientHeight, behavior: 'smooth' });
+                  });
+                  await page.waitForTimeout(500);
+                  if (emit) emit({ type: 'step:info', message: `Scrolled up in ${target}` });
+                  return;
+                }
+              } catch (error) {
+                // Try next strategy
+                continue;
+              }
+            }
+            
+            logger.warn('Could not find panel for scrolling, falling back to page scroll', { target });
+          }
+          
+          // Default: Scroll up the page using mouse wheel (more reliable)
+          await page.mouse.wheel(0, -800);
+          await page.waitForTimeout(500); // Small delay after scroll
+          if (emit) emit({ type: 'step:info', message: 'Scrolled up' });
+        } catch (error) {
+          logger.error('Scroll up failed', { error });
+          if (emit) emit({ type: 'step:error', message: `Failed to scroll up: ${(error as Error).message}` });
+          throw error;
+        }
+        return;
+      }
       case 'set':
       case 'store':
       case 'assign': {
@@ -1454,6 +1540,51 @@ export class TestExecutorService {
       } catch (e) { 
         const errorMsg = e instanceof Error ? e.message : String(e);
         console.log(`Locator strategy ${i + 1} failed: ${errorMsg}`);
+        
+        // Reactive auto-heal: Only trigger if action failed and modal might be blocking
+        // Check if error suggests element is blocked (not visible, timeout, etc.)
+        const isBlockingError = errorMsg.includes('not visible') || 
+                                errorMsg.includes('timeout') || 
+                                errorMsg.includes('intercepted') ||
+                                errorMsg.includes('obscured');
+        
+        if (isBlockingError) {
+          // Check if a modal is present and blocking the action
+          const hasBlockingModal = await this.hasBlockingModal(page);
+          if (hasBlockingModal) {
+            logger.info('🔧 Reactive auto-heal: Modal detected blocking action, attempting to close');
+            await this.autoHealModalsAndOverlays(page);
+            // Retry the click after auto-healing
+            try {
+              const loc = locators[i];
+              const node = await this.pickByIndex(loc, index);
+              await node.waitFor({ state: 'attached', timeout: 400 }).catch(() => { throw new Error('not attached'); });
+              const clickTimeout = target?.toLowerCase().includes('sign in') ? 5000 : 1200;
+              await node.click({ timeout: clickTimeout });
+              console.log(`✅ Successfully clicked after auto-heal using locator strategy ${i + 1}`);
+              
+              // Wait for potential DataApp navigation/loading
+              try {
+                if (this.isNavigationElement(target || '') || target?.toLowerCase().includes('next') || target?.toLowerCase().includes('continue') || target?.toLowerCase().includes('proceed')) {
+                  await this.waitForNavigationStability(page);
+                } else {
+                  await this.waitForDataAppStability(page);
+                }
+              } catch (stabilityError) {
+                if ((stabilityError as Error).message.includes('Target page, context or browser has been closed')) {
+                  console.log(`✅ Page closed after click - navigation successful`);
+                } else {
+                  console.log(`⚠️ DataApp stability check warning: ${(stabilityError as Error).message}`);
+                }
+              }
+              return; // Success after auto-heal
+            } catch (retryError) {
+              // Retry failed even after auto-heal, continue to next strategy
+              console.log(`⚠️ Retry after auto-heal failed: ${(retryError as Error).message}`);
+            }
+          }
+        }
+        
         lastErr = e; 
       }
     }
@@ -2000,6 +2131,32 @@ Please respond with JSON:
     }
     
     try {
+      // Proactive check: Before attempting click, check if a modal is blocking
+      // This handles cases where a modal appeared after a previous action (e.g., "Exit Edit Mode" after "View Only Mode")
+      console.log(`🔍 Proactive modal check before clicking "${target}"...`);
+      try {
+        if (!page.isClosed()) {
+          const hasBlockingModal = await this.hasBlockingModal(page);
+          console.log(`🔍 Proactive check result: hasBlockingModal=${hasBlockingModal}`);
+          if (hasBlockingModal) {
+            logger.info(`🔧 Proactive auto-heal: Modal detected before attempting click for "${target}", attempting to close`);
+            console.log(`🔧 Proactive auto-heal triggered for "${target}"`);
+            await this.autoHealModalsAndOverlays(page);
+            await page.waitForTimeout(500); // Wait for modal to close
+            console.log(`✅ Proactive auto-heal completed for "${target}"`);
+          } else {
+            console.log(`✅ No blocking modal detected before clicking "${target}"`);
+          }
+        } else {
+          console.log(`⚠️ Page is closed, skipping proactive modal check`);
+        }
+      } catch (proactiveError) {
+        // Non-fatal: continue with click attempt even if proactive check fails
+        const errorMsg = (proactiveError as Error).message;
+        logger.warn(`Proactive modal check failed (non-fatal): ${errorMsg}`);
+        console.log(`⚠️ Proactive modal check error (non-fatal): ${errorMsg}`);
+      }
+      
       // Use the new AI page analysis service with retry mechanism
       const success = await this.aiPageAnalysisService.executeStrategyWithRetry(page, target, 2);
       
@@ -2027,10 +2184,168 @@ Please respond with JSON:
         return;
       } else {
         console.log(`❌ AI click failed for: "${target}"`);
+        
+        // Reactive auto-heal: Check if a modal is blocking the action
+        // Note: executeStrategyWithRetry might return false if page was closed due to modal
+        try {
+          if (!page.isClosed()) {
+            const hasBlockingModal = await this.hasBlockingModal(page);
+            if (hasBlockingModal) {
+              logger.info(`🔧 Reactive auto-heal: Modal detected blocking AI click for "${target}", attempting to close`);
+              await this.autoHealModalsAndOverlays(page);
+              
+              // Wait a bit for modal to close
+              await page.waitForTimeout(500);
+              
+              // Retry the AI click after auto-healing
+              try {
+                console.log(`🔄 Retrying AI click for "${target}" after auto-heal...`);
+                const retrySuccess = await this.aiPageAnalysisService.executeStrategyWithRetry(page, target, 2);
+                
+                if (retrySuccess) {
+                  console.log(`✅ AI click successful after auto-heal for: "${target}"`);
+                  
+                  // Lightweight stabilization
+                  try {
+                    await page.waitForTimeout(1000);
+                    const currentUrl = page.url();
+                    const currentTitle = await page.title();
+                    console.log(`📄 Current page state after click: ${currentUrl} | "${currentTitle}"`);
+                  } catch (stabilityError) {
+                    if ((stabilityError as Error).message.includes('Target page, context or browser has been closed')) {
+                      console.log(`✅ Page closed after click - navigation successful`);
+                    } else {
+                      console.log(`⚠️ Page stabilization warning: ${(stabilityError as Error).message}`);
+                    }
+                  }
+                  return; // Success after auto-heal
+                } else {
+                  console.log(`⚠️ AI click retry after auto-heal also failed for: "${target}"`);
+                }
+              } catch (retryError) {
+                console.log(`⚠️ AI click retry after auto-heal error: ${(retryError as Error).message}`);
+              }
+            }
+          } else {
+            logger.warn(`Page is closed, cannot check for modals. Error might have been caused by a modal.`);
+          }
+        } catch (healError) {
+          logger.warn(`Auto-heal check failed (non-fatal): ${(healError as Error).message}`);
+        }
+        
         throw new Error(`AI-powered click failed for "${target}"`);
       }
     } catch (error) {
-      console.log(`❌ AI click error: ${(error as Error).message}`);
+      const errorMsg = (error as Error).message;
+      console.log(`❌ AI click error: ${errorMsg}`);
+      
+      // Reactive auto-heal: Check if error suggests blocking modal
+      // Note: "Target page, context or browser has been closed" might indicate a modal caused navigation
+      const isBlockingError = errorMsg.includes('not visible') || 
+                              errorMsg.includes('timeout') || 
+                              errorMsg.includes('intercepted') ||
+                              errorMsg.includes('obscured') ||
+                              errorMsg.includes('failed') ||
+                              errorMsg.includes('Target page, context or browser has been closed');
+      
+      if (isBlockingError) {
+        // Check if page is still accessible (might just be a navigation issue)
+        let pageAccessible = false;
+        try {
+          if (!page.isClosed()) {
+            await page.waitForTimeout(100); // Small wait to see if page is accessible
+            pageAccessible = !page.isClosed();
+          }
+        } catch (e) {
+          // Page might be closed, but we'll still try to check for modals
+        }
+        
+        // Try to check for modals even if page appears closed (it might just be navigation)
+        let hasBlockingModal = false;
+        if (pageAccessible || !page.isClosed()) {
+          try {
+            hasBlockingModal = await this.hasBlockingModal(page);
+          } catch (modalCheckError) {
+            // If page is closed, we can't check for modals, but the error might have been caused by one
+            logger.warn(`Could not check for modals: ${(modalCheckError as Error).message}`);
+          }
+        }
+        
+        // If we detected a blocking modal, or if the error suggests one might exist
+        if (hasBlockingModal || errorMsg.includes('Target page, context or browser has been closed')) {
+          logger.info(`🔧 Reactive auto-heal: Modal detected or page closed error for "${target}", attempting to heal`);
+          console.log(`🔧 Reactive auto-heal triggered for "${target}" - error: ${errorMsg}`);
+          
+          // Try to heal: check if page is accessible and if there's a modal
+          try {
+            // Wait a moment to see if page becomes accessible again (might be navigation, not actual close)
+            console.log(`⏳ Waiting to see if page becomes accessible again...`);
+            await page.waitForTimeout(1000);
+            
+            // Check if page is now accessible
+            let pageAccessible = false;
+            try {
+              if (!page.isClosed()) {
+                // Try a simple operation to verify page is accessible
+                await page.waitForTimeout(100);
+                pageAccessible = !page.isClosed();
+              }
+            } catch (e) {
+              console.log(`⚠️ Page accessibility check failed: ${(e as Error).message}`);
+            }
+            
+            if (pageAccessible) {
+              console.log(`✅ Page is accessible, checking for modals...`);
+              // Check for modals and try to close them
+              const modalStillPresent = await this.hasBlockingModal(page);
+              console.log(`🔍 Modal check result: ${modalStillPresent}`);
+              
+              if (modalStillPresent) {
+                console.log(`🔧 Closing blocking modal...`);
+                await this.autoHealModalsAndOverlays(page);
+                await page.waitForTimeout(500);
+                console.log(`✅ Modal closed, retrying click...`);
+              }
+              
+              // Retry the AI click after auto-healing
+              try {
+                console.log(`🔄 Retrying AI click for "${target}" after auto-heal...`);
+                const retrySuccess = await this.aiPageAnalysisService.executeStrategyWithRetry(page, target, 2);
+                
+                if (retrySuccess) {
+                  console.log(`✅ AI click successful after auto-heal for: "${target}"`);
+                  
+                  // Lightweight stabilization
+                  try {
+                    await page.waitForTimeout(1000);
+                    const currentUrl = page.url();
+                    const currentTitle = await page.title();
+                    console.log(`📄 Current page state after click: ${currentUrl} | "${currentTitle}"`);
+                  } catch (stabilityError) {
+                    if ((stabilityError as Error).message.includes('Target page, context or browser has been closed')) {
+                      console.log(`✅ Page closed after click - navigation successful`);
+                    } else {
+                      console.log(`⚠️ Page stabilization warning: ${(stabilityError as Error).message}`);
+                    }
+                  }
+                  return; // Success after auto-heal
+                } else {
+                  console.log(`⚠️ Retry click failed after auto-heal`);
+                }
+              } catch (retryError) {
+                console.log(`⚠️ AI click retry after auto-heal error: ${(retryError as Error).message}`);
+              }
+            } else {
+              logger.warn(`Page is not accessible, cannot perform auto-heal for "${target}"`);
+              console.log(`⚠️ Page is closed or not accessible, cannot auto-heal`);
+            }
+          } catch (healError) {
+            logger.warn(`Auto-heal attempt failed: ${(healError as Error).message}`);
+            console.log(`❌ Auto-heal error: ${(healError as Error).message}`);
+          }
+        }
+      }
+      
       throw error;
     }
   }
@@ -4408,6 +4723,26 @@ Please respond with JSON:
           const waitTime = parseInt(match[1].replace('sec', '')) * 1000;
           await page.waitForTimeout(waitTime);
         }
+      } else if (/scroll\s+down/i.test(action)) {
+        // Scroll down the page using mouse wheel (more reliable)
+        try {
+          await page.mouse.wheel(0, 800);
+          await page.waitForTimeout(500); // Small delay after scroll
+          emit({ type: 'step:info', message: 'Scrolled down' });
+        } catch (error) {
+          logger.error('Scroll down failed in inline action', { error });
+          emit({ type: 'step:error', message: `Failed to scroll down: ${(error as Error).message}` });
+        }
+      } else if (/scroll\s+up/i.test(action)) {
+        // Scroll up the page using mouse wheel (more reliable)
+        try {
+          await page.mouse.wheel(0, -800);
+          await page.waitForTimeout(500); // Small delay after scroll
+          emit({ type: 'step:info', message: 'Scrolled up' });
+        } catch (error) {
+          logger.error('Scroll up failed in inline action', { error });
+          emit({ type: 'step:error', message: `Failed to scroll up: ${(error as Error).message}` });
+        }
       } else if (/(?:set|store|assign)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)/i.test(action)) {
         // Handle variable assignment in inline actions
         const match = action.match(/(?:set|store|assign)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)/i);
@@ -4744,6 +5079,620 @@ Please respond with JSON:
     } catch (error) {
       console.log(`Error checking failed: ${error}`);
       // Don't throw here, just log the error
+    }
+  }
+
+  /**
+   * AI-powered check if a blocking modal is present on the page
+   * Uses AI to intelligently detect modals/dialogs/overlays that might be blocking interactions
+   */
+  private async hasBlockingModal(page: Page): Promise<boolean> {
+    try {
+      if (page.isClosed()) {
+        return false;
+      }
+
+      // Wait a bit for modals to appear
+      await page.waitForTimeout(200);
+
+      // Use AI to detect blocking modals if available
+      if (this.openai) {
+        try {
+          // Check main page AND iframes (DataApp modals often appear in iframes)
+          const pageInfo = await page.evaluate(() => {
+            const dialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"], .modal, .dialog, [class*="Modal"], [class*="Dialog"]');
+            const modalElements: Array<{
+              text: string;
+              tagName: string;
+              className: string;
+              id: string;
+              role: string | null;
+              zIndex: string;
+              rect: { x: number; y: number; width: number; height: number };
+              isVisible: boolean;
+            }> = [];
+
+            dialogs.forEach((el) => {
+              const htmlEl = el as HTMLElement;
+              const style = window.getComputedStyle(el);
+              const rect = el.getBoundingClientRect();
+              const isVisible = style.display !== 'none' && 
+                              style.visibility !== 'hidden' && 
+                              style.opacity !== '0' &&
+                              rect.width > 0 && 
+                              rect.height > 0;
+
+              if (isVisible && rect.width > 100 && rect.height > 50) {
+                modalElements.push({
+                  text: el.textContent?.trim().substring(0, 500) || '',
+                  tagName: el.tagName,
+                  className: el.className || '',
+                  id: el.id || '',
+                  role: el.getAttribute('role'),
+                  zIndex: style.zIndex || '0',
+                  rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+                  isVisible: true
+                });
+              }
+            });
+
+            // Also check for high z-index elements that might be modals
+            const allElements = document.querySelectorAll('*');
+            for (const el of Array.from(allElements)) {
+              const htmlEl = el as HTMLElement;
+              const style = window.getComputedStyle(el);
+              const zIndex = parseInt(style.zIndex || '0');
+              const rect = el.getBoundingClientRect();
+              
+              if (zIndex > 1000 && rect.width > 200 && rect.height > 100) {
+                const isVisible = style.display !== 'none' && 
+                                style.visibility !== 'hidden' && 
+                                style.opacity !== '0';
+                const isCentered = Math.abs(rect.left - (window.innerWidth - rect.width) / 2) < 200;
+                
+                if (isVisible && (isCentered || rect.top < window.innerHeight / 2)) {
+                  const text = el.textContent?.trim().substring(0, 500) || '';
+                  if (text.length > 0) {
+                    modalElements.push({
+                      text: text,
+                      tagName: el.tagName,
+                      className: el.className || '',
+                      id: el.id || '',
+                      role: el.getAttribute('role'),
+                      zIndex: style.zIndex || '0',
+                      rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+                      isVisible: true
+                    });
+                  }
+                }
+              }
+            }
+
+            return modalElements;
+          });
+
+          // Also check iframes for modals (DataApp modals often appear in iframes)
+          // Note: This will only work for same-origin iframes
+          let iframeModals: any[] = [];
+          try {
+            const frames = page.frames();
+            for (const frame of frames) {
+              if (frame !== page.mainFrame()) {
+                try {
+                  const frameModals = await frame.evaluate(() => {
+                    const dialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"], .modal, .dialog, [class*="Modal"], [class*="Dialog"]');
+                    const modalElements: any[] = [];
+                    dialogs.forEach((el) => {
+                      const style = window.getComputedStyle(el);
+                      const rect = el.getBoundingClientRect();
+                      const isVisible = style.display !== 'none' && 
+                                      style.visibility !== 'hidden' && 
+                                      style.opacity !== '0' &&
+                                      rect.width > 0 && 
+                                      rect.height > 0;
+                      if (isVisible && rect.width > 100 && rect.height > 50) {
+                        modalElements.push({
+                          text: el.textContent?.trim().substring(0, 500) || '',
+                          tagName: el.tagName,
+                          className: el.className || '',
+                          id: el.id || '',
+                          role: el.getAttribute('role'),
+                          zIndex: style.zIndex || '0',
+                          rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+                          isVisible: true,
+                          source: 'iframe'
+                        });
+                      }
+                    });
+                    return modalElements;
+                  });
+                  iframeModals = iframeModals.concat(frameModals);
+                } catch (e) {
+                  // Cross-origin iframe, skip
+                }
+              }
+            }
+          } catch (e) {
+            // Iframe check failed, continue with main page only
+          }
+
+          // Combine main page and iframe modals
+          const allModalElements = [...pageInfo, ...iframeModals];
+
+          if (allModalElements.length === 0) {
+            return false;
+          }
+
+          // Use AI to determine if any of these are blocking modals
+          const prompt = `Analyze the following page elements and determine if any of them are blocking modals, dialogs, or overlays that would prevent user interactions with the page. Note: Some elements may be from iframes (DataApp modals).
+
+Elements found:
+${JSON.stringify(allModalElements, null, 2)}
+
+Respond with a JSON object:
+{
+  "hasBlockingModal": boolean,
+  "reasoning": "brief explanation",
+  "modalDetails": {
+    "text": "main text content of the modal",
+    "type": "confirmation|alert|info|other"
+  } | null
+}`;
+
+          const response = await this.openai.chat.completions.create({
+            model: 'gpt-4',
+            messages: [
+              {
+                role: 'system',
+                content: 'You are an expert at analyzing web pages and detecting blocking modals, dialogs, and overlays. Be precise and only identify elements that would actually block user interactions.'
+              },
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            temperature: 0.3,
+            max_tokens: 300
+          });
+
+          const content = response.choices[0]?.message?.content || '{}';
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const result = JSON.parse(jsonMatch[0]);
+            if (result.hasBlockingModal) {
+              logger.info(`🤖 AI detected blocking modal: ${result.reasoning}`);
+              return true;
+            }
+          }
+        } catch (aiError) {
+          logger.warn(`AI modal detection failed, falling back to basic detection: ${(aiError as Error).message}`);
+        }
+      }
+
+      // Fallback to basic detection if AI is not available
+      const basicModalSelectors = [
+        '[role="dialog"]',
+        '[role="alertdialog"]',
+        '.modal.show',
+        '.modal.fade.show',
+        '[class*="MuiModal-root"]:not([style*="display: none"])',
+        '[class*="MuiDialog-root"]:not([style*="display: none"])',
+        '.ant-modal:not(.ant-modal-hidden)',
+      ];
+
+      for (const selector of basicModalSelectors) {
+        try {
+          const count = await page.locator(selector).count();
+          if (count > 0) {
+            const isVisible = await page.locator(selector).first().isVisible().catch(() => false);
+            if (isVisible) {
+              logger.info(`🔍 Blocking modal detected with selector: ${selector}`);
+              return true;
+            }
+          }
+        } catch (error) {
+          continue;
+        }
+      }
+
+      return false;
+    } catch (error) {
+      logger.warn(`Error checking for blocking modal: ${(error as Error).message}`);
+      return false;
+    }
+  }
+
+  /**
+   * AI-powered Auto-heal: Intelligently detect and handle modals/overlays
+   * Uses AI to analyze the modal and determine the best action to take
+   */
+  private async autoHealModalsAndOverlays(page: Page): Promise<void> {
+    try {
+      // Check if auto-heal is enabled (default: true)
+      const autoHealEnabled = process.env.AUTO_HEAL_ENABLED !== 'false';
+      if (!autoHealEnabled) {
+        logger.info('Auto-heal is disabled via AUTO_HEAL_ENABLED=false');
+        return;
+      }
+
+      // Wait a bit for modals to appear
+      await page.waitForTimeout(500);
+
+      // Check if page is still valid
+      if (page.isClosed()) {
+        return;
+      }
+
+      // Use AI to analyze and handle the modal if available
+      if (this.openai) {
+        try {
+          const modalInfo = await page.evaluate(() => {
+            // Find all potential modal/dialog elements
+            const dialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"], .modal, .dialog, [class*="Modal"], [class*="Dialog"]');
+            const buttons = document.querySelectorAll('button, [role="button"], a[role="button"]');
+            
+            const modalData: Array<{
+              text: string;
+              title: string;
+              buttons: Array<{
+                text: string;
+                className: string;
+                id: string;
+                ariaLabel: string | null;
+                type: string | null;
+                role: string | null;
+              }>;
+            }> = [];
+
+            dialogs.forEach((dialog) => {
+              const style = window.getComputedStyle(dialog);
+              const rect = dialog.getBoundingClientRect();
+              const isVisible = style.display !== 'none' && 
+                              style.visibility !== 'hidden' && 
+                              style.opacity !== '0' &&
+                              rect.width > 0 && 
+                              rect.height > 0;
+
+              if (isVisible && rect.width > 100 && rect.height > 50) {
+                const dialogText = dialog.textContent?.trim() || '';
+                const title = dialog.querySelector('h1, h2, h3, h4, h5, h6, [class*="title"], [class*="Title"]')?.textContent?.trim() || '';
+                
+                // Find buttons within this dialog
+                const dialogButtons: Array<{
+                  text: string;
+                  className: string;
+                  id: string;
+                  ariaLabel: string | null;
+                  type: string | null;
+                  role: string | null;
+                }> = [];
+
+                buttons.forEach((btn) => {
+                  if (dialog.contains(btn)) {
+                    const btnStyle = window.getComputedStyle(btn);
+                    const btnRect = btn.getBoundingClientRect();
+                    const btnVisible = btnStyle.display !== 'none' && 
+                                     btnStyle.visibility !== 'hidden' && 
+                                     btnRect.width > 0 && 
+                                     btnRect.height > 0;
+                    
+                    if (btnVisible) {
+                      dialogButtons.push({
+                        text: btn.textContent?.trim() || '',
+                        className: btn.className || '',
+                        id: btn.id || '',
+                        ariaLabel: btn.getAttribute('aria-label'),
+                        type: btn.getAttribute('type'),
+                        role: btn.getAttribute('role')
+                      });
+                    }
+                  }
+                });
+
+                if (dialogButtons.length > 0) {
+                  modalData.push({
+                    text: dialogText.substring(0, 1000),
+                    title: title,
+                    buttons: dialogButtons
+                  });
+                }
+              }
+            });
+
+            return modalData;
+          });
+
+          if (modalInfo.length === 0) {
+            return; // No modal found
+          }
+
+          // Use AI to determine the best action
+          const prompt = `You are analyzing a modal/dialog that appeared on a web page and is blocking user interactions. Your task is to determine the best action to take to close or dismiss this modal.
+
+Modal Information:
+${JSON.stringify(modalInfo, null, 2)}
+
+Analyze the modal content and available buttons, then decide:
+1. Should this modal be closed/dismissed? (Some modals are informational and should stay open)
+2. If yes, which button should be clicked? (e.g., "Yes", "OK", "Confirm", "Close", "Cancel", "Exit", etc.)
+3. What is the reasoning?
+
+Respond with a JSON object:
+{
+  "shouldClose": boolean,
+  "action": "click_button" | "press_esc" | "click_backdrop" | "none",
+  "buttonText": "exact text of button to click" | null,
+  "reasoning": "brief explanation of decision"
+}`;
+
+          const response = await this.openai.chat.completions.create({
+            model: 'gpt-4',
+            messages: [
+              {
+                role: 'system',
+                content: 'You are an expert at analyzing web modals and determining the appropriate action to take. Prioritize closing blocking modals that prevent user interactions. For confirmation dialogs, choose the action that allows the user to proceed with their intended task.'
+              },
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            temperature: 0.3,
+            max_tokens: 300
+          });
+
+          const content = response.choices[0]?.message?.content || '{}';
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const result = JSON.parse(jsonMatch[0]);
+            
+            if (!result.shouldClose || result.action === 'none') {
+              logger.info(`🤖 AI decided not to close modal: ${result.reasoning}`);
+              return;
+            }
+
+            logger.info(`🤖 AI auto-heal decision: ${result.action} - ${result.reasoning}`);
+
+            // Execute the AI-recommended action
+            if (result.action === 'click_button' && result.buttonText) {
+              // Find and click the button with matching text
+              const buttonLocators = [
+                page.getByRole('button', { name: result.buttonText, exact: false }),
+                page.locator(`button:has-text("${result.buttonText}")`),
+                page.locator(`[role="button"]:has-text("${result.buttonText}")`),
+                page.getByText(result.buttonText).filter({ has: page.locator('button, [role="button"]') })
+              ];
+
+              for (const locator of buttonLocators) {
+                try {
+                  const count = await locator.count();
+                  if (count > 0) {
+                    const isVisible = await locator.first().isVisible().catch(() => false);
+                    if (isVisible) {
+                      await locator.first().click({ timeout: 2000 });
+                      await page.waitForTimeout(500);
+                      logger.info(`✅ Auto-heal: Clicked button "${result.buttonText}"`);
+                      return;
+                    }
+                  }
+                } catch (error) {
+                  continue;
+                }
+              }
+              
+              logger.warn(`⚠️ Auto-heal: Could not find button "${result.buttonText}"`);
+            } else if (result.action === 'press_esc') {
+              await page.keyboard.press('Escape');
+              await page.waitForTimeout(500);
+              logger.info('✅ Auto-heal: Pressed ESC key');
+              return;
+            } else if (result.action === 'click_backdrop') {
+              // Click outside the modal
+              await page.mouse.click(10, 10);
+              await page.waitForTimeout(500);
+              logger.info('✅ Auto-heal: Clicked backdrop');
+              return;
+            }
+          }
+        } catch (aiError) {
+          logger.warn(`AI auto-heal failed, falling back to basic approach: ${(aiError as Error).message}`);
+        }
+      }
+
+      // Fallback to basic modal detection and closing if AI is not available
+
+      // Detect modals/overlays using multiple strategies
+      const modalSelectors = [
+        // Common modal/dialog patterns
+        '[role="dialog"]',
+        '[role="alertdialog"]',
+        '.modal',
+        '.dialog',
+        '.overlay',
+        '.popup',
+        '[class*="Modal"]',
+        '[class*="Dialog"]',
+        '[class*="Overlay"]',
+        '[class*="Popup"]',
+        '[id*="modal"]',
+        '[id*="dialog"]',
+        '[id*="overlay"]',
+        '[id*="popup"]',
+        // Material-UI modals
+        '[class*="MuiModal"]',
+        '[class*="MuiDialog"]',
+        // Ant Design modals
+        '.ant-modal',
+        '.ant-drawer',
+        // Bootstrap modals
+        '.modal.show',
+        '.modal.fade.show',
+      ];
+
+      let modalFound = false;
+      let modalElement: any = null;
+
+      // Try to find a modal using various selectors
+      for (const selector of modalSelectors) {
+        try {
+          const count = await page.locator(selector).count();
+          if (count > 0) {
+            modalElement = page.locator(selector).first();
+            const isVisible = await modalElement.isVisible().catch(() => false);
+            if (isVisible) {
+              modalFound = true;
+              logger.info(`🔧 Auto-heal: Found modal/overlay with selector: ${selector}`);
+              break;
+            }
+          }
+        } catch (error) {
+          // Continue to next selector
+          continue;
+        }
+      }
+
+      if (!modalFound) {
+        // Check for high z-index elements that might be modals (basic fallback)
+        const hasModal = await page.evaluate(() => {
+          const allElements = document.querySelectorAll('*');
+          for (const el of Array.from(allElements)) {
+            const htmlEl = el as HTMLElement;
+            const style = window.getComputedStyle(el);
+            const zIndex = parseInt(style.zIndex || '0');
+            if (zIndex > 1000 && htmlEl.offsetWidth > 100 && htmlEl.offsetHeight > 100) {
+              const rect = el.getBoundingClientRect();
+              const isVisible = style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+              const isCentered = Math.abs(rect.left - (window.innerWidth - rect.width) / 2) < 200;
+              if (isVisible && (isCentered || rect.top < window.innerHeight / 2)) {
+                return true;
+              }
+            }
+          }
+          return false;
+        }).catch(() => false);
+
+        if (!hasModal) {
+          return; // No modal found
+        }
+        modalFound = true;
+      }
+
+      // Fallback: Try to close the modal using common close button patterns (generic, no hardcoded text)
+      const closeButtonSelectors = [
+        // Close button patterns (generic)
+        'button[aria-label*="close" i]',
+        'button[aria-label*="dismiss" i]',
+        'button[title*="close" i]',
+        'button[title*="dismiss" i]',
+        '[class*="close"]',
+        '[class*="Close"]',
+        '[class*="dismiss"]',
+        '[id*="close"]',
+        '[id*="dismiss"]',
+        // X button patterns
+        'button:has-text("×")',
+        'button:has-text("✕")',
+        'button:has-text("X")',
+        '[class*="MuiIconButton"]:has-text("×")',
+        // Generic action buttons (no specific text hardcoded)
+        'button[type="button"]',
+        // ESC key handler (will be handled separately)
+      ];
+
+      let closed = false;
+
+      // Try clicking close buttons
+      for (const selector of closeButtonSelectors) {
+        try {
+          const closeButton = modalElement 
+            ? modalElement.locator(selector).first()
+            : page.locator(selector).first();
+          
+          const count = await closeButton.count();
+          if (count > 0) {
+            const isVisible = await closeButton.isVisible().catch(() => false);
+            if (isVisible) {
+              await closeButton.click({ timeout: 2000 }).catch(() => {});
+              await page.waitForTimeout(500);
+              logger.info(`✅ Auto-heal: Closed modal using selector: ${selector}`);
+              closed = true;
+              break;
+            }
+          }
+        } catch (error) {
+          // Continue to next selector
+          continue;
+        }
+      }
+
+      // If close button didn't work, try pressing ESC key
+      if (!closed) {
+        try {
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(500);
+          
+          // Check if modal is still visible
+          const stillVisible = await page.evaluate(() => {
+            const modals = document.querySelectorAll('[role="dialog"], [role="alertdialog"], .modal, .dialog');
+            for (const modal of Array.from(modals)) {
+              const style = window.getComputedStyle(modal);
+              if (style.display !== 'none' && style.visibility !== 'hidden') {
+                return true;
+              }
+            }
+            return false;
+          }).catch(() => false);
+
+          if (!stillVisible) {
+            logger.info('✅ Auto-heal: Closed modal using ESC key');
+            closed = true;
+          }
+        } catch (error) {
+          // ESC key press failed, continue
+        }
+      }
+
+      // If still not closed, try clicking outside the modal (backdrop click)
+      if (!closed) {
+        try {
+          // Click on the backdrop/overlay (usually a div behind the modal)
+          await page.evaluate(() => {
+            const modals = document.querySelectorAll('[role="dialog"], [role="alertdialog"], .modal, .dialog');
+            for (const modal of Array.from(modals)) {
+              const backdrop = modal.parentElement;
+              if (backdrop && backdrop !== document.body) {
+                const rect = backdrop.getBoundingClientRect();
+                // Click on the backdrop (not the modal itself)
+                const clickEvent = new MouseEvent('click', {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                  clientX: rect.left + 10,
+                  clientY: rect.top + 10,
+                });
+                backdrop.dispatchEvent(clickEvent);
+                return true;
+              }
+            }
+            return false;
+          });
+          
+          await page.waitForTimeout(500);
+          logger.info('✅ Auto-heal: Attempted to close modal by clicking backdrop');
+        } catch (error) {
+          // Backdrop click failed
+        }
+      }
+
+      if (closed) {
+        logger.info('🔧 Auto-heal: Successfully handled modal/overlay');
+      } else {
+        logger.warn('⚠️ Auto-heal: Modal/overlay detected but could not be closed automatically');
+      }
+
+    } catch (error) {
+      // Don't throw - auto-heal failures shouldn't break the test
+      logger.warn(`Auto-heal error (non-fatal): ${(error as Error).message}`);
     }
   }
 }

@@ -18,6 +18,7 @@ import {
   Assessment as ReportsIcon,
   Explore as ExploreIcon,
   SmartToy as AutonomousIcon,
+  FolderZip as DataAppIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -34,6 +35,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
     { text: 'Create Test', icon: <CreateIcon />, path: '/create' },
+    { text: 'DataApp Test Generator', icon: <DataAppIcon />, path: '/dataapp-generator' },
     { text: 'Execute Tests', icon: <ExecuteIcon />, path: '/execute' },
     { text: 'Reports', icon: <ReportsIcon />, path: '/reports' },
     { text: 'Exploratory Testing', icon: <ExploreIcon />, path: '/explore' },

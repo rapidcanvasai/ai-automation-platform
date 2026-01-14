@@ -10,6 +10,7 @@ import Reports from './pages/Reports/Reports';
 import Layout from './components/Layout/Layout';
 import ExploratoryTestingPage from './pages/ExploratoryTesting/ExploratoryTesting';
 import { AutonomousAITesting } from './pages/AutonomousAITesting/AutonomousAITesting';
+import DataAppTestGenerator from './pages/DataAppTestGenerator/DataAppTestGenerator';
 
 const theme = createTheme({
   palette: {
@@ -39,6 +40,7 @@ function App() {
               <Route path="/reports" element={<Reports />} />
               <Route path="/explore" element={<ExploratoryTestingPage />} />
               <Route path="/autonomous" element={<AutonomousAITesting />} />
+              <Route path="/dataapp-generator" element={<DataAppTestGenerator />} />
             </Routes>
           </Layout>
         </Router>

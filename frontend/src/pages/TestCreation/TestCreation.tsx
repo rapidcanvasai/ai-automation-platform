@@ -15,7 +15,7 @@ import {
 } from '@mui/material';
 import { useMutation } from 'react-query';
 import { apiService } from '../../services/apiService';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const steps = ['Natural Language Input', 'Generated Steps', 'Generated Code'];
 
@@ -28,6 +28,7 @@ const TestCreation: React.FC = () => {
   const [uploadedFiles, setUploadedFiles] = useState<Array<{name: string; url: string}>>([]);
 
   const navigate = useNavigate();
+  const location = useLocation();
 
   const parseMutation = useMutation(apiService.parseNaturalLanguage, {
     onSuccess: (data) => {
@@ -48,6 +49,13 @@ const TestCreation: React.FC = () => {
       console.error('Failed to generate code:', error);
     },
   });
+
+  // Handle prefilled steps from DataApp generator
+  React.useEffect(() => {
+    if (location.state?.prefillSteps) {
+      setNaturalLanguage(location.state.prefillSteps);
+    }
+  }, [location.state]);
 
   const handleParse = () => {
     if (naturalLanguage.trim()) {

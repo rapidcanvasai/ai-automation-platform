@@ -1,0 +1,1 @@
+Click on each entry point, dropdown, button, tab, link, and all clickable elements. After each interaction, verify no error messages or exceptions are displayed on the UI. Test all dropdowns by opening and selecting options. Test all modals by opening and closing them. Ensure comprehensive coverage of all interactive UI elements.

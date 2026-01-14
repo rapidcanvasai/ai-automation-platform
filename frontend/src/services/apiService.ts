@@ -127,6 +127,33 @@ export const apiService = {
     return response.data;
   },
 
+  // DataApp test generation endpoints
+  generateDataAppTestSteps: async (data: {
+    file: File;
+    appUrl: string;
+    tenantName?: string;
+    description?: string;
+  }) => {
+    const form = new FormData();
+    form.append('file', data.file);
+    form.append('appUrl', data.appUrl);
+    if (data.tenantName) {
+      form.append('tenantName', data.tenantName);
+    }
+    if (data.description) {
+      form.append('description', data.description);
+    }
+    const response = await api.post('/dataapp/generate-steps', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  getDefaultDescription: async () => {
+    const response = await api.get('/dataapp/default-description');
+    return response.data;
+  },
+
 };
 
 export default apiService;

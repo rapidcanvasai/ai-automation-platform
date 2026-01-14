@@ -25,6 +25,10 @@ export class NLPService {
     waitMilliseconds: /(?:wait|pause)\s+(?:for\s+)?(\d+)\s*(?:ms|millisecond|milliseconds)/i,
     back: /(?:go\s+back|navigate\s+back|back)/i,
     refresh: /(?:refresh|reload)/i,
+    scrollDown: /^(?:scroll\s+down|scroll\s+downward)(?:\s+in\s+(.+?))?(?:\s+with\s+ai)?$/i,
+    scrollUp: /^(?:scroll\s+up|scroll\s+upward)(?:\s+in\s+(.+?))?(?:\s+with\s+ai)?$/i,
+    scrollDownAI: /^(?:scroll\s+down|scroll\s+downward)(?:\s+in\s+(.+?))?\s+with\s+ai$/i,
+    scrollUpAI: /^(?:scroll\s+up|scroll\s+upward)(?:\s+in\s+(.+?))?\s+with\s+ai$/i,
     // Conditional patterns - proper if-else logic
     // Variable comparison pattern (must come before generic ifcond)
     ifvar: /^(?:if)\s+(?:variable\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:==|=)\s*(.+?)\s+(?:then|,\s*then)\s*(.*)$/i,
@@ -350,6 +354,33 @@ export class NLPService {
     if (waitSecondsMatch) return this.createParsedStep('waitSeconds', waitSecondsMatch, stepNumber, sentence);
     const waitMatch = sentence.match(this.actionPatterns.wait);
     if (waitMatch) return this.createParsedStep('wait', waitMatch, stepNumber, sentence);
+    
+    // Scroll patterns - check AI patterns first (they must come before non-AI patterns)
+    const scrollDownAIMatch = sentence.match(this.actionPatterns.scrollDownAI);
+    if (scrollDownAIMatch) {
+      // Extract panel name if present (e.g., "Scroll down in Queue Panel with AI")
+      const panelMatch = sentence.match(/scroll\s+down.*?in\s+(.+?)\s+with\s+ai/i);
+      const panelName = panelMatch ? panelMatch[1] : '';
+      return this.createParsedStep('scrollDownAI', [sentence, panelName] as any, stepNumber, sentence);
+    }
+    const scrollUpAIMatch = sentence.match(this.actionPatterns.scrollUpAI);
+    if (scrollUpAIMatch) {
+      const panelMatch = sentence.match(/scroll\s+up.*?in\s+(.+?)\s+with\s+ai/i);
+      const panelName = panelMatch ? panelMatch[1] : '';
+      return this.createParsedStep('scrollUpAI', [sentence, panelName] as any, stepNumber, sentence);
+    }
+    const scrollDownMatch = sentence.match(this.actionPatterns.scrollDown);
+    if (scrollDownMatch) {
+      const panelMatch = sentence.match(/scroll\s+down.*?in\s+(.+?)(?:\s+with\s+ai)?$/i);
+      const panelName = panelMatch ? panelMatch[1] : '';
+      return this.createParsedStep('scrollDown', [sentence, panelName] as any, stepNumber, sentence);
+    }
+    const scrollUpMatch = sentence.match(this.actionPatterns.scrollUp);
+    if (scrollUpMatch) {
+      const panelMatch = sentence.match(/scroll\s+up.*?in\s+(.+?)(?:\s+with\s+ai)?$/i);
+      const panelName = panelMatch ? panelMatch[1] : '';
+      return this.createParsedStep('scrollUp', [sentence, panelName] as any, stepNumber, sentence);
+    }
 
     return this.createGenericStep(sentence, stepNumber);
   }
@@ -531,6 +562,30 @@ export class NLPService {
           confidence: 0.95,
           description: originalText,
         };
+      case 'scrollDown':
+      case 'scrollDownAI': {
+        // Extract panel/container name if present (e.g., "Scroll down in Queue Panel with AI")
+        const targetText = match[1] ? clean(match[1]) : '';
+        return {
+          action: action === 'scrollDownAI' ? 'scrollDownAI' : 'scrollDown',
+          target: targetText,
+          confidence: 0.95,
+          description: originalText,
+          useAI: action === 'scrollDownAI',
+        } as any;
+      }
+      case 'scrollUp':
+      case 'scrollUpAI': {
+        // Extract panel/container name if present (e.g., "Scroll up in Queue Panel with AI")
+        const targetText = match[1] ? clean(match[1]) : '';
+        return {
+          action: action === 'scrollUpAI' ? 'scrollUpAI' : 'scrollUp',
+          target: targetText,
+          confidence: 0.95,
+          description: originalText,
+          useAI: action === 'scrollUpAI',
+        } as any;
+      }
       case 'iftext': {
         const textToCheck = clean(match[1]);
         const actionToPerform = clean(match[2] || '');
