@@ -119,8 +119,13 @@ jobs:
 
     - name: Generate and create complete test scenario
       run: |
-        # Store TEST_DESCRIPTION in a shell variable with proper quoting to handle special characters
-        TEST_DESCRIPTION="${{ env.TEST_DESCRIPTION }}"
+        # Store TEST_DESCRIPTION safely using a here-document
+        # The here-document with quoted delimiter ('EOF_TEST_DESC') prevents shell from parsing the content
+        # GitHub Actions expands ${{ }} expressions before shell sees the script, so this is safe
+        TEST_DESCRIPTION=$(cat <<'EOF_TEST_DESC'
+${{ env.TEST_DESCRIPTION }}
+EOF_TEST_DESC
+)
         
         echo "🚀 Generating and creating complete test scenario from: $TEST_DESCRIPTION"
         echo "Test description length: ${#TEST_DESCRIPTION}"
