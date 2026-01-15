@@ -119,12 +119,15 @@ jobs:
 
     - name: Generate and create complete test scenario
       run: |
-        echo "🚀 Generating and creating complete test scenario from: ${{ env.TEST_DESCRIPTION }}"
+        # Store TEST_DESCRIPTION in a shell variable with proper quoting to handle special characters
+        TEST_DESCRIPTION="${{ env.TEST_DESCRIPTION }}"
+        
+        echo "🚀 Generating and creating complete test scenario from: $TEST_DESCRIPTION"
         echo "Test description length: ${#TEST_DESCRIPTION}"
         
-        if [ -z "${{ env.TEST_DESCRIPTION }}" ]; then
+        if [ -z "$TEST_DESCRIPTION" ]; then
           echo "❌ No test description provided"
-          echo "Raw env value: '${{ env.TEST_DESCRIPTION }}'"
+          echo "Raw env value: '$TEST_DESCRIPTION'"
           exit 1
         fi
         
@@ -137,7 +140,7 @@ jobs:
         # GitHub Actions converts newlines to spaces, so we need to restore them
         # The web interface sends text with actual \n characters, so we need to match that
         echo "🔍 Restoring newlines to match web interface format..."
-        echo "Original input: ${{ env.TEST_DESCRIPTION }}"
+        echo "Original input: $TEST_DESCRIPTION"
         
         # Convert spaces back to newlines for action keywords (same as web interface)
         # GitHub Actions converts newlines to spaces, so we need to restore them
@@ -147,7 +150,7 @@ jobs:
         
         # Start with basic splits on action keywords (order matters - do specific patterns first)
         # CRITICAL: Split on "If(" FIRST to keep IF statements intact on their own lines
-        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/ Open https:/\nOpen https:/g' | sed 's/ Enter /\nEnter /g' | sed 's/ Verify /\nVerify /g' | sed 's/ Wait /\nWait /g' | sed 's/ If(/\nIf(/g')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESCRIPTION" | sed 's/ Open https:/\nOpen https:/g' | sed 's/ Enter /\nEnter /g' | sed 's/ Verify /\nVerify /g' | sed 's/ Wait /\nWait /g' | sed 's/ If(/\nIf(/g')
         
         # Handle "Click on" - split ONLY on lines that don't start with "If(" to keep IF statements intact
         # Use awk to conditionally split: if line starts with "If(", leave it alone; otherwise split on "Click on"
@@ -245,7 +248,7 @@ jobs:
             echo "Workflow Run: ${{ github.run_id }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md
             echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
             echo "## Test Description" >> test-scenarios/test-scenario-${{ github.run_id }}.md
-            echo "${{ env.TEST_DESCRIPTION }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "$TEST_DESCRIPTION" >> test-scenarios/test-scenario-${{ github.run_id }}.md
             echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
             echo "## Generated Test Steps" >> test-scenarios/test-scenario-${{ github.run_id }}.md
             echo "\`\`\`json" >> test-scenarios/test-scenario-${{ github.run_id }}.md
@@ -283,7 +286,7 @@ jobs:
         else
           echo "❌ Failed to generate test steps"
           echo "Raw steps response: $STEPS_RESPONSE"
-          echo "Debug: TEST_DESCRIPTION value: '${{ env.TEST_DESCRIPTION }}'"
+          echo "Debug: TEST_DESCRIPTION value: '$TEST_DESCRIPTION'"
           echo "Debug: TEST_DESCRIPTION length: ${#TEST_DESCRIPTION}"
           exit 1
         fi
@@ -315,7 +318,7 @@ jobs:
         if [ -n "${{ env.SLACK_MENTION }}" ]; then
           jq -n \
             --arg name "$TEST_NAME" \
-            --arg description "${{ env.TEST_DESCRIPTION }}" \
+            --arg description "$TEST_DESCRIPTION" \
             --argjson steps "$STEPS_DATA" \
             --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
@@ -331,7 +334,7 @@ jobs:
         else
           jq -n \
             --arg name "$TEST_NAME" \
-            --arg description "${{ env.TEST_DESCRIPTION }}" \
+            --arg description "$TEST_DESCRIPTION" \
             --argjson steps "$STEPS_DATA" \
             --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
