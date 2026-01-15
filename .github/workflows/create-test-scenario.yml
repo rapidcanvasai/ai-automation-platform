@@ -118,14 +118,13 @@ jobs:
         done
 
     - name: Generate and create complete test scenario
+      env:
+        TEST_DESC_INPUT: ${{ env.TEST_DESCRIPTION }}
       run: |
-        # Store TEST_DESCRIPTION safely using a here-document
-        # The here-document with quoted delimiter ('EOF_TEST_DESC') prevents shell from parsing the content
-        # GitHub Actions expands ${{ }} expressions before shell sees the script, so this is safe
-        TEST_DESCRIPTION=$(cat <<'EOF_TEST_DESC'
-${{ env.TEST_DESCRIPTION }}
-EOF_TEST_DESC
-)
+        # Store TEST_DESCRIPTION safely using Python to avoid shell parsing issues
+        # This safely handles all special characters (quotes, parentheses, brackets, etc.)
+        python3 -c "import os; open('/tmp/test-desc-safe.txt', 'w').write(os.environ.get('TEST_DESC_INPUT', ''))"
+        TEST_DESCRIPTION=$(cat /tmp/test-desc-safe.txt)
         
         echo "🚀 Generating and creating complete test scenario from: $TEST_DESCRIPTION"
         echo "Test description length: ${#TEST_DESCRIPTION}"
