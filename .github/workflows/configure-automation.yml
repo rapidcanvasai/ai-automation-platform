@@ -76,10 +76,6 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        token: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
-        persist-credentials: true
 
     - name: Setup configuration directory
       run: |
