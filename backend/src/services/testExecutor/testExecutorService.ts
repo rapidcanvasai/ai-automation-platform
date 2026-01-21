@@ -3362,70 +3362,84 @@ Please respond with JSON:
     }
   }
 
+  /**
+   * Detects if the code is running in a CI environment
+   * CI environments typically have higher network latency and slower execution
+   */
+  private isCIEnvironment(): boolean {
+    // Check common CI environment variables
+    return !!(
+      process.env.CI === 'true' ||
+      process.env.GITHUB_ACTIONS === 'true' ||
+      process.env.GITLAB_CI === 'true' ||
+      process.env.JENKINS_URL ||
+      process.env.BUILDKITE ||
+      process.env.CIRCLECI === 'true' ||
+      process.env.TRAVIS === 'true' ||
+      process.env.HEADLESS === 'true' // Headless mode often indicates CI
+    );
+  }
+
   public getAdaptiveTimeout(step: ParsedTestStep): number {
     const baseTimeout = 10000; // 10 seconds base timeout
+    const isCI = this.isCIEnvironment();
+    
+    // CI environments need longer timeouts due to:
+    // - Higher network latency (especially for AI API calls)
+    // - Slower CPU/memory (shared resources)
+    // - Slower page rendering
+    // Apply a multiplier for CI environments
+    const ciMultiplier = isCI ? 2.5 : 1; // 2.5x timeout in CI
     
     // Increase timeout for Sign In clicks
     if (step.action === 'click' && step.target?.toLowerCase().includes('sign in')) {
-      return 15000; // 15 seconds for Sign In clicks
+      return Math.round(15000 * ciMultiplier);
     }
     
-    // Special handling for navigation elements that use AI - they need extra time for:
-    // 1. AI processing (API call latency)
-    // 2. Element discovery and clicking
-    // 3. Navigation/route change
-    // 4. Page load after navigation
-    // This is especially important in CI environments where network latency can be higher
+    // Check if this is an AI-powered action
     const targetLower = step.target?.toLowerCase() || '';
     const isAIClick = targetLower.includes('ai') || (step as any).useAI;
-    if (step.action === 'click' && isAIClick && this.isNavigationElement(step.target)) {
-      return 60000; // 60 seconds for navigation elements with AI (CI environments need more time)
-    }
+    const isAIVerify = step.action === 'verify' && targetLower.includes('ai');
     
-    // Special handling for modal/dialog buttons with AI (Cancel, OK, Close, etc.) - they need extra time for:
-    // 1. AI processing (API call latency)
-    // 2. Element discovery in modal/dialog
-    // 3. Clicking the button
-    // 4. Modal/dialog closing animation
-    // 5. Page stabilization after modal closes
-    // This is especially important in CI environments where network latency can be higher
-    if (step.action === 'click' && isAIClick && this.isModalDialogButton(step.target)) {
-      return 60000; // 60 seconds for modal/dialog buttons with AI (CI environments need more time)
-    }
-    
-    // Increase timeout for complex actions
+    // AI-powered clicks need significantly more time, especially in CI:
+    // 1. AI API call latency (higher in CI)
+    // 2. Element discovery and analysis
+    // 3. Clicking the element
+    // 4. Page navigation/state changes
+    // 5. Page stabilization after action
     if (step.action === 'click' && isAIClick) {
-      return 30000; // 30 seconds for AI clicks (needs time for analysis)
+      // Base timeout for AI clicks: 30 seconds locally, 75 seconds in CI
+      const aiClickTimeout = 30000;
+      return Math.round(aiClickTimeout * ciMultiplier);
     }
     
-    if (step.action === 'verify' && step.target?.toLowerCase().includes('ai')) {
-      return baseTimeout + 3000; // 13 seconds for AI verification
+    if (isAIVerify) {
+      // AI verification: 13 seconds locally, ~33 seconds in CI
+      const aiVerifyTimeout = baseTimeout + 3000;
+      return Math.round(aiVerifyTimeout * ciMultiplier);
     }
     
     // Special handling for workspace menu elements that appear after menu expansion
     // These elements need more time as the menu needs to fully expand and render
-    // Check this BEFORE isAdvancedSettingsElement to ensure workspace-menu gets priority
     if (step.action === 'click' && targetLower.includes('workspace-menu')) {
-      return 30000; // 30 seconds for workspace menu elements (menu expansion can be slow)
+      return Math.round(30000 * ciMultiplier);
     }
     
     // Special handling for dropdown/select elements that appear after UI expansion
     if (step.action === 'click' && this.isDropdownElement(step.target)) {
-      return 20000; // 20 seconds for dropdown elements (need time for UI to expand)
+      return Math.round(20000 * ciMultiplier);
     }
     
     // Special handling for elements that appear after "Advanced Settings" click
-    // Note: This check includes "menu" keyword, but workspace-menu is handled above
     if (step.action === 'click' && this.isAdvancedSettingsElement(step.target)) {
-      // Skip if it's a workspace-menu element (already handled above)
       if (!targetLower.includes('workspace-menu')) {
-        return 20000; // 20 seconds for Advanced Settings related elements
+        return Math.round(20000 * ciMultiplier);
       }
     }
     
     // Special handling for project creation clicks that cause navigation
     if (step.action === 'click' && this.isProjectCreationElement(step.target)) {
-      return 15000; // 15 seconds for project creation elements (may cause navigation)
+      return Math.round(15000 * ciMultiplier);
     }
     
     if (step.action === 'wait') {
@@ -3433,7 +3447,7 @@ Please respond with JSON:
       return Math.max(waitTime * 1000, baseTimeout);
     }
     
-    return baseTimeout;
+    return Math.round(baseTimeout * ciMultiplier);
   }
 
   private isDropdownElement(target: string): boolean {
@@ -3472,7 +3486,8 @@ Please respond with JSON:
     const navigationKeywords = [
       'overview', 'schedule', 'gantt', 'ask ai', 'dashboard', 'home',
       'projects', 'settings', 'profile', 'account', 'logout', 'sign out',
-      'back', 'next', 'continue', 'proceed', 'submit', 'save'
+      'back', 'next', 'continue', 'proceed', 'submit', 'save',
+      'changeovers', 'changeover', 'unscheduled', 'scheduled', 'filter'
     ];
     
     const targetLower = target.toLowerCase();
