@@ -3370,8 +3370,20 @@ Please respond with JSON:
       return 15000; // 15 seconds for Sign In clicks
     }
     
+    // Special handling for navigation elements that use AI - they need extra time for:
+    // 1. AI processing (API call latency)
+    // 2. Element discovery and clicking
+    // 3. Navigation/route change
+    // 4. Page load after navigation
+    // This is especially important in CI environments where network latency can be higher
+    const targetLower = step.target?.toLowerCase() || '';
+    const isAIClick = targetLower.includes('ai') || (step as any).useAI;
+    if (step.action === 'click' && isAIClick && this.isNavigationElement(step.target)) {
+      return 60000; // 60 seconds for navigation elements with AI (CI environments need more time)
+    }
+    
     // Increase timeout for complex actions
-    if (step.action === 'click' && (step.target?.toLowerCase().includes('ai') || (step as any).useAI)) {
+    if (step.action === 'click' && isAIClick) {
       return 30000; // 30 seconds for AI clicks (needs time for analysis)
     }
     
@@ -3382,7 +3394,6 @@ Please respond with JSON:
     // Special handling for workspace menu elements that appear after menu expansion
     // These elements need more time as the menu needs to fully expand and render
     // Check this BEFORE isAdvancedSettingsElement to ensure workspace-menu gets priority
-    const targetLower = step.target?.toLowerCase() || '';
     if (step.action === 'click' && targetLower.includes('workspace-menu')) {
       return 30000; // 30 seconds for workspace menu elements (menu expansion can be slow)
     }
