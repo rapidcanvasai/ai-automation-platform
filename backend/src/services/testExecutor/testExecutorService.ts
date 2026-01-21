@@ -3382,6 +3382,17 @@ Please respond with JSON:
       return 60000; // 60 seconds for navigation elements with AI (CI environments need more time)
     }
     
+    // Special handling for modal/dialog buttons with AI (Cancel, OK, Close, etc.) - they need extra time for:
+    // 1. AI processing (API call latency)
+    // 2. Element discovery in modal/dialog
+    // 3. Clicking the button
+    // 4. Modal/dialog closing animation
+    // 5. Page stabilization after modal closes
+    // This is especially important in CI environments where network latency can be higher
+    if (step.action === 'click' && isAIClick && this.isModalDialogButton(step.target)) {
+      return 60000; // 60 seconds for modal/dialog buttons with AI (CI environments need more time)
+    }
+    
     // Increase timeout for complex actions
     if (step.action === 'click' && isAIClick) {
       return 30000; // 30 seconds for AI clicks (needs time for analysis)
@@ -3466,6 +3477,20 @@ Please respond with JSON:
     
     const targetLower = target.toLowerCase();
     return navigationKeywords.some(keyword => targetLower.includes(keyword));
+  }
+
+  private isModalDialogButton(target: string): boolean {
+    const modalDialogKeywords = [
+      'cancel', 'ok', 'close', 'done', 'dismiss', 'exit', 'back',
+      'confirm', 'apply', 'save and close', 'discard', 'abort'
+    ];
+    
+    const targetLower = target.toLowerCase();
+    return modalDialogKeywords.some(keyword => {
+      // Match whole words to avoid false positives (e.g., "cancel" should match "Cancel" but not "cancellation")
+      const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+      return regex.test(targetLower);
+    });
   }
 
   private async checkNavigationElementState(page: Page, target: string): Promise<{exists: boolean, isActive: boolean, elementInfo: string}> {
