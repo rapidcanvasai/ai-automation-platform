@@ -78,12 +78,34 @@ export class NLPService {
 
   private splitIntoSentences(text: string): string[] {
     // Split on line breaks, periods, exclamation marks, question marks
-    const sentences = text
+    const initialSentences = text
       .split(/[.!?]\s+|\n+/)
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
     
-    return sentences;
+    // Action keywords that indicate a new step
+    const actionKeywords = /^(enter|type|input|fill|click|tap|press|select|verify|check|assert|confirm|navigate|go to|visit|open|wait|pause|back|refresh|if|else|endif|upload|set|store|assign|save)/i;
+    
+    // Merge sentences that don't start with action keywords with the previous sentence
+    const mergedSentences: string[] = [];
+    for (let i = 0; i < initialSentences.length; i++) {
+      const sentence = initialSentences[i];
+      
+      // If this sentence starts with an action keyword, it's a new step
+      if (actionKeywords.test(sentence)) {
+        mergedSentences.push(sentence);
+      } else {
+        // Otherwise, merge it with the previous sentence (if one exists)
+        if (mergedSentences.length > 0) {
+          mergedSentences[mergedSentences.length - 1] += '. ' + sentence;
+        } else {
+          // If it's the first sentence and doesn't start with an action keyword, still add it
+          mergedSentences.push(sentence);
+        }
+      }
+    }
+    
+    return mergedSentences;
   }
 
   /**
