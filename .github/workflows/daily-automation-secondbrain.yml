@@ -50,8 +50,8 @@ env:
     Open https://app.rapidcanvas.ai/ Wait 2sec Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Wait 2sec Verify Dashboard Wait 10sec Click on xpath=//*[@data-testid="top-nav-bar-workspace-menu"] Wait 5sec Click on xpath=//*[@data-testid="workspace-menu-tenant-name"] Wait 5sec Enter SecondBrain in Type to search with AI Wait 5sec Click on xpath=//*[@test-id="tenant-menu-tenant-list-items"]/li[1] Wait 10sec Open https://app.rapidcanvas.ai/apps/SecondBrain/SecondBrain Wait 30sec Verify New chat with AI Click on New chat with AI Wait 2sec Verify SecondBrain with AI Verify Refine with AI Verify Prompt Library with AI Wait 2sec Enter Show me case studies we can share with prospects in Search for proposals, sales decks, case studies, marketing assets... with AI Wait 3sec Click on Send message with AI Wait 150sec Verify no error message or exception with AI Wait 5sec Enter What does RapidCanvas do in Search for proposals, sales decks, case studies, marketing assets... with AI Click on Send message with AI Wait 150sec Verify no error message or exception with AI Wait 5sec Enter Show me manufacturing use cases in Search for proposals, sales decks, case studies, marketing assets... with AI Click on Send message with AI Wait 150sec Verify no error message or exception with AI Wait 5sec Enter Where can I find our compliance summary slide in Search for proposals, sales decks, case studies, marketing assets... with AI Click on Send message with AI Wait 150sec Verify no error message or exception with AI
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENAI_MODEL: gpt-4o-mini
-  SLACK_CHANNEL: 'rc-secondbrain'
-  SLACK_CHANNEL_ID: 'C09DRUT1HFC'
+  SLACK_CHANNEL: 'rc-secondbrain-monitoring'
+  SLACK_CHANNEL_ID: 'C0AAMD9CA6P'
   SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
   ENABLE_SLACK: true
