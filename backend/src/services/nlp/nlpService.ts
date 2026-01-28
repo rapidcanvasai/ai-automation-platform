@@ -9,6 +9,9 @@ export class NLPService {
     verifyAI: /(?:verify|check|assert|confirm)\s+(.+?)\s+with\s+ai/i,
     navigateAI: /(?:go to|navigate to|visit|open)\s+(.+?)\s+with\s+ai/i,
     
+    // Press keyboard key - must be before click so "Press Enter" is not parsed as click on "Enter"
+    pressKey: /^press\s+(enter|tab|escape|backspace|space|return|arrowdown|arrowup|arrowleft|arrowright|f1|f2|f3|f4|f5|f6|f7|f8|f9|f10|f11|f12)(?:\s+with\s+ai)?$/i,
+    
     // Regular patterns
     click: /(?:click|tap|press|select)\s+(?:on\s+)?(.+)/i,
     clickIndex: /(?:click|tap|press|select)\s+(?:on\s+)?(\d+)(?:st|nd|rd|th)\s+(?:instance|occurrence|index)\s+of\s+(.+)/i,
@@ -272,6 +275,12 @@ export class NLPService {
       logger.info('Matched navigateAI pattern', { match: navigateAIMatch });
       return this.createParsedStep('navigateAI', navigateAIMatch, stepNumber, sentence);
     }
+    // Press keyboard key - before click so "Press Enter" is key press, not click on "Enter"
+    const pressKeyMatch = sentence.match(this.actionPatterns.pressKey);
+    if (pressKeyMatch) {
+      logger.info('Matched pressKey pattern', { match: pressKeyMatch });
+      return this.createParsedStep('pressKey', pressKeyMatch, stepNumber, sentence);
+    }
 
     // Conditional patterns - handle if-else logic (high priority)
     // Check multi-word text pattern first (before single-word patterns)
@@ -448,6 +457,13 @@ export class NLPService {
           description: originalText,
           useAI: true,
         } as any;
+      case 'pressKey':
+        return {
+          action: 'pressKey',
+          target: clean(match[1]),
+          confidence: 0.95,
+          description: originalText,
+        };
       case 'click':
         return {
           action: 'click',

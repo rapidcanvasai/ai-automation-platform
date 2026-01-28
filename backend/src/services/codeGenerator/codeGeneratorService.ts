@@ -76,6 +76,8 @@ export class CodeGeneratorService {
         return `await expect(page.locator('${this.generateLocator(step.target)}')).toBeVisible();`;
       case 'navigate':
         return `await page.goto('${step.target}');`;
+      case 'pressKey':
+        return `await page.keyboard.press('${step.target}');`;
       case 'wait':
         return `await page.waitForTimeout(2000); // TODO: Implement proper wait logic`;
       default:

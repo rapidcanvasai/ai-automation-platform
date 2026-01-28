@@ -566,6 +566,12 @@ export class TestExecutorService {
         await this.tryFill(page, candidates, value ?? '');
         return;
       }
+      case 'pressKey': {
+        const key = this.normalizeKeyName(target);
+        console.log(`Pressing keyboard key: "${key}"`);
+        await page.keyboard.press(key);
+        return;
+      }
       // Special upload syntax: value='file:/absolute/or/url'
       case 'upload': {
         const resolveFilePath = (): string => {
@@ -3508,6 +3514,27 @@ Please respond with JSON:
     });
   }
 
+  /** Map user key names to Playwright keyboard key names (case-sensitive). */
+  private normalizeKeyName(key: string): string {
+    const k = key.trim().toLowerCase();
+    const map: Record<string, string> = {
+      enter: 'Enter',
+      return: 'Enter',
+      tab: 'Tab',
+      escape: 'Escape',
+      esc: 'Escape',
+      backspace: 'Backspace',
+      space: ' ',
+      arrowdown: 'ArrowDown',
+      arrowup: 'ArrowUp',
+      arrowleft: 'ArrowLeft',
+      arrowright: 'ArrowRight',
+      f1: 'F1', f2: 'F2', f3: 'F3', f4: 'F4', f5: 'F5', f6: 'F6',
+      f7: 'F7', f8: 'F8', f9: 'F9', f10: 'F10', f11: 'F11', f12: 'F12',
+    };
+    return map[k] ?? (key.length === 1 ? key : key.charAt(0).toUpperCase() + key.slice(1).toLowerCase());
+  }
+
   private async checkNavigationElementState(page: Page, target: string): Promise<{exists: boolean, isActive: boolean, elementInfo: string}> {
     try {
       console.log(`🔍 Checking navigation element state for "${target}"...`);
@@ -4386,6 +4413,14 @@ Please respond with JSON:
       
       // Check if action contains "with AI" to prioritize AI execution
       const useAI = /with\s+ai/i.test(action);
+      
+      // Press keyboard key - check before click so "Press Enter" is key press, not click
+      const pressKeyMatch = action.match(/^press\s+(enter|tab|escape|backspace|space|return|arrowdown|arrowup|arrowleft|arrowright|f1|f2|f3|f4|f5|f6|f7|f8|f9|f10|f11|f12)(?:\s+with\s+ai)?$/i);
+      if (pressKeyMatch) {
+        const key = this.normalizeKeyName(pressKeyMatch[1]);
+        await page.keyboard.press(key);
+        return;
+      }
       
       if (/click\s+(.+?)(?:\s+with\s+ai)?$/i.test(action)) {
         const match = action.match(/click\s+(.+?)(?:\s+with\s+ai)?$/i);
