@@ -2,7 +2,7 @@ name: Daily AI Test Automation - StreamlitThreeElevenVersion
 
 on:
   schedule:
-    - cron: '0 6 * * *'
+    - cron: '0 8 * * *'
   workflow_dispatch:
     inputs:
       test_description:
@@ -47,7 +47,7 @@ on:
 
 env:
   TEST_DESCRIPTION: |
-    Open https://qa.dev.rapidcanvas.net/ Wait 2sec Enter backwardCompatabilityUser@rapidcanvas.net in email Enter Rapidcanvas@1 in Password Click Sign In Wait 2sec Open https://qa.dev.rapidcanvas.net/apps/Streamlit%20three%20eleven%20version/Backward%20compatibility%20Test?autoLaunch=true Wait 50sec If(text=Relaunch) then Click on Relaunch If(text=Launching) then wait 50sec Wait 100sec Verify Data Quality Checks with AI Verify no error or exception is coming on UI with AI
+    Open https://qa.dev.rapidcanvas.net/ Wait 2sec Enter backwardCompatabilityUser@rapidcanvas.net in email Enter Rapidcanvas@1 in Password Click Sign In Wait 2sec Open https://qa.dev.rapidcanvas.net/apps/StreamlitThreeElevenVersion/Backward%20compatibility%20Test?autoLaunch=true Wait 50sec If(text=Relaunch) then Click on Relaunch If(text=Launching) then wait 50sec Wait 100sec Verify Data Quality Checks with AI Verify no error or exception is coming on UI with AI
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENAI_MODEL: gpt-4o-mini
   SLACK_CHANNEL: 'test-automation-platform-alerts'
@@ -57,7 +57,7 @@ env:
   ENABLE_SLACK: true
   SLACK_NOTIFY_ONLY_FAILURES: true
   HEADLESS: true
-  DATAAPP_NAME: 'Streamlit three eleven version'
+  DATAAPP_NAME: 'StreamlitThreeElevenVersion'
   TENANT_NAME: 'BackWard compatability Tenant'
 
 jobs:
