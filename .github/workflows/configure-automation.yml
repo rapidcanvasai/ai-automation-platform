@@ -385,15 +385,20 @@ jobs:
           exit 1
         fi
 
-        # Get the configuration data from the step output instead of file
-        CONFIG_DATA='${{ steps.process-action.outputs.updated_configs }}'
-        # Use temporary file to avoid shell syntax issues with special characters in JSON
-        echo "$CONFIG_DATA" > /tmp/config_data.json
+        # Get the configuration data from the step output - use Python to avoid shell quoting
+        # issues (e.g. apostrophe in "What's your name?" would break CONFIG_DATA='...')
+        python3 << PYTHON_SCRIPT
+        json_data = r'''${{ steps.process-action.outputs.updated_configs }}'''
+        with open('/tmp/config_data.json', 'w') as f:
+            f.write(json_data)
+        PYTHON_SCRIPT
+
         SELECTED_CONFIG=$(cat /tmp/config_data.json | jq --arg name "$CONFIG_NAME" '.[$name]')
 
         if [ "$SELECTED_CONFIG" = "null" ]; then
           echo " SELECTED_CONFIG is null! This step will fail."
-          echo "CONFIG_DATA: $CONFIG_DATA"
+          echo "Config file content (first 300 chars):"
+          head -c 300 /tmp/config_data.json || true
           exit 1
         fi
 
