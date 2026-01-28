@@ -992,6 +992,13 @@ jobs:
         echo "**Configuration:** ${{ steps.process-action.outputs.config_name }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
 
+        # Write config to file to avoid shell quoting issues (e.g. apostrophe in "What's your name?")
+        python3 << PYTHON_SCRIPT
+        json_data = r'''${{ steps.process-action.outputs.updated_configs }}'''
+        with open('/tmp/summary_config.json', 'w') as f:
+            f.write(json_data)
+        PYTHON_SCRIPT
+
         # Calculate sanitized config name for display
         SANITIZED_CONFIG_NAME=$(echo "${{ steps.process-action.outputs.config_name }}" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
 
@@ -1050,7 +1057,7 @@ jobs:
             echo " **All Scheduled Job Configurations:**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
-            echo '${{ steps.process-action.outputs.updated_configs }}' | jq '.' >> $GITHUB_STEP_SUMMARY
+            cat /tmp/summary_config.json | jq '.' >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo " **Management Actions Available:**" >> $GITHUB_STEP_SUMMARY
@@ -1077,7 +1084,7 @@ jobs:
             echo "**Configuration:** ${{ steps.process-action.outputs.config_name }}" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
-            echo '${{ steps.process-action.outputs.updated_configs }}' | jq --arg name "${{ steps.process-action.outputs.config_name }}" '.[$name]' >> $GITHUB_STEP_SUMMARY
+            cat /tmp/summary_config.json | jq --arg name "${{ steps.process-action.outputs.config_name }}" '.[$name]' >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             ;;
 
