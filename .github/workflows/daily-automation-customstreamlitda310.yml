@@ -2,7 +2,7 @@ name: Daily AI Test Automation - CustomStreamlitDA3_10
 
 on:
   schedule:
-    - cron: '0 8 * * *'
+    - cron: '0 7 * * *'
   workflow_dispatch:
     inputs:
       test_description:
@@ -57,8 +57,8 @@ env:
   ENABLE_SLACK: true
   SLACK_NOTIFY_ONLY_FAILURES: true
   HEADLESS: true
-  DATAAPP_NAME: 'Custom Streamlit DA-3_10'
-  TENANT_NAME: 'Backward compatability Tenant'
+  DATAAPP_NAME: 'CustomStreamlitDA3_10'
+  TENANT_NAME: 'BackWard compatability Tenant'
 
 jobs:
   create-test-scenario:
