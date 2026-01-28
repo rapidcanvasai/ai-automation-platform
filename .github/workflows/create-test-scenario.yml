@@ -189,6 +189,20 @@ jobs:
           END { if (prev != "") print prev }
         ')
         
+        # Fix bad splits: merge "Press\nEnter" (or other key) back to "Press Enter" - keyboard key press, not click
+        # The " Enter " split above breaks "Press Enter" into two lines; merge so backend parses as pressKey
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | awk '
+          NR > 1 && prev ~ /Press$/ && /^(Enter|Tab|Escape|Backspace|Space|Return|ArrowDown|ArrowUp|ArrowLeft|ArrowRight|F1|F2|F3|F4|F5|F6|F7|F8|F9|F10|F11|F12)( with AI)?$/i {
+            prev = prev " " $0
+            next
+          }
+          {
+            if (NR > 1) print prev
+            prev = $0
+          }
+          END { if (prev != "") print prev }
+        ')
+        
         echo "Restored description with newlines:"
         echo "$TEST_DESC_WITH_NEWLINES"
         echo ""

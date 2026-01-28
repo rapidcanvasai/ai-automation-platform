@@ -23,7 +23,7 @@ on:
         type: string
         default: '0 10 * * *'
       test_description:
-        description: 'Test description in plain English'
+        description: 'Test description in plain English. Supports Press Enter, Enter, Click, Verify, Wait, etc. For full list see: https://rapidcanvas.atlassian.net/wiki/spaces/RAPIDCANVA/pages/887554049/Test+Automation+Platform+-+Supported+Commands+Documentation'
         required: false
         type: string
       config_name:
