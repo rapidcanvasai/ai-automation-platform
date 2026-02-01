@@ -47,7 +47,7 @@ on:
 
 env:
   TEST_DESCRIPTION: |
-    Open https://app.rapidcanvas.ai/ Wait 30sec Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Wait 10sec Verify Dashboard Wait 2sec Click on xpath=//*[@data-testid="top-nav-bar-workspace-menu"] Wait 2sec Click on xpath=//*[@data-testid="workspace-menu-tenant-name"] Wait 2sec Enter DPCS in Type to search with AI Wait 1sec Click on xpath=//*[@test-id="tenant-menu-tenant-list-items"]/li[1] Wait 10sec Open https://app.rapidcanvas.ai/apps/Initial%20app/DPCS-AI Wait 50sec Verify Forecasting with AI Verify Upload Manifest with AI Verify View Dashboard with AI Verify Dashboard with AI Verify Key Benefits with AI Click View Dashboard with AI Verify Manifest Uploads with AI If text = Generating predictions with AI then set onGoingPredictions=true Click Home with AI If onGoingPredictions = false then Click on Upload Manifest with AI Wait 2sec Upload Manifest_Data_Year2025.csv to Click to select CSV file Wait 5sec Click on Upload and Process with AI Wait 70sec Verify Generating predictions with AI Click Home with AI End if Click Dashboard with AI Wait 1sec Click View Results with AI Wait 2sec Verify Data Table with AI Verify Visualizations with AI Verify Manifest Data with AI Verify Container Predictions with AI Click Visualizations with AI Wait 2sec Verify Average Time by Stage with AI Verify Arrival → Berth with AI Verify Berth → Release with AI Verify Release → Pickup with AI Click Prediction Validation with AI Wait 2sec Verify Validation Results with AI
+    Open https://app.rapidcanvas.ai/ Wait 30sec Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Wait 10sec Verify Dashboard Wait 2sec Click on xpath=//*[@data-testid="top-nav-bar-workspace-menu"] Wait 2sec Click on xpath=//*[@data-testid="workspace-menu-tenant-name"] Wait 2sec Enter DPCS in Type to search Wait 1sec Click on xpath=//*[@test-id="tenant-menu-tenant-list-items"]/li[1] Wait 10sec Open https://app.rapidcanvas.ai/apps/Initial%20app/DPCS-AI Wait 50sec Verify Forecasting with AI Verify Upload Manifest with AI Verify View Dashboard with AI Verify Dashboard with AI Verify Key Benefits with AI Click View Dashboard with AI Verify Manifest Uploads with AI If text = Generating predictions with AI then set onGoingPredictions=true Click Home with AI If onGoingPredictions = false then Click on Upload Manifest with AI Wait 2sec Upload Manifest_Data_Year2025.csv to Click to select CSV file Wait 5sec Click on Upload and Process with AI Wait 70sec Verify Generating predictions with AI Click Home with AI End if Click Dashboard with AI Wait 1sec Click View Results with AI Wait 2sec Verify Data Table with AI Verify Visualizations with AI Verify Manifest Data with AI Verify Container Predictions with AI Click Visualizations with AI Wait 2sec Verify Average Time by Stage with AI Verify Arrival → Berth with AI Verify Berth → Release with AI Verify Release → Pickup with AI Click Prediction Validation with AI Wait 2sec Verify Validation Results with AI
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENAI_MODEL: gpt-4o-mini
   SLACK_CHANNEL: 'rc-cust-dpcs-internal'
@@ -57,7 +57,7 @@ env:
   ENABLE_SLACK: true
   SLACK_NOTIFY_ONLY_FAILURES: true
   HEADLESS: true
-  SLACK_MENTION: 'U04SK9363SP'
+  SLACK_MENTION: 'U0A97GXAK1A'
   DATAAPP_NAME: 'DPCS PortOps Predictor'
   TENANT_NAME: 'DPCS-AI'
 
