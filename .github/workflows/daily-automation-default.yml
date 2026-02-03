@@ -1,4 +1,4 @@
-name: Daily AI Test Automation - default
+name: Daily AI Test Automation - Knobloch
 
 on:
   schedule:
