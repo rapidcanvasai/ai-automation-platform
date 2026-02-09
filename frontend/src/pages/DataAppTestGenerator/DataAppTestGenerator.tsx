@@ -99,7 +99,9 @@ const DataAppTestGenerator: React.FC = () => {
 
   const handleCopySteps = () => {
     if (testSteps) {
-      navigator.clipboard.writeText(testSteps);
+      // Paste into daily-automation-*.yml as one line, space-separated (workflow template format)
+      const workflowFormat = testSteps.replace(/\n+/g, ' ').trim();
+      navigator.clipboard.writeText(workflowFormat);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -113,38 +115,49 @@ const DataAppTestGenerator: React.FC = () => {
   };
 
   const formatStepsWithLineBreaks = (steps: string): string => {
-    // First, fix any If-then statements that are split across lines
-    // Replace "then\n" or "then " followed by newline with "then " (single space)
-    let formatted = steps.replace(/then\s*\n\s*/g, 'then ');
-    
-    // Now split by step patterns
-    const stepPatterns = [
-      /(?=Open https?:\/\/)/,
-      /(?=Enter )/,
-      /(?=^Click )/m,  // Only at start of line
-      /(?=^Verify )/m,
-      /(?=^Wait )/m,
-      /(?=^If\()/m,   // Only at start of line
-      /(?=^Scroll )/m,
-      /(?=^Type )/m,
-    ];
-    
-    // Add line breaks before each step pattern
-    stepPatterns.forEach(pattern => {
-      formatted = formatted.replace(new RegExp(pattern.source, 'gm'), '\n$&');
-    });
-    
-    // Ensure If-then statements stay on one line (fix any that got split)
-    formatted = formatted.replace(/If\(([^)]+)\)\s+then\s*\n\s*/g, 'If($1) then ');
-    
-    // Clean up multiple line breaks and trim
+    if (!steps || !steps.trim()) return steps;
+    let formatted = steps.trim();
+
+    // Match daily-automation-*.yml: steps may be space-separated (one line). Split for display same way workflow sed does.
+    const isWorkflowFormat = formatted.includes('Open ') && (formatted.indexOf('\n') < 0 || formatted.split('\n').length <= 2);
+    if (isWorkflowFormat) {
+      // Split same as workflow sed: Open, Enter, Verify, Wait, If(, Scroll, Click (no split on "Type" - "Enter X in Type to search with AI" is one step)
+      formatted = formatted
+        .replace(/\s+(Open https?:\/\/)/g, '\n$1')
+        .replace(/\s+(Enter )/g, '\n$1')
+        .replace(/\s+(Verify )/g, '\n$1')
+        .replace(/\s+(Wait \d+sec)/g, '\n$1')
+        .replace(/\s+(If\()/g, '\n$1')
+        .replace(/\s+(Scroll )/g, '\n$1')
+        .replace(/\s+(Click )/g, '\n$1');
+      // Ensure "Enter X in Type to search with AI" is never broken (merge if already split)
+      formatted = formatted.replace(/\s*\n\s*Type to search with AI(?=\s|$)/g, ' Type to search with AI');
+    } else {
+      // Already newline-separated: fix If-then split; do NOT split on "Type " (keep "Enter X in Type to search with AI" as one step)
+      formatted = formatted.replace(/then\s*\n\s*/g, 'then ');
+      const stepPatterns = [
+        /(?=Open https?:\/\/)/,
+        /(?=Enter )/,
+        /(?=^Click )/m,
+        /(?=^Verify )/m,
+        /(?=^Wait )/m,
+        /(?=^If\()/m,
+        /(?=^Scroll )/m,
+      ];
+      stepPatterns.forEach((pattern) => {
+        formatted = formatted.replace(new RegExp(pattern.source, 'gm'), '\n$&');
+      });
+      formatted = formatted.replace(/If\(([^)]+)\)\s+then\s*\n\s*/g, 'If($1) then ');
+      // Merge "Enter X in" + "Type to search with AI" when wrongly split into two lines
+      formatted = formatted.replace(/ in\s*\n\s*Type to search with AI/g, ' in Type to search with AI');
+    }
+
     formatted = formatted
-      .replace(/\n{3,}/g, '\n\n') // Replace 3+ line breaks with 2
+      .replace(/\n{3,}/g, '\n\n')
       .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
       .join('\n');
-    
     return formatted.trim();
   };
 

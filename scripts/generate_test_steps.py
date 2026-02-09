@@ -2,41 +2,117 @@
 """
 Test Step Generator for DataApp Automation
 
-This script analyzes a DataApp codebase (zip file) and generates test automation steps
-following the patterns and rules defined in TEST_STEP_GENERATION_INSTRUCTIONS.md
+Analyzes a DataApp codebase (zip file) and generates test steps from code only:
+no hardcoded tabs or defaults. Prerequisite order for every run:
+  1. Login
+  2. Switch tenant (when tenant is available from URL, codebase, or user)
+  3. Launch dataApp
+  4. Monitoring steps (tabs, links, elements derived from code)
+
+Uses TEST_STEP_GENERATION_INSTRUCTIONS.md for step patterns and wait times.
 
 Usage:
-    python generate_test_steps.py <zip_file_path> <app_url> <tenant_name> <description>
-    
+    python generate_test_steps.py <zip_file_path> [app_url] [tenant_name] [description]
+
 Example:
-    python generate_test_steps.py cabot-dataapp-react.zip \
-        "https://app.rapidcanvas.ai/apps/cabotapp1?autoLaunch=true" \
-        "Cabot Hosiery Mills" \
+    python generate_test_steps.py cabot-dataapp-react.zip \\
+        "https://app.rapidcanvas.ai/apps/MyApp/MyTenant?autoLaunch=true" \\
+        "My Tenant" \\
         "Test all tabs and verify no errors"
 """
 
-import zipfile
 import json
-import re
-import sys
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 import os
+import re
+import shutil
+import sys
+import tempfile
+import zipfile
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Any
+from urllib.parse import quote, unquote
+
+# UI model: app -> view type -> entry points -> clickables under each
+UI_TYPE_CHAT = 'chat'
+UI_TYPE_TABBED = 'tabbed_dashboard'
+
+# Default platform config (used when platform_config.json is missing)
+_DEFAULT_PLATFORM_CONFIG = {
+    'login': {
+        'base_url_default': 'https://app.rapidcanvas.ai',
+        'steps': ['Open {base_url}/', 'Enter {email} in email', 'Click Next', 'Enter {password} in Password', 'Click Sign In', 'Verify Dashboard'],
+        'email': 'testAutomation@gmail.com',
+        'password': 'testAutomation03@',
+        'post_login_wait_react_sec': 10,
+        'post_login_wait_streamlit_sec': 2,
+    },
+    'tenant_switching': {
+        'steps': [
+            'Wait 2sec',
+            'Click on xpath=//*[@data-testid="top-nav-bar-workspace-menu"]',
+            'Wait 5sec',
+            'Click on xpath=//*[@data-testid="workspace-menu-tenant-name"]',
+            'Wait 5sec',
+            'Enter {tenant_search_term} in {tenant_search_input_label}',
+            'Wait 5sec',
+            'Click on xpath=//*[@test-id="tenant-menu-tenant-list-items"]/li[1]',
+            'Wait 10sec',
+        ],
+        'tenant_search_input_label': 'Type to search with AI',
+    },
+    'app_launch': {
+        'react': {'wait_sec': 280},
+        'streamlit': {'initial_wait_sec': 50, 'launching_wait_sec': 150, 'final_wait_sec': 100, 'use_relaunch_conditional': True},
+    },
+    'verification': {
+        'error_verify_react': 'Verify no error messages or exceptions are displayed with AI',
+        'error_verify_streamlit': 'Verify no error messages or exceptions are displayed on UI with AI',
+    },
+    'wait_times': {
+        'tab_click_react_sec': 30,
+        'tab_click_streamlit_sec': 20,
+        'chat_entry_sec': 5,
+        'ask_ai_react_sec': 60,
+        'ask_ai_streamlit_sec': 100,
+        'comprehensive_scroll_sec': 5,
+    },
+}
+
+
+def load_platform_config(script_dir: Optional[str] = None) -> Dict[str, Any]:
+    """Load platform config from platform_config.json (no hardcoding: config holds login, tenant, wait times)."""
+    if script_dir is None:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.environ.get('PLATFORM_CONFIG_PATH') or os.path.join(script_dir, 'platform_config.json')
+    if os.path.isfile(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Warning: Could not load platform config from {config_path}: {e}. Using defaults.")
+    return _DEFAULT_PLATFORM_CONFIG.copy()
 
 
 class DataAppAnalyzer:
-    """Analyzes DataApp codebase to extract structure and navigation"""
-    
+    """Analyzes DataApp codebase and builds a graph: app -> view type -> entry points -> clickables."""
+
     def __init__(self, zip_path: str):
         self.zip_path = zip_path
         self.app_type = None
+        self.ui_type = UI_TYPE_TABBED  # chat | tabbed_dashboard
         self.navigation_items = []
         self.interactive_elements = []
         self.tenant_required = False
+        self.ui_graph = {}  # ui_type, entry_points (chat), navigation_items (tabbed), tab_elements
         
-    def extract_zip(self, extract_to: str = "/tmp/dataapp_extract"):
-        """Extract zip file to temporary directory"""
-        os.makedirs(extract_to, exist_ok=True)
+    def extract_zip(self, extract_to: Optional[str] = None):
+        """Extract zip to a unique temp dir so each run analyzes only this zip (no leftover from previous upload)."""
+        if extract_to is None:
+            extract_to = tempfile.mkdtemp(prefix='dataapp_extract_')
+        else:
+            if os.path.isdir(extract_to):
+                shutil.rmtree(extract_to, ignore_errors=True)
+            os.makedirs(extract_to, exist_ok=True)
         with zipfile.ZipFile(self.zip_path, 'r') as zip_ref:
             zip_ref.extractall(extract_to)
         return extract_to
@@ -68,10 +144,102 @@ class DataAppAnalyzer:
             self.app_type = 'streamlit'
             return 'streamlit'
         else:
-            # Default to streamlit if unclear
             self.app_type = 'streamlit'
             return 'streamlit'
-    
+
+    def detect_ui_type(self, extract_path: str) -> str:
+        """Detect if the app is chat-based (single conversation view) or tabbed dashboard.
+        Graph: app -> view type -> entry points (sidebar + main for chat; tabs for dashboard)."""
+        chat_indicators = []
+        tabbed_indicators = []
+
+        def scan_content(content: str, file_path: str) -> None:
+            content_lower = content.lower()
+            # Chat UI: single main view, chat input, sidebar with chats
+            if re.search(r'new\s+chat|newchat', content_lower):
+                chat_indicators.append('new_chat')
+            if re.search(r'prompt\s*library|promptlibrary', content_lower):
+                chat_indicators.append('prompt_library')
+            if re.search(r'\brefine\b', content_lower) and re.search(r'button|click|onClick', content_lower):
+                chat_indicators.append('refine')
+            if re.search(r'chats?\s*(list|section|sidebar)|conversation\s*list|chat\s*history', content_lower):
+                chat_indicators.append('chat_list')
+            if re.search(r'placeholder.*ask|ask\s+about|message\s*input|chat\s*input|send\s*message', content_lower):
+                chat_indicators.append('chat_input')
+            if re.search(r'light\s*mode|theme\s*toggle', content_lower):
+                chat_indicators.append('light_mode')
+            # Tabbed: multiple routes or explicit tab config
+            if re.search(r'path\s*=\s*[\'\"](/[\w-]+)+[\'\"]', content):
+                tabbed_indicators.append('routes')
+            if re.search(r'HEADER_TABS\s*=\s*\[|st\.tabs\s*\(\s*\[', content):
+                tabbed_indicators.append('tabs_config')
+            if re.search(r'<Tab\s+[^>]*label=', content, re.I):
+                tabbed_indicators.append('mui_tabs')
+
+        for root, dirs, files in os.walk(extract_path):
+            for file in files:
+                if file.endswith(('.tsx', '.jsx', '.ts', '.js', '.py')):
+                    path = os.path.join(root, file)
+                    try:
+                        with open(path, 'r', encoding='utf-8') as f:
+                            scan_content(f.read(), path)
+                    except Exception:
+                        pass
+
+        # Prefer chat when we have clear chat entry points and no/few tabbed structure
+        chat_score = len(set(chat_indicators))
+        tabbed_score = len(set(tabbed_indicators))
+        if chat_score >= 2 and tabbed_score <= 1:
+            self.ui_type = UI_TYPE_CHAT
+            return UI_TYPE_CHAT
+        if tabbed_score >= 1:
+            self.ui_type = UI_TYPE_TABBED
+            return UI_TYPE_TABBED
+        if chat_score >= 1:
+            self.ui_type = UI_TYPE_CHAT
+            return UI_TYPE_CHAT
+        self.ui_type = UI_TYPE_TABBED
+        return UI_TYPE_TABBED
+
+    def extract_chat_entry_points(self, extract_path: str) -> Dict[str, List[str]]:
+        """Extract real UI entry points for chat-style app: sidebar + main. Not capability/prompt names."""
+        sidebar = []
+        main = []
+
+        for root, dirs, files in os.walk(extract_path):
+            for file in files:
+                if not file.endswith(('.tsx', '.jsx', '.ts', '.js')):
+                    continue
+                path = os.path.join(root, file)
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                except Exception:
+                    continue
+                # Sidebar: New chat, CHATS (list), Light Mode
+                if re.search(r'["\']([Nn]ew\s+[Cc]hat)["\']', content):
+                    sidebar.append('New chat')
+                if re.search(r'["\']([Cc][Hh][Aa][Tt][Ss])["\']', content) or re.search(r'CHATS', content):
+                    if 'CHATS' not in [s for s in sidebar]:
+                        sidebar.append('CHATS')
+                if re.search(r'["\']([Ll]ight\s+[Mm]ode)["\']', content) or re.search(r'Light\s*Mode', content):
+                    sidebar.append('Light Mode')
+                # Main: chat input (placeholder or label), Prompt Library, Refine, best practices link
+                if re.search(r'Prompt\s*Library|promptLibrary|prompt.?library', content, re.I):
+                    main.append('Prompt Library')
+                if re.search(r'["\']([Rr]efine)["\']', content) or (re.search(r'\bRefine\b', content) and re.search(r'button|Button|onClick', content)):
+                    main.append('Refine')
+                if re.search(r'best\s*practices|know\s*the\s*best', content, re.I):
+                    main.append('best practices link')
+                if re.search(r'Send\s*message|sendMessage|Send\s*message', content):
+                    main.append('Send message')
+
+        sidebar = list(dict.fromkeys(sidebar))
+        main = list(dict.fromkeys(main))
+        if 'Send message' not in main:
+            main.append('Send message')  # almost always present in chat UIs
+        return {'sidebar': sidebar, 'main': main}
+
     def extract_dataapp_url_info(self, extract_path: str) -> Dict[str, Optional[str]]:
         """Extract DataApp URL information from codebase"""
         url_info = {
@@ -192,14 +360,63 @@ class DataAppAnalyzer:
                         except Exception as e:
                             print(f"Warning: Could not read {file_path}: {e}")
         
-        # Remove duplicates and common non-navigation items
-        nav_items = list(set(nav_items))
-        nav_items = [item for item in nav_items if item not in ['', '/', 'askai', 'ask-ai']]
+        # React: also look for MUI Tabs, sidebar nav, and generic tab/label arrays
+        # For chat UI we skip generic label/name arrays (capability lists) and only keep real routes/tabs
+        if self.app_type == 'react':
+            for root, dirs, files in os.walk(extract_path):
+                for file in files:
+                    if file.endswith(('.tsx', '.jsx')):
+                        file_path = os.path.join(root, file)
+                        try:
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                                # MUI Tabs: label="Overview" or <Tab label="Schedule" />
+                                tab_labels = re.findall(r'<Tab\s+[^>]*label=[\'"]([^\'"]+)[\'"]', content, re.I)
+                                nav_items.extend(tab_labels)
+                                # For tabbed dashboard: tabs/navItems arrays; for chat UI skip these (capability names)
+                                if self.ui_type != UI_TYPE_CHAT:
+                                    tab_arr = re.findall(r'(?:label|name):\s*[\'"]([^\'"]+)[\'"]', content)
+                                    nav_items.extend(tab_arr)
+                                    nav_arr = re.findall(r'(?:navItems|menuItems|tabs)\s*=\s*\[(.*?)\]', content, re.DOTALL)
+                                    for block in nav_arr:
+                                        nav_items.extend(re.findall(r'(?:label|name|title|key):\s*[\'"]([^\'"]+)[\'"]', block))
+                        except Exception as e:
+                            print(f"Warning: Could not read {file_path}: {e}")
         
-        # Common navigation items if nothing found
-        if not nav_items:
-            nav_items = ['OVERVIEW', 'SCHEDULE', 'ASK AI']
+        # Streamlit: sidebar selectbox options, page names
+        if self.app_type == 'streamlit':
+            for root, dirs, files in os.walk(extract_path):
+                for file in files:
+                    if file.endswith('.py'):
+                        file_path = os.path.join(root, file)
+                        try:
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                                # st.sidebar.selectbox("Page", ["Overview", "Analytics"])
+                                selectbox_options = re.findall(r'st\.(?:sidebar\.)?selectbox\s*\([^)]*\[(.*?)\]', content, re.DOTALL)
+                                for block in selectbox_options:
+                                    nav_items.extend(re.findall(r'[\'"]([^\'"]+)[\'"]', block))
+                                # st.page_link or similar
+                                page_links = re.findall(r'page_link\s*\([^)]*label\s*=\s*[\'"]([^\'"]+)[\'"]', content)
+                                nav_items.extend(page_links)
+                        except Exception as e:
+                            print(f"Warning: Could not read {file_path}: {e}")
         
+        # Normalize: strip paths to last segment for routes (e.g. /overview -> overview)
+        def normalize_nav_item(item: str) -> str:
+            item = item.strip().strip('/')
+            if item.startswith('/'):
+                item = item[1:]
+            # Use last path segment if it's a path
+            if '/' in item:
+                item = item.split('/')[-1]
+            return item.replace('-', ' ').replace('_', ' ').strip()
+        
+        nav_items = [normalize_nav_item(item) for item in nav_items if item]
+        nav_items = list(dict.fromkeys(nav_items))  # preserve order, remove dupes
+        nav_items = [item for item in nav_items if item.lower() not in ('', '/', 'askai', 'ask-ai')]
+        
+        # No hardcoded fallback - use only what was found in code
         self.navigation_items = nav_items
         return nav_items
     
@@ -276,15 +493,12 @@ class DataAppAnalyzer:
         return tab_elements
     
     def _dir_to_tab_name(self, dir_name: str) -> Optional[str]:
-        """Convert directory name to tab name"""
-        dir_lower = dir_name.lower()
-        if 'overview' in dir_lower:
-            return 'OVERVIEW'
-        elif 'schedule' in dir_lower:
-            return 'SCHEDULE'
-        elif 'ask' in dir_lower and 'ai' in dir_lower:
-            return 'ASK AI'
-        return None
+        """Convert directory name to tab name from code structure (no hardcoding)"""
+        # Skip generic dirs that are not page names
+        dir_clean = dir_name.replace('-', ' ').replace('_', ' ').strip()
+        if not dir_clean or dir_clean.lower() in ('components', 'utils', 'hooks', 'assets', 'styles'):
+            return None
+        return dir_clean.upper()
     
     def _find_component_file(self, extract_path: str, component_name: str) -> Optional[str]:
         """Find the file containing a React component"""
@@ -363,27 +577,45 @@ class DataAppAnalyzer:
         return elements
     
     def _route_to_tab_name(self, route: str) -> Optional[str]:
-        """Convert route path to tab name"""
-        route_lower = route.lower().strip('/')
-        if route_lower in ['overview', '/overview']:
-            return 'OVERVIEW'
-        elif route_lower in ['schedule', '/schedule']:
-            return 'SCHEDULE'
-        elif route_lower in ['askai', 'ask-ai', '/askai', '/ask-ai']:
-            return 'ASK AI'
-        return None
+        """Convert route path to tab name from code (any route becomes a tab name)"""
+        route_clean = route.strip().strip('/').replace('-', ' ').replace('_', ' ')
+        if not route_clean or route_clean.lower() in ('', '/'):
+            return None
+        # Use last segment if path (e.g. /settings/analytics -> ANALYTICS)
+        if '/' in route_clean:
+            route_clean = route_clean.split('/')[-1]
+        return route_clean.upper()
     
     def analyze(self) -> Dict:
-        """Main analysis method"""
+        """Main analysis: build graph (app -> view type -> entry points -> clickables)."""
         extract_path = self.extract_zip()
         app_type = self.detect_app_type(extract_path)
+        self.detect_ui_type(extract_path)
         navigation = self.extract_navigation(extract_path)
         url_info = self.extract_dataapp_url_info(extract_path)
         tab_elements = self.analyze_tab_elements(extract_path)
-        
+
+        if self.ui_type == UI_TYPE_CHAT:
+            entry_points = self.extract_chat_entry_points(extract_path)
+            self.ui_graph = {
+                'ui_type': UI_TYPE_CHAT,
+                'entry_points': entry_points,
+                'navigation_items': [],  # chat uses entry_points, not tab names
+                'tab_elements': {}
+            }
+        else:
+            self.ui_graph = {
+                'ui_type': UI_TYPE_TABBED,
+                'entry_points': None,
+                'navigation_items': navigation,
+                'tab_elements': tab_elements
+            }
+
         return {
             'app_type': app_type,
-            'navigation_items': navigation,
+            'ui_type': self.ui_type,
+            'ui_graph': self.ui_graph,
+            'navigation_items': self.ui_graph['navigation_items'] if self.ui_type == UI_TYPE_CHAT else navigation,
             'url_info': url_info,
             'tab_elements': tab_elements,
             'extract_path': extract_path
@@ -391,17 +623,39 @@ class DataAppAnalyzer:
 
 
 class TestStepGenerator:
-    """Generates test steps based on analysis and instructions"""
-    
-    def __init__(self, app_type: str, app_url: str, tenant_name: Optional[str] = None, description: Optional[str] = None, tab_elements: Optional[Dict[str, List[str]]] = None):
+    """Generates test steps from code analysis. Platform steps (login, tenant, launch) come from config, not hardcoded."""
+
+    def __init__(
+        self,
+        app_type: str,
+        app_url: str,
+        tenant_name: Optional[str] = None,
+        description: Optional[str] = None,
+        tab_elements: Optional[Dict[str, List[str]]] = None,
+        ui_type: str = UI_TYPE_TABBED,
+        ui_graph: Optional[Dict[str, Any]] = None,
+        platform_config: Optional[Dict[str, Any]] = None,
+    ):
         self.app_type = app_type
         self.app_url = app_url
         self.tenant_name = tenant_name
-        self.tenant_required = tenant_name is not None and '%' in app_url
+        self.tenant_required = bool(tenant_name)
         self.description = description or ""
         self.tab_elements = tab_elements or {}
+        self.ui_type = ui_type or UI_TYPE_TABBED
+        self.ui_graph = ui_graph or {}
         self.steps = []
         self.comprehensive_mode = self._should_use_comprehensive_mode()
+        self.config = platform_config or _DEFAULT_PLATFORM_CONFIG
+
+    def _verify_step(self) -> str:
+        """Verification step text from config."""
+        v = self.config.get('verification', _DEFAULT_PLATFORM_CONFIG['verification'])
+        return v.get('error_verify_react', '') if self.app_type == 'react' else v.get('error_verify_streamlit', '')
+
+    def _wait_times(self) -> Dict[str, int]:
+        """Wait times from config."""
+        return self.config.get('wait_times', _DEFAULT_PLATFORM_CONFIG['wait_times'])
     
     def _should_use_comprehensive_mode(self) -> bool:
         """Determine if comprehensive mode should be used based on description"""
@@ -415,140 +669,139 @@ class TestStepGenerator:
         return any(keyword in desc_lower for keyword in comprehensive_keywords)
     
     def add_login_steps(self):
-        """Add login steps - always included as pre-step"""
-        base_url = self.app_url.split('/apps')[0] if '/apps' in self.app_url else 'https://app.rapidcanvas.ai'
-        
-        self.steps.extend([
-            f"Open {base_url}/",
-            "Enter testAutomation@gmail.com in email",
-            "Click Next",
-            "Enter testAutomation03@ in Password",
-            "Click Sign In",
-            "Verify Dashboard"
-        ])
-        
-        # Add wait time for React apps, shorter for Streamlit
-        if self.app_type == 'react':
-            self.steps.append("Wait 10sec")
-        else:
-            self.steps.append("Wait 2sec")
-    
+        """Add login steps from platform config (no hardcoding)."""
+        login_cfg = self.config.get('login', _DEFAULT_PLATFORM_CONFIG['login'])
+        base_url = self.app_url.split('/apps')[0] if '/apps' in self.app_url else login_cfg.get('base_url_default', 'https://app.rapidcanvas.ai')
+        email = login_cfg.get('email', 'testAutomation@gmail.com')
+        password = login_cfg.get('password', 'testAutomation03@')
+        step_templates = login_cfg.get('steps', _DEFAULT_PLATFORM_CONFIG['login']['steps'])
+        for t in step_templates:
+            self.steps.append(t.format(base_url=base_url, email=email, password=password))
+        wait_sec = login_cfg.get('post_login_wait_react_sec', 10) if self.app_type == 'react' else login_cfg.get('post_login_wait_streamlit_sec', 2)
+        self.steps.append(f"Wait {wait_sec}sec")
+
     def add_tenant_switching_steps(self):
-        """Add tenant switching steps if tenant is provided"""
+        """Add tenant switching steps from platform config if tenant is provided."""
         if not self.tenant_name:
             return
-        
-        # Use full tenant name for search (more accurate than just first word)
+        tenant_cfg = self.config.get('tenant_switching', _DEFAULT_PLATFORM_CONFIG['tenant_switching'])
+        steps = tenant_cfg.get('steps', _DEFAULT_PLATFORM_CONFIG['tenant_switching']['steps'])
+        label = tenant_cfg.get('tenant_search_input_label', 'Type to search with AI')
         search_term = self.tenant_name.strip()
-        
-        self.steps.extend([
-            "Wait 2sec",
-            'Click on xpath=//*[@data-testid="top-nav-bar-workspace-menu"]',
-            "Wait 5sec",
-            'Click on xpath=//*[@data-testid="workspace-menu-tenant-name"]',
-            "Wait 5sec",
-            f"Enter {search_term} in Type to search with AI",
-            "Wait 5sec",
-            'Click on xpath=//*[@test-id="tenant-menu-tenant-list-items"]/li[1]',
-            "Wait 10sec"
-        ])
+        for t in steps:
+            self.steps.append(t.format(tenant_search_term=search_term, tenant_search_input_label=label))
     
     def add_app_launch_steps(self):
-        """Add DataApp URL opening steps - always included after login/tenant switch"""
+        """Add DataApp launch steps from platform config."""
+        launch_cfg = self.config.get('app_launch', _DEFAULT_PLATFORM_CONFIG['app_launch'])
+        self.steps.append(f"Open {self.app_url}")
         if self.app_type == 'react':
-            # React apps: no conditional logic, React apps are always in launching state
-            # Consolidated wait time for app to fully load (280sec total for initial load, launching, and full load)
-            self.steps.extend([
-                f"Open {self.app_url}",
-                "Wait 280sec"
-            ])
+            wait_sec = launch_cfg.get('react', {}).get('wait_sec', 280)
+            self.steps.append(f"Wait {wait_sec}sec")
         else:
-            # Streamlit apps: use conditional logic
-            self.steps.extend([
-                f"Open {self.app_url}",
-                "Wait 50sec",
-                "If(text=Relaunch) then Click on Relaunch",
-                "If(text=Launching) then wait 150sec",
-                "Wait 100sec"
-            ])
+            streamlit = launch_cfg.get('streamlit', _DEFAULT_PLATFORM_CONFIG['app_launch']['streamlit'])
+            self.steps.append(f"Wait {streamlit.get('initial_wait_sec', 50)}sec")
+            if streamlit.get('use_relaunch_conditional', True):
+                self.steps.append("If(text=Relaunch) then Click on Relaunch")
+                self.steps.append(f"If(text=Launching) then wait {streamlit.get('launching_wait_sec', 150)}sec")
+            self.steps.append(f"Wait {streamlit.get('final_wait_sec', 100)}sec")
     
+    def add_chat_ui_steps(self, entry_points: Dict[str, List[str]]) -> None:
+        """Generate steps from chat UI graph; verification and wait times from config."""
+        wt = self._wait_times()
+        tab_sec = wt.get('tab_click_react_sec', 30) if self.app_type == 'react' else wt.get('tab_click_streamlit_sec', 20)
+        entry_sec = wt.get('chat_entry_sec', 5)
+        err_verify = self._verify_step()
+
+        self.steps.extend([
+            "Verify application loaded with AI",
+            f"Wait {tab_sec}sec",
+            err_verify
+        ])
+        sidebar = entry_points.get('sidebar') or []
+        main = entry_points.get('main') or []
+
+        for label in sidebar:
+            if label and label != 'CHATS':
+                self.steps.extend([f"Click on {label} with AI", f"Wait {entry_sec}sec", err_verify])
+        if 'CHATS' in sidebar:
+            self.steps.extend([
+                "If(chat item visible in CHATS) then Click on first chat item in CHATS with AI",
+                f"Wait {entry_sec}sec",
+                err_verify
+            ])
+        for label in main:
+            if not label or label == 'Send message':
+                continue
+            if label == 'best practices link':
+                self.steps.extend([
+                    "If(best practices link visible) then Click on best practices link with AI",
+                    f"Wait {entry_sec}sec",
+                    err_verify
+                ])
+                continue
+            self.steps.extend([f"Click on {label} with AI", f"Wait {entry_sec}sec", err_verify])
+        self.steps.extend([
+            "Enter hello in chat input with AI",
+            f"Wait {entry_sec}sec",
+            "Click on Send message with AI",
+            f"Wait {tab_sec}sec",
+            err_verify
+        ])
+        scroll_sec = wt.get('comprehensive_scroll_sec', 5)
+        self.steps.extend([
+            "Scroll down with AI", f"Wait {scroll_sec}sec", err_verify,
+            "Scroll up with AI", f"Wait {scroll_sec}sec", err_verify
+        ])
+
     def add_navigation_steps(self, navigation_items: List[str]):
-        """Add navigation steps for each tab/item"""
-        # Remove duplicates and clean up navigation items
+        """Add navigation steps for each tab/item derived from code (no hardcoded defaults). Used for tabbed_dashboard only."""
+        # Remove duplicates and clean up navigation items from code only
         seen = set()
         unique_items = []
         
         for item in navigation_items:
-            # Skip routes (items starting with /)
-            if item.startswith('/'):
-                continue
-                
-            # Clean and normalize the item name
-            item_clean = item.replace('-', ' ').replace('_', ' ').strip()
+            # Skip pure route paths (leading slash only)
+            if isinstance(item, str) and item.strip().startswith('/') and '/' in item.strip():
+                item_clean = item.strip().strip('/').replace('-', ' ').replace('_', ' ').strip()
+                if '/' in item_clean:
+                    item_clean = item_clean.split('/')[-1]
+            else:
+                item_clean = (item or '').replace('-', ' ').replace('_', ' ').strip()
             if not item_clean:
                 continue
-            
-            # Normalize variations (ASKAI, ASK-AI -> ASK AI)
             item_normalized = item_clean.upper()
             if item_normalized in ['ASKAI', 'ASK-AI']:
                 item_normalized = 'ASK AI'
-            elif item_normalized not in ['OVERVIEW', 'SCHEDULE', 'ASK AI']:
-                # Keep original if it's a valid name
-                item_normalized = item_clean.upper()
-            
-            # Create a key for deduplication (case-insensitive)
             key = item_normalized
             if key not in seen:
                 seen.add(key)
                 unique_items.append(item_normalized)
         
-        # If no unique items found, use defaults
+        wt = self._wait_times()
+        tab_sec = wt.get('tab_click_react_sec', 30) if self.app_type == 'react' else wt.get('tab_click_streamlit_sec', 20)
+        err_verify = self._verify_step()
+
         if not unique_items:
-            unique_items = ['OVERVIEW', 'SCHEDULE', 'ASK AI']
-        
-        # Sort to ensure consistent order: Overview, Schedule, Ask AI
+            self.steps.extend(["Verify application loaded with AI", f"Wait {tab_sec}sec", err_verify])
+            return
         order = {'OVERVIEW': 1, 'SCHEDULE': 2, 'ASK AI': 3}
-        unique_items.sort(key=lambda x: order.get(x, 99))
-        
+        unique_items.sort(key=lambda x: (order.get(x, 99), x))
         for item in unique_items:
-            if self.app_type == 'react':
-                self.steps.extend([
-                    f"Click on {item} with AI",
-                    "Wait 30sec",
-                    "Verify no error messages or exceptions are displayed with AI"
-                ])
-                
-                # Add comprehensive steps if in comprehensive mode
-                if self.comprehensive_mode:
-                    self.add_comprehensive_steps_for_tab(item)
-            else:
-                self.steps.extend([
-                    f"Click on {item} with AI",
-                    "Wait 20sec",
-                    "Verify no error messages or exceptions are displayed on UI with AI"
-                ])
-                
-                # Add comprehensive steps if in comprehensive mode
-                if self.comprehensive_mode:
-                    self.add_comprehensive_steps_for_tab(item)
+            self.steps.extend([f"Click on {item} with AI", f"Wait {tab_sec}sec", err_verify])
+            if self.comprehensive_mode:
+                self.add_comprehensive_steps_for_tab(item)
     
     def add_comprehensive_steps_for_tab(self, tab_name: str):
-        """Add comprehensive interactive element steps for a tab based on detected elements"""
-        wait_time = "30sec" if self.app_type == 'react' else "20sec"
-        error_verify = "with AI" if self.app_type == 'react' else "on UI with AI"
-        
-        # Get elements detected for this tab
+        """Add comprehensive interactive element steps for a tab; verification and wait from config."""
+        wt = self._wait_times()
+        scroll_sec = wt.get('comprehensive_scroll_sec', 5)
+        error_verify = self._verify_step()
         tab_name_upper = tab_name.upper()
         detected_elements = self.tab_elements.get(tab_name_upper, [])
-        
-        # Scroll to reveal all elements (always add)
         self.steps.extend([
-            "Scroll down with AI",
-            "Wait 5sec",
-            f"Verify no error messages or exceptions are displayed {error_verify}",
-            "Scroll up with AI",
-            "Wait 5sec",
-            f"Verify no error messages or exceptions are displayed {error_verify}"
+            "Scroll down with AI", f"Wait {scroll_sec}sec", error_verify,
+            "Scroll up with AI", f"Wait {scroll_sec}sec", error_verify
         ])
         
         # Map detected elements to test steps (remove "button", "stat box", etc. from step text)
@@ -562,162 +815,135 @@ class TestStepGenerator:
             'Finalize button': ("Finalize", "10sec"),
         }
         
-        # Add steps only for elements that exist on this tab
         for element_key, (element_name, element_wait) in element_to_step.items():
             if element_key in detected_elements:
-                # Use element_key for visibility check, element_name (without button/stat box) for click
                 visibility_check = element_key.replace(' button', '').replace(' stat box', '')
                 self.steps.extend([
                     f"If({visibility_check} visible) then Click on {element_name} with AI",
                     f"Wait {element_wait}",
-                    f"Verify no error messages or exceptions are displayed {error_verify}"
+                    error_verify
                 ])
-        
-        # Handle modals that might open (only if related elements exist)
         if 'Filter button' in detected_elements:
             self.steps.extend([
                 "If(Filter modal visible) then Click on Close in Filter modal with AI",
-                "Wait 5sec",
-                f"Verify no error messages or exceptions are displayed {error_verify}"
+                f"Wait {scroll_sec}sec",
+                error_verify
             ])
-        
         if 'Changeovers stat box' in detected_elements:
             self.steps.extend([
                 "If(Changeover modal visible) then Click on Close in Changeover modal with AI",
-                "Wait 5sec",
-                f"Verify no error messages or exceptions are displayed {error_verify}"
+                f"Wait {scroll_sec}sec",
+                error_verify
             ])
-        
         if 'Gantt chart' in detected_elements or 'scheduled MO block' in detected_elements:
             self.steps.extend([
                 "If(MO Details Panel visible) then Click on Close in MO Details Panel with AI",
-                "Wait 5sec",
-                f"Verify no error messages or exceptions are displayed {error_verify}"
+                f"Wait {scroll_sec}sec",
+                error_verify
             ])
-        
-        # Test dropdowns (only if detected)
         if 'dropdown' in detected_elements:
             self.steps.extend([
                 "If(dropdown visible) then Click on dropdown with AI",
-                "Wait 5sec",
-                f"Verify no error messages or exceptions are displayed {error_verify}",
+                f"Wait {scroll_sec}sec",
+                error_verify,
                 "If(dropdown option visible) then Click on first option in dropdown with AI",
-                "Wait 5sec",
-                f"Verify no error messages or exceptions are displayed {error_verify}"
+                f"Wait {scroll_sec}sec",
+                error_verify
             ])
         
-        # Test Gantt chart interactions (only if detected)
         if 'Gantt chart' in detected_elements or 'scheduled MO block' in detected_elements:
             self.steps.extend([
                 "If(any scheduled MO block visible in Gantt chart) then Click on any scheduled MO block in Gantt chart with AI",
-                "Wait 5sec",
-                f"Verify no error messages or exceptions are displayed {error_verify}",
+                f"Wait {scroll_sec}sec",
+                error_verify,
                 "If(MO Details Panel visible) then Click on Close in MO Details Panel with AI",
-                "Wait 5sec",
-                f"Verify no error messages or exceptions are displayed {error_verify}"
+                f"Wait {scroll_sec}sec",
+                error_verify
             ])
-        
-        # Test Queue Panel (only if detected)
         if 'Queue Panel' in detected_elements:
             self.steps.extend([
                 "If(Queue Panel visible) then Scroll down in Queue Panel with AI",
-                "Wait 5sec",
-                f"Verify no error messages or exceptions are displayed {error_verify}",
+                f"Wait {scroll_sec}sec",
+                error_verify,
                 "If(Queue Panel visible) then Scroll up in Queue Panel with AI",
-                "Wait 5sec",
-                f"Verify no error messages or exceptions are displayed {error_verify}"
+                f"Wait {scroll_sec}sec",
+                error_verify
             ])
-        
-        # Test carousel (only if detected)
         if 'Carousel next button' in detected_elements or 'Carousel previous button' in detected_elements:
             self.steps.extend([
                 "If(Carousel next visible) then Click on Carousel next with AI",
-                "Wait 5sec",
-                f"Verify no error messages or exceptions are displayed {error_verify}",
+                f"Wait {scroll_sec}sec",
+                error_verify,
                 "If(Carousel previous visible) then Click on Carousel previous with AI",
-                "Wait 5sec",
-                f"Verify no error messages or exceptions are displayed {error_verify}"
+                f"Wait {scroll_sec}sec",
+                error_verify
             ])
-    
+
     def add_ask_ai_steps(self):
-        """Add Ask AI interaction steps if Ask AI tab exists"""
+        """Add Ask AI interaction steps if Ask AI tab exists; wait and verify from config."""
         ask_ai_variants = ['ASK AI', 'ASKAI', 'ASK-AI', 'Ask AI', 'AskAI']
-        
-        # Check if any navigation item matches Ask AI
-        has_ask_ai = any(
-            variant.lower() in ' '.join(self.steps).lower() 
-            for variant in ask_ai_variants
-        )
-        
+        has_ask_ai = any(variant.lower() in ' '.join(self.steps).lower() for variant in ask_ai_variants)
         if has_ask_ai:
-            wait_time = "60sec" if self.app_type == 'react' else "100sec"
+            wt = self._wait_times()
+            ask_sec = wt.get('ask_ai_react_sec', 60) if self.app_type == 'react' else wt.get('ask_ai_streamlit_sec', 100)
+            entry_sec = wt.get('chat_entry_sec', 5)
             self.steps.extend([
                 "Enter hello in Ask AI with AI",
-                "Wait 5sec",
+                f"Wait {entry_sec}sec",
                 "Click on Send message with AI",
-                f"Wait {wait_time}",
-                "Verify no error messages or exceptions are displayed with AI"
+                f"Wait {ask_sec}sec",
+                self._verify_step()
             ])
-    
+
     def add_final_verification(self):
-        """Add final error verification"""
-        if self.app_type == 'react':
-            self.steps.append("Verify no error messages or exceptions are displayed with AI")
-        else:
-            self.steps.append("Verify no error messages or exceptions are displayed on UI with AI")
+        """Add final error verification from config."""
+        self.steps.append(self._verify_step())
     
-    def generate(self, navigation_items: List[str]) -> str:
-        """Generate complete test steps following the standard pattern:
-        1. Login (always)
-        2. Switch tenant (if provided)
-        3. Open DataApp URL (always)
-        4. Execute generated navigation/interaction steps
-        """
-        # Step 1: Login (always)
+    def generate(self, navigation_items: Optional[List[str]] = None) -> str:
+        """Generate test steps from graph. Prerequisite: Login → Switch tenant → Launch dataApp → Entry-point steps (chat or tabbed)."""
         self.add_login_steps()
-        
-        # Step 2: Switch tenant (if provided)
         self.add_tenant_switching_steps()
-        
-        # Step 3: Open DataApp URL (always)
         self.add_app_launch_steps()
-        
-        # Step 4: Execute generated steps
-        self.add_navigation_steps(navigation_items)
-        self.add_ask_ai_steps()
+
+        if self.ui_type == UI_TYPE_CHAT and self.ui_graph.get('entry_points'):
+            self.add_chat_ui_steps(self.ui_graph['entry_points'])
+        else:
+            nav = navigation_items or self.ui_graph.get('navigation_items') or []
+            self.add_navigation_steps(nav)
+            self.add_ask_ai_steps()
+
         self.add_final_verification()
-        
-        # Join steps with newlines for better readability
-        return "\n".join(self.steps)
+        # Match daily-automation-*.yml template: one line, space-separated (workflow sed splits on " Open ", " Enter ", etc.)
+        return " ".join(self.steps)
 
 
-def construct_url_from_info(url_info: Dict, provided_url: Optional[str] = None) -> str:
-    """Construct DataApp URL from extracted information or use provided URL"""
+def extract_tenant_from_app_url(app_url: str) -> Optional[str]:
+    """Extract tenant name from DataApp URL path: /apps/AppName/TenantName?..."""
+    if not app_url or '/apps/' not in app_url:
+        return None
+    try:
+        parts = app_url.split('/apps/')[-1].split('?')[0].strip('/').split('/')
+        if len(parts) >= 2:
+            return unquote(parts[-1])
+    except Exception:
+        pass
+    return None
+
+
+def construct_url_from_info(url_info: Dict, provided_url: Optional[str] = None) -> Optional[str]:
+    """Construct DataApp URL from extracted information. Never overwrite user-provided URL."""
     if provided_url:
         return provided_url
-    
     base_url = url_info.get('base_url', 'https://app.rapidcanvas.ai')
-    app_slug = url_info.get('app_slug', '')
+    app_slug = url_info.get('app_slug', '') or url_info.get('dataapp_id', '')
     tenant = url_info.get('tenant_name', '')
-    
-    if not app_slug:
-        # Try to use dataapp_id as fallback
-        app_slug = url_info.get('dataapp_id', '')
-    
     if not app_slug:
         return None
-    
-    # URL encode the slug and tenant
-    import urllib.parse
-    app_slug_encoded = urllib.parse.quote(app_slug, safe='')
-    tenant_encoded = urllib.parse.quote(tenant, safe='') if tenant else ''
-    
+    app_slug_encoded = quote(app_slug, safe='')
+    tenant_encoded = quote(tenant, safe='') if tenant else ''
     if tenant_encoded:
-        constructed_url = f"{base_url}/apps/{app_slug_encoded}/{tenant_encoded}?autoLaunch=true"
-    else:
-        constructed_url = f"{base_url}/apps/{app_slug_encoded}?autoLaunch=true"
-    
-    return constructed_url
+        return f"{base_url}/apps/{app_slug_encoded}/{tenant_encoded}?autoLaunch=true"
+    return f"{base_url}/apps/{app_slug_encoded}?autoLaunch=true"
 
 
 def main():
@@ -732,71 +958,88 @@ def main():
     description = sys.argv[4] if len(sys.argv) > 4 else "Test all tabs and verify no errors"
     
     print(f"📦 Analyzing DataApp: {zip_path}")
+    extract_path = None
+    try:
+        analyzer = DataAppAnalyzer(zip_path)
+        analysis = analyzer.analyze()
+        extract_path = analysis.get('extract_path')
+        url_info = analysis.get('url_info', {})
+        # Use provided app_url; only construct from code if user did not provide one
+        if not app_url:
+            app_url = construct_url_from_info(url_info, None)
+        if not app_url:
+            print("⚠️  App URL not found in codebase and not provided. Please provide the app URL as the second argument.")
+            sys.exit(1)
+        print(f"🔗 App URL: {app_url}")
+        if not tenant_name and url_info.get('tenant_name'):
+            tenant_name = url_info['tenant_name']
+            print(f"🏢 Tenant: {tenant_name} (from codebase)")
+        elif not tenant_name:
+            tenant_name = extract_tenant_from_app_url(app_url)
+            if tenant_name:
+                print(f"🏢 Tenant: {tenant_name} (from URL)")
+        if tenant_name:
+            print(f"🏢 Tenant switching will be included: {tenant_name}")
+        else:
+            print("🏢 No tenant (tenant switching omitted)")
+        print(f"📝 Description: {description}")
+        print()
+        print(f"✅ Detected App Type: {analysis['app_type'].upper()}")
+        nav_items = analysis['navigation_items']
+        print(f"✅ Found Navigation Items: {', '.join(nav_items) if nav_items else '(none from code; will verify app load only)'}")
+        if url_info.get('dataapp_id'):
+            print(f"✅ Found DataApp ID: {url_info['dataapp_id']}")
+        if url_info.get('app_slug'):
+            print(f"✅ Found App Slug: {url_info['app_slug']}")
+        if url_info.get('tenant_name'):
+            print(f"✅ Found Tenant Name: {url_info['tenant_name']}")
+        print()
+        ui_type = analysis.get('ui_type', UI_TYPE_TABBED)
+        ui_graph = analysis.get('ui_graph', {})
+        if ui_type == UI_TYPE_CHAT:
+            print(f"✅ UI Model: Chat (entry points from graph)")
+            ep = ui_graph.get('entry_points') or {}
+            if ep.get('sidebar'):
+                print(f"   Sidebar: {', '.join(ep['sidebar'])}")
+            if ep.get('main'):
+                print(f"   Main: {', '.join(ep['main'])}")
+        else:
+            print(f"✅ UI Model: Tabbed dashboard")
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        platform_config = load_platform_config(script_dir)
+        generator = TestStepGenerator(
+            app_type=analysis['app_type'],
+            app_url=app_url,
+            tenant_name=tenant_name,
+            description=description,
+            tab_elements=analysis.get('tab_elements', {}),
+            ui_type=ui_type,
+            ui_graph=ui_graph,
+            platform_config=platform_config
+        )
+        steps = generator.generate(analysis.get('navigation_items'))
+        print("=" * 80)
+        print("GENERATED TEST STEPS (workflow format: space-separated, one line):")
+        print("=" * 80)
+        print(steps)
+        print("=" * 80)
+        print()
+        print("💡 Copy the line above into your daily-automation-*.yml TEST_DESCRIPTION (env block).")
     
-    # Analyze DataApp first to extract URL info
-    analyzer = DataAppAnalyzer(zip_path)
-    analysis = analyzer.analyze()
-    
-    # Try to construct URL from extracted info
-    url_info = analysis.get('url_info', {})
-    constructed_url = construct_url_from_info(url_info, app_url)
-    
-    if constructed_url:
-        app_url = constructed_url
-        print(f"🔗 App URL: {app_url} {'(extracted from codebase)' if not sys.argv[2] else '(provided)'}")
-    elif app_url:
-        print(f"🔗 App URL: {app_url} (provided)")
-    else:
-        print(f"⚠️  App URL: Not found in codebase and not provided")
-        print(f"   Please provide the app URL as the second argument")
-        sys.exit(1)
-    
-    # Use tenant from codebase if not provided
-    if not tenant_name and url_info.get('tenant_name'):
-        tenant_name = url_info['tenant_name']
-        print(f"🏢 Tenant: {tenant_name} (extracted from codebase)")
-    else:
-        print(f"🏢 Tenant: {tenant_name or 'Not required'}")
-    
-    print(f"📝 Description: {description}")
-    print()
-    
-    print(f"✅ Detected App Type: {analysis['app_type'].upper()}")
-    print(f"✅ Found Navigation Items: {', '.join(analysis['navigation_items'])}")
-    
-    # Display URL information
-    if url_info.get('dataapp_id'):
-        print(f"✅ Found DataApp ID: {url_info['dataapp_id']}")
-    if url_info.get('app_slug'):
-        print(f"✅ Found App Slug: {url_info['app_slug']}")
-    if url_info.get('tenant_name'):
-        print(f"✅ Found Tenant Name: {url_info['tenant_name']}")
-    print()
-    
-    # Generate test steps
-    generator = TestStepGenerator(
-        app_type=analysis['app_type'],
-        app_url=app_url,
-        tenant_name=tenant_name,
-        description=description,
-        tab_elements=analysis.get('tab_elements', {})
-    )
-    
-    steps = generator.generate(analysis['navigation_items'])
-    
-    print("=" * 80)
-    print("GENERATED TEST STEPS:")
-    print("=" * 80)
-    print(steps)
-    print("=" * 80)
-    print()
-    print("💡 Copy the steps above and paste into your workflow file's TEST_DESCRIPTION")
-    
-    # Save to file
-    output_file = "generated_test_steps.txt"
-    with open(output_file, 'w') as f:
-        f.write(steps)
-    print(f"💾 Steps saved to: {output_file}")
+        # Save to file (same format as workflow template for paste into YAML)
+        output_file = "generated_test_steps.txt"
+        with open(output_file, 'w') as f:
+            f.write(steps)
+        print(f"💾 Steps saved to: {output_file}")
+    except Exception as e:
+        print(f"❌ Failed: {e}")
+        raise
+    finally:
+        if extract_path and os.path.isdir(extract_path) and extract_path.startswith(tempfile.gettempdir()):
+            try:
+                shutil.rmtree(extract_path, ignore_errors=True)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

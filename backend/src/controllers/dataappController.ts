@@ -113,18 +113,38 @@ router.post('/generate-steps', upload.single('file'), async (req: Request, res: 
       testSteps = stdout || '';
     }
 
-    // Parse the output to extract analysis info
-    const analysis = {
+    // Parse the output to extract analysis info (graph: app → view type → entry points)
+    const analysis: {
+      appType: string;
+      navigationItems: string[];
+      detectedFromCode: boolean;
+      uiType?: 'chat' | 'tabbed_dashboard';
+      entryPoints?: { sidebar?: string[]; main?: string[] };
+    } = {
       appType: stdout.includes('REACT') ? 'react' : stdout.includes('STREAMLIT') ? 'streamlit' : 'unknown',
-      navigationItems: [] as string[],
+      navigationItems: [],
       detectedFromCode: false
     };
 
-    // Extract navigation items from stdout
     const navMatch = stdout.match(/Found Navigation Items: (.+)/);
-    if (navMatch) {
+    if (navMatch && !navMatch[1].includes('(none from code')) {
       analysis.navigationItems = navMatch[1].split(',').map(item => item.trim());
       analysis.detectedFromCode = true;
+    }
+
+    if (stdout.includes('UI Model: Chat')) {
+      analysis.uiType = 'chat';
+      analysis.entryPoints = { sidebar: [], main: [] };
+      const sidebarMatch = stdout.match(/Sidebar:\s*(.+)/);
+      if (sidebarMatch) {
+        analysis.entryPoints.sidebar = sidebarMatch[1].split(',').map(s => s.trim());
+      }
+      const mainMatch = stdout.match(/Main:\s*(.+)/);
+      if (mainMatch) {
+        analysis.entryPoints.main = mainMatch[1].split(',').map(s => s.trim());
+      }
+    } else if (stdout.includes('UI Model: Tabbed')) {
+      analysis.uiType = 'tabbed_dashboard';
     }
 
     logger.info('Test steps generated successfully', {

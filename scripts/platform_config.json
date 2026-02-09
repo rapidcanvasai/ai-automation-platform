@@ -1,0 +1,54 @@
+{
+  "login": {
+    "base_url_default": "https://app.rapidcanvas.ai",
+    "steps": [
+      "Open {base_url}/",
+      "Enter {email} in email",
+      "Click Next",
+      "Enter {password} in Password",
+      "Click Sign In",
+      "Verify Dashboard"
+    ],
+    "email": "testAutomation@gmail.com",
+    "password": "testAutomation03@",
+    "post_login_wait_react_sec": 10,
+    "post_login_wait_streamlit_sec": 2
+  },
+  "tenant_switching": {
+    "steps": [
+      "Wait 2sec",
+      "Click on xpath=//*[@data-testid=\"top-nav-bar-workspace-menu\"]",
+      "Wait 5sec",
+      "Click on xpath=//*[@data-testid=\"workspace-menu-tenant-name\"]",
+      "Wait 5sec",
+      "Enter {tenant_search_term} in {tenant_search_input_label}",
+      "Wait 5sec",
+      "Click on xpath=//*[@test-id=\"tenant-menu-tenant-list-items\"]/li[1]",
+      "Wait 10sec"
+    ],
+    "tenant_search_input_label": "Type to search with AI"
+  },
+  "app_launch": {
+    "react": {
+      "wait_sec": 280
+    },
+    "streamlit": {
+      "initial_wait_sec": 50,
+      "launching_wait_sec": 150,
+      "final_wait_sec": 100,
+      "use_relaunch_conditional": true
+    }
+  },
+  "verification": {
+    "error_verify_react": "Verify no error messages or exceptions are displayed with AI",
+    "error_verify_streamlit": "Verify no error messages or exceptions are displayed on UI with AI"
+  },
+  "wait_times": {
+    "tab_click_react_sec": 30,
+    "tab_click_streamlit_sec": 20,
+    "chat_entry_sec": 5,
+    "ask_ai_react_sec": 60,
+    "ask_ai_streamlit_sec": 100,
+    "comprehensive_scroll_sec": 5
+  }
+}
