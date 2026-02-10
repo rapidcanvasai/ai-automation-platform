@@ -1,0 +1,610 @@
+name: Daily AI Test Automation - PRD_Plataforma_de_Conciliacao
+
+on:
+  schedule:
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+    inputs:
+      test_description:
+        description: 'Test description in plain English. For supported commands, see: https://rapidcanvas.atlassian.net/wiki/spaces/RAPIDCANVA/pages/887554049/Test+Automation+Platform+-+Supported+Commands+Documentation'
+        required: true
+        type: string
+      slack_channel:
+        description: 'Provide slack channel name(Make sure bot - test-automation-platform is added to mentioned slack channel)'
+        required: false
+        type: string
+      slack_channel_id:
+        description: 'Provide slack channel ID (e.g., C09F5F2MH8D). You can find this by right-clicking on the channel name in Slack and selecting "Copy link"'
+        required: false
+        type: string
+      headless:
+        description: 'Run browser in headless mode (true) or show browser window (false) - GitHub Actions default is headless'
+        required: false
+        type: boolean
+        default: true
+      enable_slack:
+        description: 'Enable Slack notifications'
+        required: false
+        type: boolean
+        default: true
+      slack_notify_only_failures:
+        description: 'Send Slack notifications only for failed tests (only applies if enable_slack is true)'
+        required: false
+        type: boolean
+        default: false
+      slack_mention:
+        description: 'Slack user to mention in thread replies (e.g., "Leonardo", "@Bruno", or user ID like "U123456")'
+        required: false
+        type: string
+      dataapp_name:
+        description: 'DataApp name to display in Slack notifications (only shown for failed tests)'
+        required: false
+        type: string
+      tenant_name:
+        description: 'Tenant name to display in Slack notifications (only shown for failed tests)'
+        required: false
+        type: string
+
+env:
+  TEST_DESCRIPTION: |
+      Open https://app.rapidcanvas.ai/ Wait 2sec Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Wait 2sec Verify Dashboard Wait 10sec Click on xpath=//*[@data-testid="top-nav-bar-workspace-menu"] Wait 5sec Click on xpath=//*[@data-testid="workspace-menu-tenant-name"] Wait 5sec Enter Grupo Turim Conciliacao in Type to search Wait 5sec Click on xpath=//*[@test-id="tenant-menu-tenant-list-items"]/li[1] Wait 10sec Open https://app.rapidcanvas.ai/apps/HOM%20-%20Plataforma%20de%20Conciliacao/Grupo%20Turim%20Conciliacao Wait 30sec Verify Execuções with AI Verify Contas with AI Verify Conciliação de Ativos with AI Verify Configurações with AI Verify Execuções with AI Verify Gerencie e monitore as conciliações de carteiras de investimento with AI Verify Atualizar with AI Verify Concluído with AI Verify Nova Execução with AI Verify Buscar with AI Click on Ciclo Posição with AI wait for 1sec Verify Jan/2026 with AI Verify Dez/2025 with AI Verify Nov/2025 with AI Verify Out/2025 with AI Verify Set/2025 with AI Verify Jun/2025 with AI Verify Jan/2025 with AI Verify Dez/2023 with AI Click on Jan/2026 with AI Verify Data Processamento with AI Click on xpath=//*[@value='Todas as datas'] Wait 1sec Verify Hoje with AI Verify Últimos 7 dias with AI Verify Últimos 30 dias with AI Verify Este mês with AI Verify Mês anterior with AI Click Mês anterior with AI Verify no error is coming on UI with AI Click on Instituição with AI wait for 1sec Verify ITAÚ UNIBANCO with AI Verify ITAU with AI Verify BRADESCO with AI Verify BRADESCO 2 with AI Verify XP INVESTIMENTOS with AI Verify SANTANDER with AI Verify BTG with AI Verify XP with AI Verify BANCO BTG PACTUAL with AI Verify SANTANDER PRIVATE SP with AI Verify BANCO DO BRASIL with AI Verify ICATU with AI Verify BB with AI Verify VORTX DTVM LTDA. (310) with AI Verify ABC BRASIL with AI Verify BNY with AI Verify CEF with AI Verify XP CORRETORA with AI Verify SANTANDER CORRETORA with AI Verify POSEIDON with AI Verify BRE with AI Verify FAMA with AI Verify CSHG JIVE DISTRESSED with AI Verify GOOD KARMA with AI Verify POSITIVE with AI Verify VRB with AI Verify PARQUES with AI Verify BNY MELLON with AI Verify CSHG with AI Verify DYNAMO with AI Verify DYMANO with AI Verify KAPITALO with AI Verify ANCAR with AI Verify KINITRO with AI Verify ITAU PREV with AI Verify PCS II BRASIL with AI Verify RYO with AI Verify GENOMA with AI Verify BGR B32 with AI Verify RB TFO with AI Verify STUDIO with AI Verify VINCI with AI Verify SQUADRA LB with AI Verify ABSOLUTO with AI Verify AQUAMARINE II with AI Verify CONQUISTA with AI Verify FINAXIS with AI Verify VOX with AI Verify G5 PARTNERS with AI Verify UBS MIAMI with AI Verify G5 with AI Verify CONVEXA with AI Verify SAFRA with AI Verify BANCO TESTE with AI Verify PERFIN with AI Click on PERFIN with AI Verify no error is coming on UI with AI Click on Status with AI wait for 1sec Verify Aguardando Reprocessamento with AI Verify Com Erro with AI Verify Concluído with AI Verify Conflito Detectado with AI Verify Em Andamento with AI Verify Informar Senha with AI Verify Requer Revisão with AI Verify Selecionar Conta with AI Verify Substituído with AI Click on Substituído with AI Wait 1sec Verify Aguardando Reprocessamento with AI Verify Com Erro with AI Verify Concluído with AI Verify Conflito Detectado with AI Verify Em Andamento with AI Verify Informar Senha with AI Verify Requer Revisão with AI Verify Selecionar Conta with AI Verify Substituído with AI Click Substituído with AI Verify no error is coming on UI with AI Click on Nova Execução with AI Wait 1sec Verify Upload de Extratos with AI Verify Arraste arquivos PDF, Excel ou JSON para enviar with AI Verify Arraste arquivos ou clique para selecionar with AI Verify Formatos aceitos: PDF, Excel (.xlsx, .xls), JSON with AI Verify Enviar with AI Click on Cancelar with AI Wait for 2sec  Click on Contas with AI Verify Visualize o status das contas por ciclo de conciliação with AI Verify xpath=//*[text()='Atualizar']  Verify Total de Contas with AI Verify Com Sucesso with AI Verify Com Erro with AI Verify Em Processamento with AI Verify Não Processadas (Período) with AI Verify Ciclo de Conciliação with AI Verify Sucesso with AI Verify Sim with AI Click on xpath=//*[@value='Jan/2026'] Verify Jan/2026 with AI Verify Dez/2025 with AI Verify Nov/2025 with AI Verify Out/2025 with AI Verify Set/2025 with AI Verify Jun/2025 with AI Verify Jan/2025 with AI Verify Dez/2023 with AI Click on Jan/2026 with AI Verify Buscar with AI Click on Banco with AI Verify ABC BRASIL with AI Verify ANCAR with AI Verify AUSTRAL PARTICIPAÇÕES with AI Verify Asa Sociedade de Credito Direto SA with AI Verify BANCO BTG PACTUAL with AI Verify BANCO BTG PACTUAL (4373) with AI Verify BANCO C6 with AI Verify BANCO COOPERATIVO SICREDI S.A. with AI Verify BANCO DO BRASIL with AI Verify BANCO FINAXIS S.A. with AI Verify BANCO INTER (077) with AI Verify BANCO ITAÚ (RB) with AI Verify BANCO MERCANTIL with AI Verify BANCO ORIGINAL with AI Verify BANCO PAULISTA with AI Verify BANCO SICOOB S.A. with AI Verify BANCO VOTORANTIM S.A. with AI Verify BANRISUL – BANCO DO ESTADO DO RIO GRANDE DO SUL S.A with AI Verify BCO SAFRA S.A. with AI Verify BCO XP S.A. (348) with AI Verify BMP SCMEPP LTDA (274) with AI Verify BNP PARIBAS with AI Verify BNY MELLON with AI Verify BRADESCO with AI Verify BRADESCO (4373) with AI Verify BRL TRUST with AI Verify BTG PACTUAL - Distribuição with AI Verify BTG PACTUAL 2 with AI Verify CEF with AI Verify CITIBANK with AI Verify CREDIT AGRICOLE with AI Verify CREDIT SUISSE with AI Verify CSHG with AI Verify DAYCOVAL with AI Verify EQUITAS with AI Verify G5 PARTNERS with AI Verify GALAPAGOS WM with AI Verify GENIAL with AI Verify GUIDE with AI Verify GÁVEA with AI Verify HEMISFÉRIO SUL INVESTIMENTOS S.A with AI Verify HSBC with AI Verify ICATU with AI Verify IDEAL INVEST with AI Verify ITAÚ CORRETORA with AI Verify ITAÚ UNIBANCO with AI Verify JBFO with AI Verify JP MORGAN with AI Verify LANDCORP with AI Verify LINK INVESTIMENTOS with AI Verify LIONS TRUST DTVM with AI Verify LLA INVESTIMENTOS with AI Verify MAF DTVM SA with AI Verify MELLON CUSTÓDIA with AI Verify MODAL with AI Verify xpath=//*[text()='NU PAGAMENTOS S.A.']  Verify OLIVEIRA TRUST DTVM with AI Verify OPPORTUNITY with AI Verify ORAMA with AI Verify PESSOA FÍSICA with AI Verify POLO with AI Verify RABOBANK with AI Verify RBCAPITAL DTVM with AI Verify RBS with AI Verify SAFDIÉ with AI Verify SANTANDER with AI Verify SANTANDER CORRETORA with AI Verify SANTANDER PRIVATE SP with AI Verify SINGULARE CORRETORA DE TÍTULOS E VALORES MOBILIÁRIOS S.A with AI Verify SINGULARE CTVM S.A. with AI Verify STUDIO with AI Verify UNIPRIME DO BRASIL - COOP with AI Verify VINCI with AI Verify VITREO DTVM S.A. with AI Verify VORTX DTVM LTDA. (310) with AI Verify WARREN CVMC LTDA with AI Verify XP CORRETORA with AI Verify XP INVESTIMENTOS with AI Verify ÁGORA CORRETORA with AI Click ÁGORA CORRETORA with AI Click on Cliente with AI Verify 001 - IBCL with AI Verify 002 - ACLN with AI Verify 003 - MM with AI Verify 004 - AK with AI Verify 004 - CIH with AI Verify 004 - CL with AI Verify 004 - CON with AI Verify 004 - DIS with AI Verify 004 - EIS with AI Verify 004 - EK with AI Verify 004 - JLIH with AI Verify 004 - PARTH with AI Verify 004 - SPE with AI Verify 004 - SQ with AI Verify 004 - TAT with AI Verify 004 - VENUS with AI Verify 005 - ACMM with AI Verify 005 - AMCMM with AI Verify 005 - B with AI Verify 005 - ECMM with AI Verify 005 - L with AI Verify 005 - MM with AI Verify 006 - G with AI Verify 007 - CGA with AI Verify 007 - CMGA with AI Verify 007 - EGA with AI Verify 007 - JFGA with AI Verify 007 - LGA with AI Verify 007 - PHGA with AI Verify 008 - ACN with AI Verify 008 - ACN (P) with AI Verify 008 - AKN with AI Verify 008 - AKN (P) with AI Verify 008 - FKN with AI Verify 008 - JKN with AI Verify 008 - JKN (P) with AI Verify 008 - PKN with AI Verify 008 - PKN (P) with AI Verify 008 - TRN with AI Verify 008 - TRN (P) with AI Verify 009 - AL with AI Verify 009 - CON with AI Verify 009 - CR with AI Verify 009 - ES with AI Verify 009 - MCR with AI Verify 009 - ML with AI Verify 009 - PS with AI Verify 009 - RB with AI Verify 010 - GV with AI Verify 011 - ACFA with AI Verify 011 - JIM with AI Verify 011 - VFA with AI Verify 012 - JFVC with AI Verify 014 - ALD with AI Verify 015 - ISV with AI Verify 015 - LEVSV with AI Verify 016 - LRB with AI Verify 016 - LVBB with AI Verify 016 - RBF with AI Verify 016 - RVBB with AI Verify 017 - JRM with AI Verify 017 - LM with AI Verify 017 - PM with AI Verify 017 - RM with AI Verify 018 - AL with AI Verify 018 - EA with AI Verify 018 - MA with AI Verify 018 - R with AI Verify 018 - TA with AI Verify 019 - AST with AI Verify 019 - JRT with AI Verify 019 - M with AI Verify 019 - P with AI Verify 020 - PBT with AI Verify 021 - AMV with AI Verify 021 - GCM with AI Verify 021 - GM with AI Verify 021 - MM with AI Verify 022 - IGM with AI Verify 022 - ISM with AI Verify 022 - NM with AI Verify 022 - PDM with AI Verify 022 - PIT with AI Verify 022 - ZRM with AI Verify 023 - APN with AI Verify 024 - RS with AI Verify 025 - AM with AI Verify 027 - EVPM with AI Verify 027 - MCVPM with AI Verify 028 - FSV with AI Verify 031 - ISA with AI Verify 032 - C with AI Verify 032 - J with AI Verify 032 - JFGV with AI Verify 032 - MTGV with AI Verify 033 - JN with AI Verify 033 - LN with AI Verify 033 - PN with AI Verify 033 - SN with AI Verify 034 - AMR with AI Verify 034 - BFS with AI Verify 034 - BFS (CONSOLIDAÇÃO) with AI Verify 034 - CFS with AI Verify 034 - CZM with AI Verify 034 - EFS with AI Verify 034 - EFS (P) with AI Verify 034 - EM with AI Verify 034 - GDGC with AI Verify 034 - LIA with AI Verify 034 - LUC with AI Verify 034 - MLC with AI Verify 034 - MLC (A) with AI Verify 034 - MO with AI Verify 034 - MSC with AI Verify 034 - MSC (A) with AI Verify 034 - PB with AI Verify 034 - RIC with AI Verify 034 - ROB with AI Verify 034 - RQC with AI Verify 034 - RQC (M) with AI Verify 035 - AGV with AI Verify 035 - I with AI Verify 035 - JP with AI Verify 035 - LGV with AI Verify 036 - ABC with AI Verify 036 - PRC with AI Verify 036 - PRC (P) with AI Verify 038 - SNOW PETREL with AI Verify 040 - ACP with AI Verify 040 - ALP with AI Verify 040 - CMP with AI Verify 040 - MFP with AI Verify 040 - SMP with AI Verify 041 - BC with AI Verify 042 - AL with AI Verify 042 - JC with AI Verify 042 - JL with AI Verify 042 - SM with AI Verify 042 - SM(P) with AI Verify 044 - APO with AI Verify 044 - DPO with AI Verify 044 - EPO with AI Verify 044 - MPO with AI Verify 044 - MPO(P) with AI Verify 044 - RMO with AI Verify 045 - ETZ with AI Verify 046 - HGV with AI Verify 046 - JHGV with AI Verify 046 - PGV with AI Verify 047 - PGR with AI Verify 047 - PGRF with AI Verify 047 - RR with AI Verify 051 - MAV with AI Verify 052 - FV with AI Verify 054 - ACC with AI Verify 057 - BM with AI Verify 058 - BR with AI Verify 059 - CCV with AI Verify 059 - DRV with AI Verify 059 - FRV with AI Verify 059 - FUNDOS with AI Verify 059 - GCV with AI Verify 059 - LCV with AI Verify 059 - LFSV(CPF) with AI Verify 059 - MBV with AI Verify 061 - FB with AI Verify 064 - ASM with AI Verify 065 - CB with AI Verify 065 - MB with AI Verify 065 - SB with AI Verify 065 - SCCB with AI Verify 066 - AMB with AI Verify 066 - ARQ with AI Verify 066 - DMRQ with AI Verify 066 - FCQ with AI Verify 066 - FRQ with AI Verify 066 - INQ with AI Verify 066 - JLQ with AI Verify 066 - JLUC with AI Verify 066 - VLM with AI Verify 066 - VQ with AI Verify 067 - GB with AI Verify 067 - MB with AI Verify 067 - MC with AI Verify 067 - MCE with AI Verify 067 - MCL with AI Verify 068 - RGX with AI Verify 070 - AK with AI Verify 070 - JK with AI Verify 070 - PK with AI Verify 072 - CM (LM) with AI Verify 072 - CM (RC) with AI Verify 072 - RC with AI Verify 072 - SC with AI Verify 080 - ASF with AI Verify 080 - ASJ with AI Verify 080 - EJ with AI Verify 080 - MAJ with AI Verify 080 - MEJ with AI Verify 080 - RMJ with AI Verify 080 - VJ with AI Verify 080 - VJ(P) with AI Verify 080 - WJ with AI Verify 080 - WJ(FAZ) with AI Verify 080 - WJ(P) with AI Verify 080 - WJAN with AI Verify 080 - WJN with AI Verify 081 - IBP with AI Verify 081 - MBPF with AI Verify 081 - MF with AI Verify 081 - PBPF with AI Verify 088 - GMB with AI Verify 088 - RMB with AI Verify 088 - TB with AI Verify 090 - AN with AI Verify 095 - AL with AI Verify 095 - EL with AI Verify 095 - JL with AI Verify 095 - PL with AI Verify 098 - AP with AI Verify 098 - DP with AI Verify 098 - MM with AI Verify 100 - CB with AI Verify 1000 - TODOSTURIM with AI Verify 112 - TN with AI Verify 132 - ALC with AI Verify 135 - MGV with AI Verify 1423 - DL with AI Verify 154 - AHG with AI Verify 154 - RHF with AI Verify 1818 - LH with AI Verify 1818 - LH (P) with AI Verify 208 - BTG (CONSOLIDAÇÃO) with AI Verify 222 - JAB with AI Verify 232 - GC with AI Verify 309 - AC with AI Verify 309 - RF with AI Verify 477 - SA with AI Verify 604 - BH with AI Verify 737 - SW with AI Verify 888 - MLF with AI Verify 888 - MSF with AI Verify 888 - RF with AI Verify I100 - INOVAR with AI Verify I18 - FSA1 with AI Verify I18 - FSA2 with AI Verify I181 - FSP with AI Verify I181 - STP with AI Verify I29 - EARJ with AI Verify I31 - FUND with AI Verify I31 - MYPK3 with AI Verify I48 - S with AI Verify I612 - JUSPREV with AI Verify MG01 - CDN with AI Verify MG01 - FDN with AI Verify MG01 - RDN with AI Verify MG01 - SDN with AI Verify MG01 - TDN with AI Verify SP01 - CASA with AI Verify SP01 - EDCJ with AI Verify SP03 - BM with AI Verify SP03 - CM with AI Verify SP04 - PGB with AI Verify SP07 - ERG with AI Verify SP07 - PZT with AI Verify SP08 - MCN with AI Verify SP09 - XN with AI Verify SP10 - ADAL with AI Verify SP10 - RAP with AI Verify SP10 - RIC with AI Verify SP10 - ROD with AI Verify SP100 - AH with AI Verify SP100 - ARA1 with AI Verify SP100 - ARA2 with AI Verify SP100 - CAP with AI Verify SP100 - EP with AI Verify SP100 - GGP with AI Verify SP100 - RAP with AI Verify SP100 - RTO with AI Verify SP101 - AZS with AI Verify SP1012 - JPZ with AI Verify SP108 - DFF with AI Verify SP108 - FC with AI Verify SP108 - FFF with AI Verify SP108 - G5(D) with AI Verify SP108 - G5(F) with AI Verify SP108 - G5(M) with AI Verify SP108 - G5(V) with AI Verify SP108 - JB(D) with AI Verify SP108 - JB(F) with AI Verify SP108 - JB(M) with AI Verify SP108 - JB(V) with AI Verify SP108 - MFF with AI Verify SP108 - MTF with AI Verify SP108 - VFF with AI Verify SP11 - SIL with AI Verify SP111 - CMD with AI Verify SP111 - JVD with AI Verify SP111 - PHD with AI Verify SP1111 - AAR with AI Verify SP1111 - FAR with AI Verify SP1111 - MAR with AI Verify SP1111 - MS with AI Verify SP13 - BL with AI Verify SP13 - FLBL with AI Verify SP1313 - GRL with AI Verify SP1313 - JPL with AI Verify SP141 - PA with AI Verify SP15 - GBR with AI Verify SP15 - JLR with AI Verify SP161 - AJ with AI Verify SP17 - QFP with AI Verify SP174 - BR with AI Verify SP18 - AAA with AI Verify SP18 - AHAA with AI Verify SP18 - ALA with AI Verify SP18 - ALV with AI Verify SP18 - EA with AI Verify SP18 - HA with AI Verify SP18 - LEAA with AI Verify SP18 - LFAA with AI Verify SP18 - LHAA with AI Verify SP18 - MEPCA with AI Verify SP18 - RA with AI Verify SP1817 - MMZ with AI Verify SP19 - ALM with AI Verify SP19 - ARM with AI Verify SP19 - MCFM with AI Verify SP19 - ME with AI Verify SP19 - SFM with AI Verify SP19 - SMM with AI Verify SP2000 - FNR with AI Verify SP2000 - RMR with AI Verify SP21 - JSJL with AI Verify SP21 - SAMJ with AI Verify SP210 - RM with AI Verify SP216 - CH with AI Verify SP216 - PM with AI Verify SP221 - CS with AI Verify SP225 - ACV with AI Verify SP225 - AVV with AI Verify SP225 - JOVA with AI Verify SP225 - JVA with AI Verify SP225 - JVAN with AI Verify SP229 - FSN with AI Verify SP23 - BP with AI Verify SP23 - TP with AI Verify SP23 - TPF with AI Verify SP2318 - ROB with AI Verify SP246 - CONSOLIDAÇÃO with AI Verify SP246 - SLJ with AI Verify SP25 - COL with AI Verify SP25 - CRI with AI Verify SP271 - ABM with AI Verify SP271 - AFM with AI Verify SP271 - CM with AI Verify SP271 - CONSOLIDAÇÃO with AI Verify SP271 - FILHO1 with AI Verify SP271 - FILHO2 with AI Verify SP271 - FM with AI Verify SP271 - HM with AI Verify SP271 - IMÓVEIS with AI Verify SP271 - JBM with AI Verify SP271 - VM with AI Verify SP29 - GAA with AI Verify SP29 - GNA with AI Verify SP304 - LPB with AI Verify SP31 - AQ with AI Verify SP314 - CCM with AI Verify SP316 - FR with AI Verify SP316 - MR with AI Verify SP318 - BP with AI Verify SP318 - CP with AI Verify SP319 - MCJ with AI Verify SP321 - SSJ with AI Verify SP322 - RCM with AI Verify SP325 - DFS with AI Verify SP33 - CSB with AI Verify SP33 - FSB with AI Verify SP33 - ISB with AI Verify SP33 - MB with AI Verify SP33 - MB IMÓVEIS with AI Verify SP332 - LV with AI Verify SP35 - CGW with AI Verify SP37 - MAR with AI Verify SP37 - MUR with AI Verify SP4134 - AGM with AI Verify SP4152 - ARA with AI Verify SP4152 - HUBCOM with AI Verify SP4152 - HUBCOMF with AI Verify SP4152 - MARKETING SA with AI Verify SP4152 - SPOKE with AI Verify SP4173 - ABB with AI Verify SP4173 - CAB with AI Verify SP4173 - CAB H with AI Verify SP4173 - MBB with AI Verify SP4173 - MGB with AI Verify SP4173 - SBB with AI Verify SP42 - BOZ with AI Verify SP428 - LAS with AI Verify SP428 - LRS with AI Verify SP50 - CCV with AI Verify SP50 - HMC with AI Verify SP50 - LCV with AI Verify SP50 - PCV with AI Verify SP50 - RCV with AI Verify SP500 - DMS with AI Verify SP518 - 3MENINOS with AI Verify SP518 - CONSOLIDAÇÃO with AI Verify SP518 - ES with AI Verify SP518 - FGM with AI Verify SP52 - LCC with AI Verify SP5418 - RAW with AI Verify SP5418 - TKW with AI Verify SP55 - AAT with AI Verify SP55 - AGN with AI Verify SP55 - AIL with AI Verify SP55 - ETT with AI Verify SP55 - IDE with AI Verify SP55 - KKY with AI Verify SP55 - KMYS with AI Verify SP59 - RM with AI Verify SP60 - MDLB with AI Verify SP61 - AA with AI Verify SP61 - ALTA with AI Verify SP61 - CEMAB with AI Verify SP61 - CFS with AI Verify SP61 - CNIP with AI Verify SP61 - COMODORO with AI Verify SP61 - EFS with AI Verify SP61 - HM with AI Verify SP61 - RS with AI Verify SP61 - RS (PF) with AI Verify SP61 - RS (PJ) with AI Verify SP62 - LPP with AI Verify SP62 - MEP with AI Verify SP62 - MLC with AI Verify SP62 - PPP with AI Verify SP623 - JABM with AI Verify SP70 - DBI with AI Verify SP70 - GI with AI Verify SP70 - INK with AI Verify SP70 - MYPK with AI Verify SP71 - JCBVS with AI Verify SP78 - VD with AI Verify SP80 - FRK with AI Verify SP80 - GRK with AI Verify SP80 - GUAR3 with AI Verify SP80 - LGR with AI Verify SP80 - MRKC with AI Verify SP80 - MRKT with AI Verify SP81 - GVO with AI Verify SP818 - AG with AI Verify SP818 - CG with AI Verify SP818 - RG with AI Verify SP818 - TG with AI Verify SP818 - TG BTG with AI Verify SP88 - JGF with AI Verify SP909 - AFN with AI Verify SP914 - ELI with AI Verify SP959 - DF with AI Verify SP97 - MRB with AI Verify SUL00 - HP with AI Verify SUL00 - KP with AI Verify SUL00 - PP with AI Verify SUL00 - SP with AI Verify SUL11 - EB with AI Verify SUL11 - W with AI Verify SUL11 - W (OUTROS) with AI Verify SUL18 - APSL with AI Verify SUL18 - ASS with AI Verify SUL18 - ESPÓLIO with AI Verify SUL18 - FSL with AI Verify SUL18 - FSLC with AI Verify SUL18 - HSL with AI Verify SUL18 - RAL with AI Verify SUL2001 - BFML with AI Verify SUL2001 - FEM with AI Verify SUL2001 - FGM with AI Verify SUL2001 - HLM with AI Verify SUL22 - AD with AI Verify SUL26 - ALG with AI Verify SUL26 - ERG with AI Verify SUL311 - JDV with AI Verify SUL32 - ASP with AI Verify SUL32 - HSP with AI Verify SUL32 - MES with AI Verify SUL48 - JS with AI Verify SUL48 - NS with AI Verify SUL48 - SS with AI Verify SUL54 - CRH with AI Verify SUL555 - CAF with AI Verify SUL555 - CF with AI Verify SUL555 - MBF with AI Verify SUL555 - MSF with AI Verify SUL61 - HBR with AI Verify SUL73 - CONSOLIDAÇÃO with AI Verify SUL73 - RA with AI Verify SUL77 - DSC with AI Verify T08 - ALM with AI Verify T08 - FLM with AI Verify T08 - LMA with AI Verify T101 - DML with AI Verify T101 - LML with AI Verify T101 - MML with AI Verify T129 - RS with AI Verify T13 - CFC with AI Verify T16 - RTC with AI Verify T18 - DN with AI Verify T18 - NBP with AI Verify T18 - NWG with AI Verify T1943 - GIPR with AI Verify T1943 - PPR with AI Verify T1943 - RPR with AI Verify T2653 - EKT with AI Verify T2653 - ETT with AI Verify T2653 - LT with AI Verify T2653 - MT with AI Verify T2653 - PT with AI Verify T2653 - ST with AI Verify T29 - DIF with AI Verify T29 - JKF with AI Verify T29 - JKSA with AI Verify T501 - DML with AI Verify T501 - JL with AI Verify T501 - ML with AI Verify T57 - ACF with AI Verify T712 - RB with AI Verify T7677 - SSM with AI Verify T771 - ABO with AI Verify T858 - FC with AI Verify T858 - VC with AI Verify T8816 - LG with AI Verify T8846 - AR with AI Verify T8846 - ER with AI Verify T98 - FITA AZUL with AI Verify T98 - MABB with AI Verify T98 - TORI CONSULTORIA with AI Verify T98 - VCLR with AI Verify TFO - ONE LSVF with AI Verify TFO - ONE RV (002L - HV) with AI Verify TFO - ONE RV (031L - JZFV) with AI Verify UK222 - MAB with AI Verify US04 - BIH with AI Verify US19 - C with AI Verify i22 - FP with AI Verify i22 - JC with AI Verify i22 - TA with AI Verify i22 - TS with AI Verify i78 - DARA with AI Click on i78 - DARA with AI Click on Status with AI Verify Sucesso with AI Verify Erro with AI Verify Em processamento with AI Verify Não processada no período with AI Click on Não processada no período with AI Wait for 1sec Verify Ativo with AI Click on //*[@value='Todos']  Wait for 1sec Verify Todos with AI Verify Sim with AI Verify Não with AI Click on Não with AI Verify No rows with AI Verify Rows per page: with AI Verify 0–0 of 0 with AI  Click on Conciliação de Ativos with AI Verify Visão consolidada de todas as posições processadas with AI Verify Baixar Planilha with AI Verify Posições Encontradas with AI Verify Taxa de Matching with AI Verify Divergências  with AI Verify Valor Total Conciliado with AI Verify Buscar with AI Verify Ciclo de Conciliação with AI Click on xpath=//*[@value='Todos os ciclos'] Verify Jan/2026 with AI Verify Dez/2025 with AI Verify Nov/2025 with AI Verify Out/2025 with AI Verify Set/2025 with AI Verify Jun/2025 with AI Verify Jan/2025 with AI Verify Dez/2023 with AI Click on Jan/2026 with AI Click on Cliente with AI Verify 001 - IBCL with AI Verify 003 - MM with AI Verify US04 - BIH with AI Verify 004 - CL with AI Verify 004 - CON with AI Verify 004 - JLIH with AI Verify 004 - SQ with AI Verify 005 - ACMM with AI Verify 005 - MM with AI Verify 007 - CGA with AI Verify 007 - EGA with AI Verify 008 - ACN with AI Verify 008 - AKN with AI Verify 008 - JKN with AI Verify 008 - PKN with AI Verify 008 - TRN with AI Verify 009 - AL with AI Verify 009 - CR with AI Verify 009 - ES with AI Verify 009 - MCR with AI Verify 009 - ML with AI Verify 009 - PS with AI Verify 009 - RB with AI Verify 011 - ACFA with AI Verify 011 - VFA with AI Verify 012 - JFVC with AI Verify 015 - LEVSV with AI Verify 017 - JRM with AI Verify 017 - LM with AI Verify 017 - PM with AI Verify 017 - RM with AI Verify 019 - AST with AI Verify 019 - JRT with AI Verify 021 - GM with AI Verify 022 - PDM with AI Verify 022 - ZRM with AI Verify 023 - APN with AI Verify 031 - ISA with AI Verify 033 - JN with AI Verify 033 - PN with AI Verify 034 - EFS with AI Verify 034 - LIA with AI Verify 034 - LUC with AI Verify 034 - MLC with AI Verify 034 - MSC with AI Verify 034 - RIC with AI Verify 034 - ROB with AI Verify 035 - I with AI Verify 035 - JP with AI Verify 035 - LGV with AI Verify 041 - BC with AI Verify 044 - APO with AI Verify 044 - EPO with AI Verify 046 - JHGV with AI Verify 047 - PGR with AI Verify 065 - MB with AI Verify 065 - SB with AI Verify SP10 - RAP with AI Verify SP10 - RIC with AI Verify SP10 - ROD with AI Verify SUL11 - W with AI Verify 112 - TN with AI Verify 044 - DPO with AI Verify SP18 - AHAA with AI Verify 064 - ASM with AI Verify 061 - FB with AI Verify SP01 - EDCJ with AI Verify 042 - JC with AI Verify 042 - SM with AI Verify 009 - CON with AI Verify 068 - RGX with AI Verify 004 - PARTH with AI Verify 021 - MM with AI Verify 032 - JFGV with AI Verify 045 - ETZ with AI Verify 066 - FCQ with AI Verify 066 - FRQ with AI Verify 066 - INQ with AI Verify 066 - JLQ with AI Verify 066 - VQ with AI Verify SP18 - LEAA with AI Verify SP18 - LHAA with AI Verify SP18 - MEPCA with AI Verify SP18 - LFAA with AI Verify SP18 - AAA with AI Verify 033 - SN with AI Verify 024 - RS with AI Verify 016 - LRB with AI Verify SP25 - CRI with AI Verify SP25 - COL with AI Verify 022 - PIT with AI Verify SP18 - HA with AI Verify SP18 - EA with AI Verify 021 - AMV with AI Verify SP19 - SMM with AI Verify SP18 - ALA with AI Verify 033 - LN with AI Verify 018 - EA with AI Verify 007 - LGA with AI Verify 052 - FV with AI Verify 057 - BM with AI Verify 098 - MM with AI Verify 067 - MB with AI Verify 070 - AK with AI Verify SP70 - GI with AI Verify SP09 - XN with AI Verify SP60 - MDLB with AI Verify 005 - ECMM with AI Verify SP62 - PPP with AI Verify I181 - STP with AI Verify 018 - TA with AI Verify 018 - MA with AI Verify 040 - SMP with AI Verify SP78 - VD with AI Verify SP71 - JCBVS with AI Verify SP13 - BL with AI Verify 095 - EL with AI Verify SP03 - BM with AI Verify SP03 - CM with AI Verify SP55 - AGN with AI Verify SP55 - AIL with AI Verify SP55 - AAT with AI Verify SP55 - ETT with AI Verify SP55 - IDE with AI Verify SP55 - KMYS with AI Verify SP55 - KKY with AI Verify I31 - FUND with AI Verify 058 - BR with AI Verify SP5418 - RAW with AI Verify SP07 - ERG with AI Verify 081 - MF with AI Verify SP81 - GVO with AI Verify 054 - ACC with AI Verify SUL311 - JDV with AI Verify SP80 - LGR with AI Verify SP88 - JGF with AI Verify 004 - EK with AI Verify 088 - TB with AI Verify 016 - RBF with AI Verify 004 - EIS with AI Verify SP21 - SAMJ with AI Verify SP21 - JSJL with AI Verify SP15 - JLR with AI Verify SP141 - PA with AI Verify 154 - RHF with AI Verify SP108 - DFF with AI Verify SP108 - FFF with AI Verify SP108 - VFF with AI Verify SP108 - MFF with AI Verify 100 - CB with AI Verify 309 - RF with AI Verify 309 - AC with AI Verify SUL26 - ERG with AI Verify SUL26 - ALG with AI Verify UK222 - MAB with AI Verify 222 - JAB with AI Verify SP108 - FC with AI Verify SP1111 - AAR with AI Verify SP1111 - FAR with AI Verify SP1111 - MAR with AI Verify 040 - CMP with AI Verify SUL22 - AD with AI Verify 154 - AHG with AI Verify SP174 - BR with AI Verify SP37 - MUR with AI Verify SP37 - MAR with AI Verify SP246 - SLJ with AI Verify SUL48 - SS with AI Verify SP19 - ALM with AI Verify SP19 - MCFM with AI Verify SP19 - SFM with AI Verify SP216 - PM with AI Verify SP216 - CH with AI Verify SP221 - CS with AI Verify SP428 - LAS with AI Verify SP4134 - AGM with AI Verify 040 - ACP with AI Verify 040 - ALP with AI Verify 040 - MFP with AI Verify SUL32 - ASP with AI Verify SUL32 - HSP with AI Verify SUL32 - MES with AI Verify SP500 - DMS with AI Verify SP428 - LRS with AI Verify SP271 - CONSOLIDAÇÃO with AI Verify SP518 - ES with AI Verify SUL48 - NS with AI Verify SUL48 - JS with AI Verify SP271 - CM with AI Verify SP271 - VM with AI Verify SUL73 - RA with AI Verify SP246 - CONSOLIDAÇÃO with AI Verify 080 - RMJ with AI Verify SP18 - ALV with AI Verify 080 - MAJ with AI Verify 080 - MEJ with AI Verify 065 - SCCB with AI Verify SP210 - RM with AI Verify SP100 - EP with AI Verify SP17 - QFP with AI Verify SP100 - GGP with AI Verify SP100 - RTO with AI Verify SP101 - AZS with AI Verify 034 - BFS (CONSOLIDAÇÃO) with AI Verify 072 - RC with AI Verify 072 - SC with AI Verify SP52 - LCC with AI Verify SP1012 - JPZ with AI Verify SUL61 - HBR with AI Verify 072 - CM (RC) with AI Verify 072 - CM (LM) with AI Verify SUL555 - CF with AI Verify SUL555 - CAF with AI Verify SUL555 - MBF with AI Verify SUL555 - MSF with AI Verify T57 - ACF with AI Verify 016 - RVBB with AI Verify SP31 - AQ with AI Verify SP959 - DF with AI Verify SUL18 - APSL with AI Verify SUL18 - FSLC with AI Verify SUL18 - FSL with AI Verify SUL18 - HSL with AI Verify SP304 - LPB with AI Verify SP316 - MR with AI Verify SP316 - FR with AI Verify SP318 - BP with AI Verify SP318 - CP with AI Verify SP321 - SSJ with AI Verify SP322 - RCM with AI Verify SP325 - DFS with AI Verify SP332 - LV with AI Verify T29 - JKF with AI Verify T29 - DIF with AI Verify T29 - JKSA with AI Verify I18 - FSA1 with AI Verify I18 - FSA2 with AI Verify SUL18 - ESPÓLIO with AI Verify T101 - MML with AI Verify SUL18 - RAL with AI Verify T101 - LML with AI Verify T101 - DML with AI Verify SUL18 - ASS with AI Verify SP914 - ELI with AI Verify 016 - LVBB with AI Verify 1034 with AI Verify T18 - DN with AI Verify 095 - PL with AI Verify 095 - AL with AI Verify SP111 - CMD with AI Verify SP271 - HM with AI Verify T18 - NBP with AI Verify T2653 - MT with AI Verify T2653 - PT with AI Verify T2653 - EKT with AI Verify T2653 - ETT with AI Verify T771 - ABO with AI Verify T2653 - ST with AI Verify 070 - JK with AI Verify SP23 - TPF with AI Verify SP23 - BP with AI Verify SP23 - TP with AI Verify SP111 - JVD with AI Verify SP111 - PHD with AI Verify 1818 - LH with AI Verify SP1313 - GRL with AI Verify SP100 - AH with AI Verify T08 - FLM with AI Verify T08 - ALM with AI Verify T08 - LMA with AI Verify 888 - RF with AI Verify 888 - MSF with AI Verify 888 - MLF with AI Verify SUL00 - PP with AI Verify SUL00 - KP with AI Verify SUL00 - HP with AI Verify SUL00 - SP with AI Verify SP225 - JVAN with AI Verify SP225 - AVV with AI Verify SP225 - JVA with AI Verify SP225 - JOVA with AI Verify SP161 - AJ with AI Verify 090 - AN with AI Verify SP4152 - ARA with AI Verify T129 - RS with AI Verify 604 - BH with AI Verify SP2318 - ROB with AI Verify SP4152 - HUBCOM with AI Verify 1121 with AI Verify T712 - RB with AI Verify SP4173 - ABB with AI Verify SP4173 - MBB with AI Verify SP4173 - SBB with AI Verify SP4173 - CAB with AI Verify SP4173 - MGB with AI Verify SP1313 - JPL with AI Verify i22 - FP with AI Verify i22 - TS with AI Verify i22 - JC with AI Verify i22 - TA with AI Verify SUL2001 - BFML with AI Verify SUL2001 - HLM with AI Verify SUL2001 - FEM with AI Verify SP225 - ACV with AI Verify SP623 - JABM with AI Verify SP2000 - RMR with AI Verify SP2000 - FNR with AI Verify SP818 - TG BTG with AI Verify 008 - ACN (P) with AI Verify 008 - JKN (P) with AI Verify 008 - TRN (P) with AI Verify 008 - AKN (P) with AI Verify 008 - PKN (P) with AI Verify T858 - FC with AI Verify T7677 - SSM with AI Verify 1196 with AI Verify T18 - NWG with AI Verify 1200 with AI Verify T1943 - GIPR with AI Verify T1943 - RPR with AI Verify T1943 - PPR with AI Verify 1215 with AI Verify 1216 with AI Verify 1217 with AI Verify 1220 with AI Verify SP1817 - MMZ with AI Verify 1226 with AI Verify 1229 with AI Verify 059 - LCV with AI Verify 002 - ACLN with AI Verify 005 - B with AI Verify 005 - L with AI Verify 006 - G with AI Verify 007 - CMGA with AI Verify 23 with AI Verify 38 with AI Verify 018 - AL with AI Verify 018 - R with AI Verify 019 - P with AI Verify 020 - PBT with AI Verify 022 - IGM with AI Verify 022 - ISM with AI Verify 022 - NM with AI Verify 027 - EVPM with AI Verify 027 - MCVPM with AI Verify 028 - FSV with AI Verify 034 - AMR with AI Verify 034 - GDGC with AI Verify 034 - MO with AI Verify 034 - PB with AI Verify 034 - RQC with AI Verify 036 - PRC with AI Verify 042 - AL with AI Verify 066 - DMRQ with AI Verify 065 - CB with AI Verify 232 with AI Verify SP08 - MCN with AI Verify 032 - MTGV with AI Verify SP18 - RA with AI Verify 066 - ARQ with AI Verify 035 - AGV with AI Verify 066 - VLM with AI Verify 042 - JL with AI Verify 044 - RMO with AI Verify 059 - CCV with AI Verify 059 - GCV with AI Verify SP19 - ME with AI Verify 034 - MLC (A) with AI Verify 034 - MSC (A) with AI Verify 021 - GCM with AI Verify 011 - JIM with AI Verify 014 - ALD with AI Verify 007 - JFGA with AI Verify 007 - PHGA with AI Verify 067 - MCE with AI Verify 067 - MC with AI Verify 067 - MCL with AI Verify 067 - GB with AI Verify 034 - CZM with AI Verify I29 - EARJ with AI Verify 066 - JLUC with AI Verify SP97 - MRB with AI Verify 036 - ABC with AI Verify SP11 - SIL with AI Verify SP62 - MEP with AI Verify SP62 - LPP with AI Verify SP61 - RS (PJ) with AI Verify SP61 - RS with AI Verify 034 - BFS with AI Verify SP61 - HM with AI Verify SP61 - AA with AI Verify SP70 - DBI with AI Verify 135 - MGV with AI Verify 046 - HGV with AI Verify 046 - PGV with AI Verify SP70 - INK with AI Verify SP33 - MB with AI Verify SP33 - CSB with AI Verify SP33 - FSB with AI Verify SP33 - ISB with AI Verify SP1111 - MS with AI Verify 004 - VENUS with AI Verify 015 - ISV with AI Verify 051 - MAV with AI Verify SUL77 - DSC with AI Verify SP5418 - TKW with AI Verify 034 - RQC (M) with AI Verify SUL11 - W (OUTROS) with AI Verify SP61 - CEMAB with AI Verify I48 - S with AI Verify i78 - DARA with AI Verify SP80 - MRKC with AI Verify 004 - AK with AI Verify SUL11 - EB with AI Verify SP50 - HMC with AI Verify SP50 - CCV with AI Verify SP50 - LCV with AI Verify SP50 - PCV with AI Verify SP50 - RCV with AI Verify SP59 - RM with AI Verify 034 - EM with AI Verify 080 - WJ with AI Verify 004 - DIS with AI Verify 080 - VJ with AI Verify 232 - GC with AI Verify 132 - ALC with AI Verify SP108 - MTF with AI Verify 081 - PBPF with AI Verify 081 - MBPF with AI Verify 081 - IBP with AI Verify 034 - CFS with AI Verify SUL54 - CRH with AI Verify 004 - CIH with AI Verify SP07 - PZT with AI Verify 088 - GMB with AI Verify 088 - RMB with AI Verify 025 - AM with AI Verify SP61 - EFS with AI Verify SP61 - CFS with AI Verify SP271 - FM with AI Verify I181 - FSP with AI Verify SP61 - ALTA with AI Verify SP80 - GRK with AI Verify SP80 - FRK with AI Verify SP80 - MRKT with AI Verify SUL73 - CONSOLIDAÇÃO with AI Verify 005 - AMCMM with AI Verify 004 - TAT with AI Verify 080 - ASJ with AI Verify 080 - EJ with AI Verify 080 - WJN with AI Verify 737 - SW with AI Verify 477 - SA with AI Verify SP818 - AG with AI Verify SP818 - RG with AI Verify SP818 - TG with AI Verify SP818 - CG with AI Verify 1037 with AI Verify T2653 - LT with AI Verify 080 - ASF with AI Verify 080 - WJAN with AI Verify 1423 - DL with AI Verify SP4152 - SPOKE with AI Verify T501 - JL with AI Verify T501 - ML with AI Verify 066 - AMB with AI Verify T501 - DML with AI Verify T8846 - AR with AI Verify T8846 - ER with AI Verify T858 - VC with AI Verify SP13 - FLBL with AI Verify SP108 - G5(V) with AI Verify SP108 - G5(M) with AI Verify SP108 - G5(D) with AI Click on SP108 - G5(D) with AI Click on Instituição with AI Verify BANCO BTG PACTUAL with AI Verify BRADESCO with AI Verify ITAÚ UNIBANCO with AI Verify SANTANDER with AI Verify CEF with AI Verify BNY MELLON with AI Verify BANCO DO BRASIL with AI Verify ABC BRASIL with AI Verify XP INVESTIMENTOS with AI Verify VORTX DTVM LTDA. (310) with AI Verify ICATU with AI Verify STUDIO with AI Verify BANCO FINAXIS S.A. with AI Verify ANCAR with AI Verify SANTANDER CORRETORA with AI Verify BCO SAFRA S.A. with AI Verify G5 PARTNERS with AI Click on G5 PARTNERS with AI Click on Tipo de Ativo with AI Verify Caixa with AI Verify Ações with AI Verify Fundos with AI Verify Renda Fixa with AI Verify Títulos Públicos with AI Click on Títulos Públicos with AI Click on Status with AI Verify Compatível with AI Verify Divergente with AI Verify Só no Extrato with AI Verify Só no Sistema with AI Verify Onboarding with AI Click Onboarding with AI Verify Rows per page: with AI  Click on Configurações with AI Verify Gerenciar dados mestres do sistema de conciliação with AI Verify Posições Grupo Turim with AI Verify Arquivo ativos_turim.xlsx do sistema with AI Verify Arraste o arquivo Excel aqui with AI Verify ou clique para selecionar with AI Verify Última atualização: with AI Verify Arquivo ativos_turim.xlsx do sistema with AI Verify registros with AI Verify Baixar Modelo with AI Verify Fazer Upload with AI Verify Relação de Contas with AI Verify Arquivo carteiras.xlsx (clientes, bancos, contas) with AI Verify Senhas Bradesco with AI Verify Senhas para extratos PDF do Bradesco with AI Verify Histórico de Uploads with AI Verify Registro de todas as versões anteriores with AI Verify Processado with AI Verify Rows per page: with AI
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  OPENAI_MODEL: gpt-4o-mini
+  SLACK_CHANNEL: 'rc-cust-grupo-turim-internal'
+  SLACK_CHANNEL_ID: 'C08NGGZAR27'
+  SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  ENABLE_SLACK: true
+  SLACK_NOTIFY_ONLY_FAILURES: true
+  HEADLESS: true
+  SLACK_MENTION: 'U06VC2XJM3L'
+  DATAAPP_NAME: 'PRD_Plataforma_de_Conciliacao'
+  TENANT_NAME: 'Grupo Turim Conciliacao'
+
+jobs:
+  create-test-scenario:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📚 Documentation Link
+      run: |
+        echo "## 📚 Test Automation Documentation" >> $GITHUB_STEP_SUMMARY
+        echo "**Supported Commands**: [View Documentation](https://rapidcanvas.atlassian.net/wiki/spaces/RAPIDCANVA/pages/887554049/Test+Automation+Platform+-+Supported+Commands+Documentation)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "This documentation contains all supported commands and syntax for writing test descriptions." >> $GITHUB_STEP_SUMMARY
+
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install backend dependencies
+      run: |
+        cd backend
+        npm ci
+
+    - name: Install Playwright browsers
+      run: |
+        cd backend
+        echo "🔍 Checking Playwright installation..."
+        npx playwright --version
+        echo "🚀 Installing Chromium browser..."
+        npx playwright install chromium
+        echo "🔧 Installing system dependencies..."
+        npx playwright install-deps chromium
+        echo "✅ Playwright installation completed!"
+        echo "🔍 Verifying installation..."
+        npx playwright install chromium --dry-run
+
+    - name: Build backend
+      run: |
+        cd backend
+        npm run build
+
+    - name: Start backend server
+      run: |
+        cd backend
+        DB_DISABLED=true NODE_ENV=development PORT=3001 SLACK_CHANNEL_ID=${{ env.SLACK_CHANNEL_ID }} npm start &
+        echo "Backend server starting..."
+        
+        # Wait for backend to be ready
+        for i in {1..30}; do
+          if curl -f http://localhost:3001/health >/dev/null 2>&1; then
+            echo "✅ Backend is ready!"
+            break
+          fi
+          echo "Waiting for backend... ($i/30)"
+          sleep 2
+        done
+
+    - name: Generate and create complete test scenario
+      env:
+        TEST_DESC_INPUT: ${{ env.TEST_DESCRIPTION }}
+      run: |
+        # Store TEST_DESCRIPTION safely using Python to avoid shell parsing issues
+        # This safely handles all special characters (quotes, parentheses, brackets, etc.)
+        python3 -c "import os; open('/tmp/test-desc-safe.txt', 'w').write(os.environ.get('TEST_DESC_INPUT', ''))"
+        TEST_DESCRIPTION=$(cat /tmp/test-desc-safe.txt)
+        
+        echo "🚀 Generating and creating complete test scenario from: $TEST_DESCRIPTION"
+        echo "Test description length: ${#TEST_DESCRIPTION}"
+        
+        if [ -z "$TEST_DESCRIPTION" ]; then
+          echo "❌ No test description provided"
+          echo "Raw env value: '$TEST_DESCRIPTION'"
+          exit 1
+        fi
+        
+        echo "✅ Test description provided"
+        echo "Creating test-scenarios directory..."
+        mkdir -p test-scenarios
+        echo "Calling API to parse steps..."
+        
+        # Create properly escaped JSON payload
+        # GitHub Actions converts newlines to spaces, so we need to restore them
+        # The web interface sends text with actual \n characters, so we need to match that
+        echo "🔍 Restoring newlines to match web interface format..."
+        echo "Original input: $TEST_DESCRIPTION"
+        
+        # Convert spaces back to newlines for action keywords (same as web interface)
+        # GitHub Actions converts newlines to spaces, so we need to restore them
+        # The web interface sends text with actual \n characters, so we need to match that
+        # Strategy: Use simple, reliable patterns that work for multi-word values
+        # Handle conditional statements as complete lines: "If(text=X) then Action"
+        
+        # Start with basic splits on action keywords (order matters - do specific patterns first)
+        # CRITICAL: Split on "If(" FIRST to keep IF statements intact on their own lines
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESCRIPTION" | sed 's/ Open https:/\nOpen https:/g' | sed 's/ Enter /\nEnter /g' | sed 's/ Verify /\nVerify /g' | sed 's/ Wait /\nWait /g' | sed 's/ If(/\nIf(/g')
+        
+        # Handle "Click on" - split ONLY on lines that don't start with "If(" to keep IF statements intact
+        # Use awk to conditionally split: if line starts with "If(", leave it alone; otherwise split on "Click on"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | awk '/^If\(/ {print; next} {gsub(/ Click on /, "\nClick on "); gsub(/^Click on /, "\nClick on "); print}')
+        
+        # Handle Click statements - split ONLY on lines that don't start with "If(" to keep IF statements intact
+        # Use awk to conditionally split: if line starts with "If(", leave it alone; otherwise split on standalone "Click"
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | awk '/^If\(/ {print; next} {gsub(/ Click /, "\nClick "); gsub(/^Click /, "\nClick "); print}')
+        
+        # Fix bad splits: merge back "Click to" (part of upload target, not a new action)
+        # Use sed -z to handle newlines, or use tr to temporarily replace newlines
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | tr '\n' '\001' | sed 's/\001Click\001to/ Click to/g' | tr '\001' '\n')
+        
+        # Fix bad splits: merge "Verify\nUpload" back to "Verify Upload" (Upload is target, not new action)
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | tr '\n' '\001' | sed 's/\001Verify\001Upload/ Verify Upload/g' | tr '\001' '\n')
+        
+        # Fix bad splits: merge "Enter X in\nEnter Y" back to "Enter X in Enter Y" 
+        # This handles cases like "Enter 30209 in Enter Customer ID" which should be one action
+        # Pattern: "Enter [value] in\nEnter [target]" -> "Enter [value] in Enter [target]"
+        # The backend expects this as a single sentence and will parse it using the last " in " occurrence
+        # Use awk to handle multiline pattern matching: if previous line ends with " in" and current line starts with "Enter ", merge them
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | awk '
+          NR > 1 && prev ~ /^Enter .+ in$/ && /^Enter / {
+            # Merge: keep "Enter " from current line and append to previous line
+            prev = prev " " $0
+            next
+          }
+          { 
+            if (NR > 1) print prev
+            prev = $0
+          }
+          END { if (prev != "") print prev }
+        ')
+        
+        # Fix bad splits: merge "Press\nEnter" (or other key) back to "Press Enter" - keyboard key press, not click
+        # The " Enter " split above breaks "Press Enter" into two lines; merge so backend parses as pressKey
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | awk '
+          NR > 1 && prev ~ /Press$/ && /^(Enter|Tab|Escape|Backspace|Space|Return|ArrowDown|ArrowUp|ArrowLeft|ArrowRight|F1|F2|F3|F4|F5|F6|F7|F8|F9|F10|F11|F12)( with AI)?$/i {
+            prev = prev " " $0
+            next
+          }
+          {
+            if (NR > 1) print prev
+            prev = $0
+          }
+          END { if (prev != "") print prev }
+        ')
+        
+        echo "Restored description with newlines:"
+        echo "$TEST_DESC_WITH_NEWLINES"
+        echo ""
+        
+        # Use file for long text to avoid "Argument list too long" when passing to jq
+        printf '%s' "$TEST_DESC_WITH_NEWLINES" > /tmp/test-desc-for-payload.txt
+        jq -n --rawfile text /tmp/test-desc-for-payload.txt '{text: ($text | tostring)}' > /tmp/nlp-payload.json
+        
+        STEPS_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/nlp/parse -H "Content-Type: application/json" -d @/tmp/nlp-payload.json -w "\n%{http_code}")
+        HTTP_CODE=$(echo "$STEPS_RESPONSE" | tail -n1)
+        STEPS_BODY=$(echo "$STEPS_RESPONSE" | sed '$d')
+        
+        echo "Steps HTTP Code: $HTTP_CODE"
+        echo "Steps Response Length: ${#STEPS_BODY}"
+        echo "Success: $(echo "$STEPS_BODY" | grep -o '"success":true' || echo 'false')"
+        
+        # Debug: Check number of steps parsed
+        STEPS_COUNT=$(echo "$STEPS_BODY" | jq '.steps | length' 2>/dev/null || echo "0")
+        echo "Number of steps parsed: $STEPS_COUNT"
+        
+        if [ "$STEPS_COUNT" -gt 5 ]; then
+            echo "✅ SUCCESS: Multiple steps parsed correctly!"
+            echo "First few steps:"
+            echo "$STEPS_BODY" | jq '.steps[0:3]'
+        else
+            echo "❌ ISSUE: Only $STEPS_COUNT step(s) parsed"
+            echo "Full response:"
+            echo "$STEPS_BODY" | jq '.'
+        fi
+        
+        if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
+          echo "✅ Test steps generated successfully!"
+          echo "Saving NLP parsing response..."
+          echo "$STEPS_BODY" > test-scenarios/steps-response-${{ github.run_id }}.json
+          echo "Creating payload..."
+          echo "$STEPS_BODY" | jq -c '{steps: .steps, language: "typescript"}' > /tmp/steps.json
+          echo "Payload created:"
+          cat /tmp/steps.json
+          echo ""
+          
+          echo "Calling API to generate code..."
+          CODE_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/nlp/generate-code -H "Content-Type: application/json" -d @/tmp/steps.json -w "\n%{http_code}")
+          CODE_HTTP_CODE=$(echo "$CODE_RESPONSE" | tail -n1)
+          CODE_BODY=$(echo "$CODE_RESPONSE" | sed '$d')
+          
+          echo "Code HTTP Code: $CODE_HTTP_CODE"
+          echo "Code Response Length: ${#CODE_BODY}"
+          echo "Code Success: $(echo "$CODE_BODY" | grep -o '"success":true' || echo 'false')"
+          
+          if [ "$CODE_HTTP_CODE" -eq 200 ] || [ "$CODE_HTTP_CODE" -eq 201 ]; then
+            echo "✅ Test code generated successfully!"
+            echo "Creating test scenario files..."
+            mkdir -p test-scenarios
+            
+            echo "Extracting test steps..."
+            TEST_STEPS=$(echo "$STEPS_BODY" | jq -r '.steps // .parsedSteps // "No steps generated"' 2>/dev/null || echo "No steps generated - parsing failed")
+            
+            echo "Creating comprehensive test scenario file..."
+            # Create markdown file using echo commands to avoid YAML issues
+            echo "# Test Scenario" > test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "Generated on: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "Triggered by: ${{ github.actor }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "Workflow Run: ${{ github.run_id }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "## Test Description" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "$TEST_DESCRIPTION" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "## Generated Test Steps" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "\`\`\`json" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "$STEPS_BODY" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "\`\`\`" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "## Generated Test Code Response" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "\`\`\`json" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "$CODE_BODY" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "\`\`\`" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "## Test Steps (Human Readable)" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "$TEST_STEPS" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "## Usage Instructions" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "1. Extract the code from the JSON response above" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "2. Save it as a .js file in your test project" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "3. Run with: npx playwright test your-test-file.js" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            
+            echo "Creating raw response file..."
+            echo "$CODE_BODY" > test-scenarios/code-response-${{ github.run_id }}.json
+            echo "Creating steps file..."
+            echo "$TEST_STEPS" > test-scenarios/test-steps-${{ github.run_id }}.txt
+            
+            echo "✅ Test scenario files created successfully!"
+            echo "Files created:"
+            ls -la test-scenarios/
+            echo "Main file size:"
+            wc -c test-scenarios/test-scenario-${{ github.run_id }}.md
+          else
+            echo "❌ Failed to generate test code"
+            echo "Raw code response: $CODE_RESPONSE"
+            exit 1
+          fi
+        else
+          echo "❌ Failed to generate test steps"
+          echo "Raw steps response: $STEPS_RESPONSE"
+          echo "Debug: TEST_DESCRIPTION value: '$TEST_DESCRIPTION'"
+          echo "Debug: TEST_DESCRIPTION length: ${#TEST_DESCRIPTION}"
+          exit 1
+        fi
+        
+        rm -f /tmp/steps.json /tmp/nlp-payload.json /tmp/test-desc-for-payload.txt
+
+    - name: Create test in platform and execute
+      run: |
+        echo "🚀 Creating test in platform and executing..."
+        echo "📝 Creating test payload..."
+        TEST_NAME="GitHub Action Test - ${{ github.run_id }}"
+        
+        # Use files for large inputs to avoid "Argument list too long" when passing to jq
+        printf '%s' "$TEST_DESCRIPTION" > /tmp/description.txt
+        cat test-scenarios/steps-response-${{ github.run_id }}.json | jq -c '.steps // []' > /tmp/steps-array.json
+        
+        echo "🔍 Extracted steps data:"
+        cat /tmp/steps-array.json | jq '.'
+        echo ""
+        
+        # Prepare slack notify only failures flag
+        if [ "${{ env.SLACK_NOTIFY_ONLY_FAILURES }}" = "true" ]; then
+          SLACK_NOTIFY_ONLY_FAILURES_VALUE="true"
+        else
+          SLACK_NOTIFY_ONLY_FAILURES_VALUE="false"
+        fi
+        
+        # Create test payload using jq with file inputs (avoids ARG_MAX for long description/steps)
+        # Include slackMention if provided
+        if [ -n "${{ env.SLACK_MENTION }}" ]; then
+          jq -n \
+            --arg name "$TEST_NAME" \
+            --rawfile description /tmp/description.txt \
+            --slurpfile stepsarr /tmp/steps-array.json \
+            --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
+            --arg slackMention "${{ env.SLACK_MENTION }}" \
+            '{
+              name: $name,
+              description: ($description | tostring),
+              steps: $stepsarr[0],
+              workflowRunUrl: $workflowRunUrl,
+              slackNotifyOnlyFailures: $slackNotifyOnlyFailures,
+              slackMention: $slackMention
+            }' > /tmp/test-payload.json
+        else
+          jq -n \
+            --arg name "$TEST_NAME" \
+            --rawfile description /tmp/description.txt \
+            --slurpfile stepsarr /tmp/steps-array.json \
+            --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
+            '{
+              name: $name,
+              description: ($description | tostring),
+              steps: $stepsarr[0],
+              workflowRunUrl: $workflowRunUrl,
+              slackNotifyOnlyFailures: $slackNotifyOnlyFailures
+            }' > /tmp/test-payload.json
+        fi
+        
+        echo "Creating test in platform..."
+        CREATE_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/tests -H "Content-Type: application/json" -d @/tmp/test-payload.json -w "\n%{http_code}")
+        CREATE_HTTP_CODE=$(echo "$CREATE_RESPONSE" | tail -n1)
+        CREATE_BODY=$(echo "$CREATE_RESPONSE" | sed '$d')
+        echo "Create Test HTTP Code: $CREATE_HTTP_CODE"
+        
+        if [ "$CREATE_HTTP_CODE" -eq 201 ]; then
+          echo "✅ Test created successfully!"
+            TEST_ID=$(echo "$CREATE_BODY" | jq -r '.test.id // "unknown"')
+            echo "Test ID: $TEST_ID"
+            echo "🔍 Debug: Full create response:"
+            echo "$CREATE_BODY" | jq '.'
+          echo "🚀 Executing test..."
+          
+          # Set browser execution mode for GitHub Actions
+          # GitHub Actions default is headless: true (no GUI available)
+          if [ "${{ env.HEADLESS }}" = "true" ]; then
+            HEADLESS_VALUE="true"
+            echo "🖥️ Running in HEADLESS mode (GitHub Actions - no GUI available)"
+          else
+            HEADLESS_VALUE="false"
+            echo "🖥️ Running in HEADED mode (browser window visible) - not recommended for GitHub Actions"
+          fi
+          
+          if [ "${{ env.ENABLE_SLACK }}" = "true" ]; then
+            SLACK_VALUE="true"
+          else
+            SLACK_VALUE="false"
+          fi
+          
+          if [ "${{ env.SLACK_NOTIFY_ONLY_FAILURES }}" = "true" ]; then
+            SLACK_NOTIFY_ONLY_FAILURES_VALUE="true"
+          else
+            SLACK_NOTIFY_ONLY_FAILURES_VALUE="false"
+          fi
+          
+          # Match web interface execution parameters exactly
+          jq -n \
+            --argjson headless "$HEADLESS_VALUE" \
+            --argjson enableSlack "$SLACK_VALUE" \
+            --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
+            '{
+              headless: $headless,
+              slowMoMs: 1000,
+              enableSlackNotifications: $enableSlack,
+              slackNotifyOnlyFailures: $slackNotifyOnlyFailures
+            }' > /tmp/exec-payload.json
+          
+          echo "📋 Execution payload:"
+          cat /tmp/exec-payload.json
+          echo ""
+          
+          echo "🔍 Testing execution with test ID: $TEST_ID"
+          echo "🔍 Checking if test exists first..."
+          curl -X GET ${BACKEND_URL:-http://localhost:3001}/api/tests/$TEST_ID | jq '.test.id // "not found"'
+          
+          echo "🔍 Debug: Checking Playwright installation in backend..."
+          curl -X GET ${BACKEND_URL:-http://localhost:3001}/health | jq '.' || echo "Health check failed"
+          
+          echo "🚀 Executing test..."
+          # Increased timeout to 45 minutes (2700 seconds) to accommodate tests with multiple long waits
+          # Test includes multiple "Wait 100sec" steps which can easily exceed 10 minutes
+          EXEC_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/execution/$TEST_ID/run -H "Content-Type: application/json" -d @/tmp/exec-payload.json -w "\n%{http_code}" --max-time 2700)
+          EXEC_HTTP_CODE=$(echo "$EXEC_RESPONSE" | tail -n1)
+          EXEC_BODY=$(echo "$EXEC_RESPONSE" | sed '$d')
+          echo "Execution HTTP Code: $EXEC_HTTP_CODE"
+          echo "Execution Response: $EXEC_BODY"
+          
+          if [ "$EXEC_HTTP_CODE" -eq 200 ]; then
+            echo "✅ Test executed successfully!"
+            echo "Execution Result:"
+            echo "$EXEC_BODY" | jq '.'
+            EXECUTION_ID=$(echo "$EXEC_BODY" | jq -r '.executionId // "unknown"')
+            TEST_STATUS=$(echo "$EXEC_BODY" | jq -r '.status // "unknown"')
+            echo "EXECUTION_ID=$EXECUTION_ID" >> $GITHUB_ENV
+            echo "TEST_STATUS=$TEST_STATUS" >> $GITHUB_ENV
+            echo "TEST_ID=$TEST_ID" >> $GITHUB_ENV
+            
+            # Check if execution actually completed
+            STEPS_EXECUTED=$(echo "$EXEC_BODY" | jq '.result.steps | length' 2>/dev/null || echo "0")
+            echo "Steps executed: $STEPS_EXECUTED"
+            if [ "$STEPS_EXECUTED" -eq 0 ]; then
+              echo "⚠️ WARNING: No steps were executed in the browser."
+              echo "This might be due to browser automation issues in Docker environment."
+            fi
+          elif [ "$EXEC_HTTP_CODE" -eq 404 ]; then
+            echo "❌ Test not found (404) - Test ID: $TEST_ID"
+            echo "Raw execution response: $EXEC_RESPONSE"
+            exit 1
+          else
+            echo "❌ Test execution failed with HTTP $EXEC_HTTP_CODE"
+            echo "Raw execution response: $EXEC_RESPONSE"
+            exit 1
+          fi
+        else
+          echo "❌ Failed to create test"
+          echo "Raw create response: $CREATE_RESPONSE"
+          exit 1
+        fi
+        
+        # Cleanup
+        rm -f /tmp/test-payload.json /tmp/exec-payload.json /tmp/description.txt /tmp/steps-array.json
+
+
+    - name: Verify test execution results
+      run: |
+        echo "📊 Verifying test execution results..."
+        if [ -n "${{ env.EXECUTION_ID }}" ]; then
+          echo "✅ Test executed in platform successfully!"
+          echo "Execution ID: ${{ env.EXECUTION_ID }}"
+          echo "Test Status: ${{ env.TEST_STATUS }}"
+          echo "Test ID: ${{ env.TEST_ID }}"
+          
+          # Get detailed execution results
+          echo "📋 Getting detailed execution results..."
+          DETAILED_RESULTS=$(curl -X GET "${BACKEND_URL:-http://localhost:3001}/api/execution/${{ env.EXECUTION_ID }}/results" | jq '.')
+          echo "Detailed Results:"
+          echo "$DETAILED_RESULTS" | jq '.'
+          
+          STEPS_EXECUTED=$(echo "$DETAILED_RESULTS" | jq '.execution.result.steps | length')
+          echo "Steps executed: $STEPS_EXECUTED"
+          
+          if [ "$STEPS_EXECUTED" -gt 0 ]; then
+            echo "🎉 SUCCESS: Browser execution completed! Steps were executed."
+            echo "Step details:"
+            echo "$DETAILED_RESULTS" | jq '.execution.result.steps[] | {step: .step, action: .action, target: .target, status: .status, error: .error}'
+          else
+            echo "⚠️ WARNING: No steps were executed in the browser."
+          fi
+        else
+          echo "❌ No execution ID found - test may not have been executed"
+        fi
+
+    - name: Update Slack main thread with test result
+      if: env.EXECUTION_ID != '' && env.TEST_ID != '' && env.TEST_STATUS != '' && (env.ENABLE_SLACK == 'true' && (env.SLACK_NOTIFY_ONLY_FAILURES != 'true' || env.TEST_STATUS == 'failed'))
+      run: |
+        echo "📢 Updating Slack main thread with test result..."
+        if [ -n "${{ env.EXECUTION_ID }}" ] && [ -n "${{ env.TEST_ID }}" ] && [ -n "${{ env.TEST_STATUS }}" ]; then
+          # Additional check for failure-only mode (outer if already ensures Slack is enabled)
+          if [ "${{ env.SLACK_NOTIFY_ONLY_FAILURES }}" = "true" ] && [ "${{ env.TEST_STATUS }}" != "failed" ]; then
+            echo "ℹ️ Skipping Slack notification (only failures enabled, test status: ${{ env.TEST_STATUS }})"
+            exit 0
+          fi
+          
+          echo "🔄 Calling Slack update API..."
+          
+          # Prepare the update payload with dataApp name and tenant name (only shown for failed tests)
+          UPDATE_PAYLOAD=$(jq -n \
+            --arg testName "GitHub Action Test - ${{ github.run_id }}" \
+            --arg status "${{ env.TEST_STATUS }}" \
+            --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg dataAppName "${{ env.DATAAPP_NAME }}" \
+            --arg tenantName "${{ env.TENANT_NAME }}" \
+            '{
+              testName: $testName,
+              status: $status,
+              workflowRunUrl: $workflowRunUrl,
+              dataAppName: (if $dataAppName == "" then null else $dataAppName end),
+              tenantName: (if $tenantName == "" then null else $tenantName end)
+            }')
+          
+          echo "📋 Update payload:"
+          echo "$UPDATE_PAYLOAD" | jq '.'
+          
+          # Call the Slack update endpoint
+          SLACK_UPDATE_RESPONSE=$(curl -X POST \
+            "${BACKEND_URL:-http://localhost:3001}/api/execution/${{ env.EXECUTION_ID }}/slack-update" \
+            -H "Content-Type: application/json" \
+            -d "$UPDATE_PAYLOAD" \
+            -w "\n%{http_code}" \
+            --max-time 30)
+          
+          SLACK_UPDATE_HTTP_CODE=$(echo "$SLACK_UPDATE_RESPONSE" | tail -n1)
+          SLACK_UPDATE_BODY=$(echo "$SLACK_UPDATE_RESPONSE" | sed '$d')
+          
+          echo "Slack Update HTTP Code: $SLACK_UPDATE_HTTP_CODE"
+          echo "Slack Update Response: $SLACK_UPDATE_BODY"
+          
+          if [ "$SLACK_UPDATE_HTTP_CODE" -eq 200 ]; then
+            echo "✅ Slack main thread updated successfully!"
+            echo "$SLACK_UPDATE_BODY" | jq '.'
+          else
+            echo "⚠️ Slack main thread update failed with HTTP $SLACK_UPDATE_HTTP_CODE"
+            echo "Response: $SLACK_UPDATE_BODY"
+            # Don't fail the workflow if Slack update fails
+          fi
+        else
+          echo "⚠️ Missing required environment variables for Slack update"
+          echo "EXECUTION_ID: ${{ env.EXECUTION_ID }}"
+          echo "TEST_ID: ${{ env.TEST_ID }}"
+          echo "TEST_STATUS: ${{ env.TEST_STATUS }}"
+        fi
+
+    - name: Upload test scenarios
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-scenarios-${{ github.run_id }}
+        path: test-scenarios/
+        retention-days: 30
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ github.run_id }}
+        path: backend/test-results/
+        retention-days: 30
+
+
+    - name: Comment on workflow
+      run: |
+        echo "✅ AI Test Automation Pipeline completed successfully!"
+        echo ""
+        echo "📊 Pipeline Summary:"
+        echo "   • Natural language processing: ✅"
+        echo "   • Test code generation: ✅"
+        echo "   • Test creation in platform: ✅"
+        echo "   • Test execution: ✅"
+        echo "   • Slack notifications: ✅"
+        echo ""
+        echo "📁 Files uploaded as artifacts:"
+        echo "   - test-scenario-${{ github.run_id }}.md (comprehensive report)"
+        echo "   - code-response-${{ github.run_id }}.json (raw code response)"
+        echo "   - test-steps-${{ github.run_id }}.txt (human readable steps)"
+          echo "   - test-results-${{ github.run_id }} (test execution results)"
+          echo "   - generated-test-${{ github.run_id }}.js (executable test file)"
+        echo ""
+        echo "🎯 Next steps:"
+        echo "   1. Download the artifacts from this workflow run"
+          echo "   2. ✅ Tests were executed automatically!"
+          echo "   3. Check test-results artifact for screenshots/videos"
+          echo "   4. Use generated-test-${{ github.run_id }}.js for future runs"
+        echo "   5. Check Slack for detailed execution notifications"
+        echo ""
+        echo "🔗 Platform Integration:"
+        echo "   • Test created in platform with ID: ${{ env.TEST_ID }}"
+        echo "   • Execution ID: ${{ env.EXECUTION_ID }}"
+        echo "   • Status: ${{ env.TEST_STATUS }}"
