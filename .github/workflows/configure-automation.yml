@@ -137,12 +137,13 @@ jobs:
           exit 1
         fi
 
-        # Validate cron format (basic validation)
-        CRON_REGEX="^[0-9\*\/\-\,]+ [0-9\*\/\-\,]+ [0-9\*\/\-\,]+ [0-9\*\/\-\,]+ [0-9\*\/\-\,]+$"
+        # Validate cron format (5 fields: minute hour day month dayOfWeek; allows * / , - and numbers)
+        CRON_REGEX='^[-0-9*/,]+ [-0-9*/,]+ [-0-9*/,]+ [-0-9*/,]+ [-0-9*/,]+$'
         if ! echo "${{ inputs.cron_schedule }}" | grep -E "$CRON_REGEX" > /dev/null; then
           echo " Invalid cron schedule format: ${{ inputs.cron_schedule }}"
           echo " Expected format: minute hour day month dayOfWeek"
           echo " Example: 0 10 * * * (daily at 10 AM UTC)"
+          echo " Example: 30 5,8,11,14 * * 1-5 (Mon-Fri at 5:30, 8:30, 11:30, 14:30 UTC)"
           exit 1
         fi
 
