@@ -207,7 +207,9 @@ jobs:
         echo "$TEST_DESC_WITH_NEWLINES"
         echo ""
         
-        jq -n --arg text "$TEST_DESC_WITH_NEWLINES" '{text: $text}' > /tmp/nlp-payload.json
+        # Use file for long text to avoid "Argument list too long" when passing to jq
+        printf '%s' "$TEST_DESC_WITH_NEWLINES" > /tmp/test-desc-for-payload.txt
+        jq -n --rawfile text /tmp/test-desc-for-payload.txt '{text: ($text | tostring)}' > /tmp/nlp-payload.json
         
         STEPS_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/nlp/parse -H "Content-Type: application/json" -d @/tmp/nlp-payload.json -w "\n%{http_code}")
         HTTP_CODE=$(echo "$STEPS_RESPONSE" | tail -n1)
@@ -309,7 +311,7 @@ jobs:
           exit 1
         fi
         
-        rm -f /tmp/steps.json /tmp/nlp-payload.json
+        rm -f /tmp/steps.json /tmp/nlp-payload.json /tmp/test-desc-for-payload.txt
 
     - name: Create test in platform and execute
       run: |
@@ -317,11 +319,12 @@ jobs:
         echo "📝 Creating test payload..."
         TEST_NAME="GitHub Action Test - ${{ github.run_id }}"
         
-        # Extract steps from the original NLP parsing response (like the frontend does)
-        STEPS_DATA=$(cat test-scenarios/steps-response-${{ github.run_id }}.json | jq -c '.steps // []')
+        # Use files for large inputs to avoid "Argument list too long" when passing to jq
+        printf '%s' "$TEST_DESCRIPTION" > /tmp/description.txt
+        cat test-scenarios/steps-response-${{ github.run_id }}.json | jq -c '.steps // []' > /tmp/steps-array.json
         
         echo "🔍 Extracted steps data:"
-        echo "$STEPS_DATA" | jq '.'
+        cat /tmp/steps-array.json | jq '.'
         echo ""
         
         # Prepare slack notify only failures flag
@@ -331,20 +334,20 @@ jobs:
           SLACK_NOTIFY_ONLY_FAILURES_VALUE="false"
         fi
         
-        # Create test payload using jq to properly escape JSON (matching frontend behavior)
+        # Create test payload using jq with file inputs (avoids ARG_MAX for long description/steps)
         # Include slackMention if provided
         if [ -n "${{ env.SLACK_MENTION }}" ]; then
           jq -n \
             --arg name "$TEST_NAME" \
-            --arg description "$TEST_DESCRIPTION" \
-            --argjson steps "$STEPS_DATA" \
+            --rawfile description /tmp/description.txt \
+            --slurpfile stepsarr /tmp/steps-array.json \
             --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
             --arg slackMention "${{ env.SLACK_MENTION }}" \
             '{
               name: $name,
-              description: $description,
-              steps: $steps,
+              description: ($description | tostring),
+              steps: $stepsarr[0],
               workflowRunUrl: $workflowRunUrl,
               slackNotifyOnlyFailures: $slackNotifyOnlyFailures,
               slackMention: $slackMention
@@ -352,14 +355,14 @@ jobs:
         else
           jq -n \
             --arg name "$TEST_NAME" \
-            --arg description "$TEST_DESCRIPTION" \
-            --argjson steps "$STEPS_DATA" \
+            --rawfile description /tmp/description.txt \
+            --slurpfile stepsarr /tmp/steps-array.json \
             --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
             '{
               name: $name,
-              description: $description,
-              steps: $steps,
+              description: ($description | tostring),
+              steps: $stepsarr[0],
               workflowRunUrl: $workflowRunUrl,
               slackNotifyOnlyFailures: $slackNotifyOnlyFailures
             }' > /tmp/test-payload.json
@@ -466,7 +469,7 @@ jobs:
         fi
         
         # Cleanup
-        rm -f /tmp/test-payload.json /tmp/exec-payload.json
+        rm -f /tmp/test-payload.json /tmp/exec-payload.json /tmp/description.txt /tmp/steps-array.json
 
 
     - name: Verify test execution results
