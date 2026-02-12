@@ -10,6 +10,9 @@ import Reports from './pages/Reports/Reports';
 import Layout from './components/Layout/Layout';
 import ExploratoryTestingPage from './pages/ExploratoryTesting/ExploratoryTesting';
 import { AutonomousAITesting } from './pages/AutonomousAITesting/AutonomousAITesting';
+import { AIMonitoring } from './pages/AIMonitoring/AIMonitoring';
+import { GraphMonitoring } from './pages/GraphMonitoring/GraphMonitoring';
+import { PromptTestRunner } from './pages/PromptTestRunner/PromptTestRunner';
 
 const theme = createTheme({
   palette: {
@@ -39,6 +42,9 @@ function App() {
               <Route path="/reports" element={<Reports />} />
               <Route path="/explore" element={<ExploratoryTestingPage />} />
               <Route path="/autonomous" element={<AutonomousAITesting />} />
+              <Route path="/monitoring" element={<AIMonitoring />} />
+              <Route path="/graph-monitor" element={<GraphMonitoring />} />
+              <Route path="/prompt-test" element={<PromptTestRunner />} />
             </Routes>
           </Layout>
         </Router>

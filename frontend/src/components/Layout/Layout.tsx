@@ -18,6 +18,9 @@ import {
   Assessment as ReportsIcon,
   Explore as ExploreIcon,
   SmartToy as AutonomousIcon,
+  MonitorHeart as MonitorIcon,
+  AccountTree as GraphIcon,
+  Psychology as PromptTestIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -38,6 +41,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { text: 'Reports', icon: <ReportsIcon />, path: '/reports' },
     { text: 'Exploratory Testing', icon: <ExploreIcon />, path: '/explore' },
     { text: 'AI Autonomous Testing', icon: <AutonomousIcon />, path: '/autonomous' },
+    { text: 'AI Monitoring', icon: <MonitorIcon />, path: '/monitoring' },
+    { text: 'Graph Monitor', icon: <GraphIcon />, path: '/graph-monitor' },
+    { text: 'Prompt Test Runner', icon: <PromptTestIcon />, path: '/prompt-test' },
   ];
 
   return (

@@ -112,6 +112,123 @@ export const apiService = {
     return response.data;
   },
 
+  // AI Monitoring Agent endpoints
+  runAIMonitoring: async (data: {
+    startUrl: string;
+    headless?: boolean;
+    slowMoMs?: number;
+    maxSteps?: number;
+    timeoutMs?: number;
+    monitoringGoals?: string[];
+    loginCredentials?: { email: string; password: string };
+    enableSlackNotifications?: boolean;
+  }) => {
+    const response = await api.post('/ai/monitor', data);
+    return response.data;
+  },
+
+  // MCP Playwright Monitoring Agent endpoints
+  runMCPMonitoring: async (data: {
+    startUrl: string;
+    maxSteps?: number;
+    timeoutMs?: number;
+    monitoringGoals?: string[];
+    loginCredentials?: { email: string; password: string };
+    enableSlackNotifications?: boolean;
+  }) => {
+    const response = await api.post('/ai/monitor-mcp', data);
+    return response.data;
+  },
+
+  // Graph Discovery endpoints
+  runGraphDiscovery: async (data: {
+    appName: string;
+    entryPoints: string[];
+    appType?: string;
+    loginCredentials?: { email: string; password: string };
+    maxDepth?: number;
+    maxNodes?: number;
+    maxElementsPerPage?: number;
+    headless?: boolean;
+    slowMoMs?: number;
+    timeoutMs?: number;
+    domainWhitelist?: string[];
+    enableSlackNotifications?: boolean;
+  }) => {
+    const response = await api.post('/ai/graph/discover', data);
+    return response.data;
+  },
+
+  // Graph Monitoring endpoints
+  runGraphMonitoring: async (data: {
+    appName: string;
+    loginCredentials?: { email: string; password: string };
+    headless?: boolean;
+    slowMoMs?: number;
+    timeoutMs?: number;
+    checkEdges?: boolean;
+    maxEdgesToCheck?: number;
+    loadTimeThresholdMs?: number;
+    enableSlackNotifications?: boolean;
+  }) => {
+    const response = await api.post('/ai/graph/monitor', data);
+    return response.data;
+  },
+
+  // List saved graphs
+  listGraphs: async () => {
+    const response = await api.get('/ai/graph/list');
+    return response.data;
+  },
+
+  // Get saved graph
+  getGraph: async (appName: string) => {
+    const response = await api.get(`/ai/graph/${encodeURIComponent(appName)}`);
+    return response.data;
+  },
+
+  // Get latest monitoring report
+  getGraphReport: async (appName: string) => {
+    const response = await api.get(`/ai/graph/report/${encodeURIComponent(appName)}`);
+    return response.data;
+  },
+
+  // Prompt Test Runner endpoints
+  runPromptTest: async (data: {
+    prompt: string;
+    headless?: boolean;
+    slowMoMs?: number;
+    timeoutMs?: number;
+    viewportWidth?: number;
+    viewportHeight?: number;
+    enableSlackNotifications?: boolean;
+  }) => {
+    const response = await api.post('/ai/prompt-test', data);
+    return response.data;
+  },
+
+  // Agentic Test Runner endpoints
+  runAgenticTest: async (data: {
+    prompt: string;
+    headless?: boolean;
+    slowMoMs?: number;
+    timeoutMs?: number;
+    maxSteps?: number;
+    viewportWidth?: number;
+    viewportHeight?: number;
+    aiModel?: string;
+    enableSlackNotifications?: boolean;
+  }) => {
+    const response = await api.post('/ai/agentic-test', data);
+    return response.data;
+  },
+
+  // Get available AI models
+  getAIModels: async () => {
+    const response = await api.get('/ai/models');
+    return response.data;
+  },
+
   // Generic POST method for any endpoint
   post: async (endpoint: string, data: any) => {
     const response = await api.post(endpoint, data);

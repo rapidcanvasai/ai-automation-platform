@@ -1,0 +1,189 @@
+name: "Daily AI Monitoring - Knobloch ChatBot"
+
+# AI-driven monitoring replacement for daily-automation-default.yml
+# OLD approach: 30+ hardcoded test steps (Open, Click, Enter, Verify, Wait...)
+# NEW approach: Just URL + goals. The AI figures out the steps.
+
+on:
+  schedule:
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+    inputs:
+      monitoring_goals:
+        description: 'Override monitoring goals (comma-separated)'
+        required: false
+        type: string
+      max_steps:
+        description: 'Max AI steps'
+        required: false
+        type: number
+        default: 25
+
+env:
+  MONITOR_URL: "https://app.rapidcanvas.ai/apps/Knobloch%20ChatBot/Knobloch%20Dev"
+  MONITORING_GOALS: "Verify app loads after login, navigate to Knobloch ChatBot, verify Nuevo Chat with AI is visible, start a new chat, verify AI Assistant interface loads, send a test message and verify response appears, check no error messages"
+  MAX_STEPS: 25
+  TIMEOUT_MS: 300000
+  SLACK_CHANNEL: 'rc-cust-knobloch-internal'
+  SLACK_CHANNEL_ID: 'C077A1MU337'
+  ENABLE_SLACK: true
+  SLACK_NOTIFY_ONLY_FAILURES: true
+  SLACK_MENTION: 'U06VC2XJM3L'
+  DATAAPP_NAME: 'Knobloch ChatBot'
+  TENANT_NAME: 'Knobloch Dev'
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install backend dependencies
+      run: |
+        cd backend
+        npm ci
+
+    - name: Install Playwright browsers
+      run: |
+        cd backend
+        npx playwright install chromium
+        npx playwright install-deps chromium
+
+    - name: Build backend
+      run: |
+        cd backend
+        npm run build
+
+    - name: Start backend server
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        OPENAI_MODEL: "gpt-4o"
+        SLACK_CHANNEL_ID: ${{ env.SLACK_CHANNEL_ID }}
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      run: |
+        cd backend
+        DB_DISABLED=true NODE_ENV=development PORT=3001 npm start &
+
+        for i in {1..30}; do
+          if curl -f http://localhost:3001/health >/dev/null 2>&1; then
+            echo "Backend is ready!"
+            break
+          fi
+          echo "Waiting for backend... ($i/30)"
+          sleep 2
+        done
+
+    - name: Run AI Monitoring
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        MONITOR_EMAIL: ${{ secrets.MONITOR_EMAIL }}
+        MONITOR_PASSWORD: ${{ secrets.MONITOR_PASSWORD }}
+      run: |
+        GOALS="${{ inputs.monitoring_goals || env.MONITORING_GOALS }}"
+
+        GOALS_JSON=$(echo "$GOALS" | python3 -c "
+        import sys, json
+        goals = [g.strip() for g in sys.stdin.read().strip().split(',') if g.strip()]
+        print(json.dumps(goals))
+        ")
+
+        jq -n \
+          --arg url "$MONITOR_URL" \
+          --arg email "$MONITOR_EMAIL" \
+          --arg password "$MONITOR_PASSWORD" \
+          --argjson goals "$GOALS_JSON" \
+          --argjson maxSteps "${{ inputs.max_steps || env.MAX_STEPS }}" \
+          --argjson timeoutMs "${TIMEOUT_MS:-300000}" \
+          '{
+            startUrl: $url,
+            loginCredentials: { email: $email, password: $password },
+            monitoringGoals: $goals,
+            maxSteps: $maxSteps,
+            timeoutMs: $timeoutMs,
+            headless: true,
+            slowMoMs: 300,
+            enableSlackNotifications: true
+          }' > /tmp/monitor-payload.json
+
+        echo "Starting AI monitoring for Knobloch ChatBot..."
+        echo "Goals: $GOALS"
+
+        RESPONSE=$(curl -s -X POST \
+          http://localhost:3001/api/ai/monitor \
+          -H "Content-Type: application/json" \
+          -d @/tmp/monitor-payload.json)
+
+        MONITORING_ID=$(echo "$RESPONSE" | jq -r '.monitoringId // "unknown"')
+        echo "Monitoring ID: $MONITORING_ID"
+        echo "MONITORING_ID=$MONITORING_ID" >> $GITHUB_ENV
+
+        # Poll for completion
+        POLL_TIMEOUT=600
+        POLL_INTERVAL=10
+        ELAPSED=0
+        COMPLETED=false
+
+        while [ "$ELAPSED" -lt "$POLL_TIMEOUT" ]; do
+          sleep $POLL_INTERVAL
+          ELAPSED=$((ELAPSED + POLL_INTERVAL))
+
+          STREAM_DATA=$(curl -s -N --max-time 3 "http://localhost:3001/api/ai/stream/$MONITORING_ID" 2>/dev/null || true)
+
+          if echo "$STREAM_DATA" | grep -q '"type":"monitor:complete"'; then
+            COMPLETED=true
+            REPORT=$(echo "$STREAM_DATA" | grep '"type":"monitor:complete"' | tail -1 | sed 's/^data: //')
+            echo "$REPORT" > /tmp/monitoring-report.json
+            break
+          fi
+
+          if echo "$STREAM_DATA" | grep -q '"type":"monitor:error"'; then
+            COMPLETED=true
+            ERROR_DATA=$(echo "$STREAM_DATA" | grep '"type":"monitor:error"' | tail -1 | sed 's/^data: //')
+            echo "$ERROR_DATA" > /tmp/monitoring-report.json
+            break
+          fi
+
+          echo "Running... ($ELAPSED/$POLL_TIMEOUT s)"
+        done
+
+        if [ "$COMPLETED" = "false" ]; then
+          echo '{"status":"error","error":"timeout"}' > /tmp/monitoring-report.json
+        fi
+
+        echo ""
+        echo "=== MONITORING REPORT ==="
+        cat /tmp/monitoring-report.json | jq '.' 2>/dev/null || cat /tmp/monitoring-report.json
+
+        MONITOR_STATUS=$(cat /tmp/monitoring-report.json | jq -r '.report.status // .status // "unknown"' 2>/dev/null)
+        echo "MONITOR_STATUS=$MONITOR_STATUS" >> $GITHUB_ENV
+
+        rm -f /tmp/monitor-payload.json
+
+    - name: Evaluate result
+      run: |
+        echo "## Knobloch ChatBot Monitoring" >> $GITHUB_STEP_SUMMARY
+        echo "- **Status**: ${{ env.MONITOR_STATUS }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **URL**: ${{ env.MONITOR_URL }}" >> $GITHUB_STEP_SUMMARY
+
+        if [ "${{ env.MONITOR_STATUS }}" = "unhealthy" ] || [ "${{ env.MONITOR_STATUS }}" = "error" ]; then
+          exit 1
+        fi
+
+    - name: Upload monitoring artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: monitoring-knobloch-${{ github.run_id }}
+        path: |
+          backend/test-results/
+          /tmp/monitoring-report.json
+        retention-days: 30

@@ -48,7 +48,7 @@ export interface SlackFileUpload {
 }
 
 export interface OperationResult {
-  operationType: 'test_execution' | 'test_creation' | 'ai_exploration' | 'ai_autonomous' | 'visual_testing' | 'element_discovery' | 'tab_exploration' | 'nlp_processing';
+  operationType: 'test_execution' | 'test_creation' | 'ai_exploration' | 'ai_autonomous' | 'ai_monitoring' | 'mcp_monitoring' | 'visual_testing' | 'element_discovery' | 'tab_exploration' | 'nlp_processing' | 'graph_discovery' | 'graph_monitoring' | 'prompt_test';
   operationId: string;
   operationName: string;
   status: 'started' | 'completed' | 'failed';
