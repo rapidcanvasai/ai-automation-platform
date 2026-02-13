@@ -63,7 +63,7 @@ env:
 
 jobs:
   create-test-scenario:
-    runs-on: self-hosted
+    runs-on: rc-gh-azure-runner
     
     steps:
     - name: 📚 Documentation Link
