@@ -52,32 +52,32 @@ router.post('/:id/run', async (req: Request, res: Response) => {
           if (slackNotifyOnlyFailures && result.status === 'failed') {
             logger.info('📢 Sending delayed test creation message (failure-only mode)', { testId: id });
             await slackService.sendTestCreated(test.name, test.id, test.workflowRunUrl);
-            
-            // Send test steps as thread reply if steps exist
-            if (test.steps && test.steps.length > 0) {
-              await slackService.sendTestSteps(test.steps, test.id);
-            }
           }
           
-          // Send execution started notification (thread reply only)
-          await slackService.sendTestExecutionStarted(test.name, executionId, id);
-          
-          // Update main thread with pass/fail status
+          // Update main thread with pass/fail status (always update the main thread)
           logger.info('🔄 Calling updateMainThreadWithResult', { testId: id, testName: test.name, status: result.status });
           await slackService.updateMainThreadWithResult(id, test.name, result);
           
-          // Send execution result summary (thread reply only)
-          await slackService.sendTestResult(
-            test.name, 
-            executionId, 
-            result, 
-            id, // testId for thread management
-            test.steps,
-            test.description
-          );
+          // For FAILED tests only: send the "Test Execution FAILED" result summary (includes video upload)
+          if (result.status === 'failed') {
+            await slackService.sendTestResult(
+              test.name, 
+              executionId, 
+              result, 
+              id, // testId for thread management
+              test.steps,
+              test.description
+            );
+          }
           
-          // Send detailed execution results as thread reply
+          // Send execution details as thread reply for BOTH passed and failed tests
           await slackService.sendExecutionDetails(result, id, test.slackMention);
+          
+          // For PASSED tests: upload video separately (sendTestResult already handles video for failed)
+          if (result.status === 'passed' && result.videoPath) {
+            logger.info('🎬 Uploading video for passed test', { testId: id, executionId });
+            await slackService.uploadVideoToThread(id, result.videoPath, executionId, 'passed');
+          }
           
           // NOTE: We do NOT call sendWorkflowCompleted here to avoid duplicate messages
           // The GitHub Actions workflow will call the /api/execution/:id/slack-update endpoint
