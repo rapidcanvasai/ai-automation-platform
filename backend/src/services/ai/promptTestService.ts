@@ -38,6 +38,22 @@ export interface StepResult {
   timestamp: string;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+export interface CostBreakdown {
+  model: string;
+  provider: string;
+  tokenUsage: TokenUsage;
+  inputCostUsd: number;
+  outputCostUsd: number;
+  totalCostUsd: number;
+  apiCalls: number;
+}
+
 export interface PromptTestReport {
   status: 'passed' | 'failed' | 'error';
   prompt: string;
@@ -51,6 +67,7 @@ export interface PromptTestReport {
   videoPath?: string;
   startedAt: string;
   completedAt: string;
+  cost?: CostBreakdown;
 }
 
 type LogCallback = (evt: any) => void;
@@ -61,13 +78,52 @@ const DANGEROUS_TEXTS = [
   'cancel subscription', 'deactivate', 'close account',
 ];
 
+// Cost per 1M tokens (USD)
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  'gpt-4o':       { input: 2.50,  output: 10.00 },
+  'gpt-4o-mini':  { input: 0.15,  output: 0.60  },
+};
+
+class CostTracker {
+  private inputTokens = 0;
+  private outputTokens = 0;
+  private apiCalls = 0;
+
+  addUsage(input: number, output: number): void {
+    this.inputTokens += input;
+    this.outputTokens += output;
+    this.apiCalls++;
+  }
+
+  getCostBreakdown(model: string, provider: string): CostBreakdown {
+    const pricing = MODEL_PRICING[model] || { input: 2.50, output: 10.00 };
+    const inputCost = (this.inputTokens / 1_000_000) * pricing.input;
+    const outputCost = (this.outputTokens / 1_000_000) * pricing.output;
+    return {
+      model,
+      provider,
+      tokenUsage: {
+        inputTokens: this.inputTokens,
+        outputTokens: this.outputTokens,
+        totalTokens: this.inputTokens + this.outputTokens,
+      },
+      inputCostUsd: Math.round(inputCost * 1_000_000) / 1_000_000,
+      outputCostUsd: Math.round(outputCost * 1_000_000) / 1_000_000,
+      totalCostUsd: Math.round((inputCost + outputCost) * 1_000_000) / 1_000_000,
+      apiCalls: this.apiCalls,
+    };
+  }
+}
+
 // ── Service ─────────────────────────────────────────────────────────────────
 
 export class PromptTestService {
   private openai: OpenAI;
+  private costTracker: CostTracker;
 
   constructor() {
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    this.costTracker = new CostTracker();
   }
 
   async runPromptTest(
@@ -212,11 +268,16 @@ export class PromptTestService {
       try { summary = await this.generateSummary(prompt, results, consoleErrors); }
       catch { summary = `Executed ${results.length} steps: ${passedSteps} passed, ${failedSteps} failed.`; }
 
+      // Standard mode uses gpt-4o for parsing + gpt-4o-mini for heal/summary
+      // We track everything together as a blended cost
+      const cost = this.costTracker.getCostBreakdown('gpt-4o', 'openai');
+
       const report: PromptTestReport = {
         status: overallStatus, prompt, totalSteps: parsedSteps.length,
         passedSteps, failedSteps, parsedSteps, results, summary,
         durationMs: Date.now() - startTime, videoPath, startedAt,
         completedAt: new Date().toISOString(),
+        cost,
       };
       onLog({ type: 'complete', report });
       return report;
@@ -277,6 +338,9 @@ Example:
       temperature: 0.1,
       max_tokens: 4000,
     });
+    if (response.usage) {
+      this.costTracker.addUsage(response.usage.prompt_tokens, response.usage.completion_tokens);
+    }
 
     const content = response.choices[0]?.message?.content?.trim() || '[]';
     let jsonStr = content;
@@ -550,6 +614,9 @@ ${domSnapshot.substring(0, 12000)}`,
       temperature: 0,
       max_tokens: 200,
     });
+    if (response.usage) {
+      this.costTracker.addUsage(response.usage.prompt_tokens, response.usage.completion_tokens);
+    }
 
     let newSelector = response.choices[0]?.message?.content?.trim();
     if (!newSelector) return false;
@@ -698,6 +765,9 @@ ${domSnapshot.substring(0, 12000)}`,
           temperature: 0,
           max_tokens: 150,
         });
+        if (resp.usage) {
+          this.costTracker.addUsage(resp.usage.prompt_tokens, resp.usage.completion_tokens);
+        }
         const aiSel = resp.choices[0]?.message?.content?.trim()?.replace(/^`+|`+$/g, '').replace(/^["']|["']$/g, '');
         if (aiSel) {
           try {
@@ -728,6 +798,9 @@ ${domSnapshot.substring(0, 12000)}`,
       temperature: 0.3,
       max_tokens: 300,
     });
+    if (response.usage) {
+      this.costTracker.addUsage(response.usage.prompt_tokens, response.usage.completion_tokens);
+    }
     return response.choices[0]?.message?.content?.trim() || 'Test completed.';
   }
 }

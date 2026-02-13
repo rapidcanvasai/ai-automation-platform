@@ -61,6 +61,22 @@ export interface AgenticStepResult {
   timestamp: string;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+export interface CostBreakdown {
+  model: string;
+  provider: string;
+  tokenUsage: TokenUsage;
+  inputCostUsd: number;
+  outputCostUsd: number;
+  totalCostUsd: number;
+  apiCalls: number;
+}
+
 export interface AgenticTestReport {
   status: 'passed' | 'failed' | 'error';
   mode: 'agentic';
@@ -77,6 +93,7 @@ export interface AgenticTestReport {
   videoPath?: string;
   startedAt: string;
   completedAt: string;
+  cost?: CostBreakdown;
 }
 
 type LogCallback = (evt: any) => void;
@@ -94,10 +111,50 @@ const DANGEROUS_TEXTS = [
 // - This handles unexpected dialogs, loading states, multi-step workflows
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Cost per 1M tokens (USD) - updated pricing
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  'gpt-4o':                      { input: 2.50,  output: 10.00 },
+  'gpt-4o-mini':                 { input: 0.15,  output: 0.60  },
+  'claude-sonnet-4-20250514':    { input: 3.00,  output: 15.00 },
+  'claude-3-5-sonnet-20241022':  { input: 3.00,  output: 15.00 },
+};
+
+class CostTracker {
+  private inputTokens = 0;
+  private outputTokens = 0;
+  private apiCalls = 0;
+
+  addUsage(input: number, output: number): void {
+    this.inputTokens += input;
+    this.outputTokens += output;
+    this.apiCalls++;
+  }
+
+  getCostBreakdown(model: string, provider: string): CostBreakdown {
+    const pricing = MODEL_PRICING[model] || { input: 2.50, output: 10.00 };
+    const inputCost = (this.inputTokens / 1_000_000) * pricing.input;
+    const outputCost = (this.outputTokens / 1_000_000) * pricing.output;
+    return {
+      model,
+      provider,
+      tokenUsage: {
+        inputTokens: this.inputTokens,
+        outputTokens: this.outputTokens,
+        totalTokens: this.inputTokens + this.outputTokens,
+      },
+      inputCostUsd: Math.round(inputCost * 1_000_000) / 1_000_000,
+      outputCostUsd: Math.round(outputCost * 1_000_000) / 1_000_000,
+      totalCostUsd: Math.round((inputCost + outputCost) * 1_000_000) / 1_000_000,
+      apiCalls: this.apiCalls,
+    };
+  }
+}
+
 export class AgenticTestService {
   private openai: OpenAI;
   private anthropic: Anthropic | null = null;
   private providerConfig: AIProviderConfig;
+  private costTracker: CostTracker;
 
   constructor(aiModel?: string) {
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -116,6 +173,8 @@ export class AgenticTestService {
       logger.warn(`Anthropic API key not configured. Falling back to GPT-4o.`);
       this.providerConfig = AI_MODELS['gpt-4o'];
     }
+
+    this.costTracker = new CostTracker();
   }
 
   async runAgenticTest(
@@ -345,6 +404,10 @@ export class AgenticTestService {
       try { summary = await this.generateSummary(prompt, results, consoleErrors); }
       catch { summary = `Agentic test: ${results.length} steps, ${passedSteps} passed, ${failedSteps} failed.`; }
 
+      const cost = this.costTracker.getCostBreakdown(
+        this.providerConfig.model, this.providerConfig.provider
+      );
+
       const report: AgenticTestReport = {
         status: overallStatus, mode: 'agentic', prompt,
         aiModel: this.providerConfig.model,
@@ -353,6 +416,7 @@ export class AgenticTestService {
         parsedSteps: allActions, results, summary,
         durationMs: Date.now() - startTime, videoPath,
         startedAt, completedAt: new Date().toISOString(),
+        cost,
       };
 
       onLog({ type: 'complete', report });
@@ -521,6 +585,10 @@ TAB HANDLING:
       temperature: 0.1,
       max_tokens: 500,
     });
+    // Track token usage
+    if (response.usage) {
+      this.costTracker.addUsage(response.usage.prompt_tokens, response.usage.completion_tokens);
+    }
     return response.choices[0]?.message?.content?.trim() || '';
   }
 
@@ -544,6 +612,11 @@ TAB HANDLING:
       messages,
       temperature: 0.1,
     });
+
+    // Track token usage
+    if (response.usage) {
+      this.costTracker.addUsage(response.usage.input_tokens, response.usage.output_tokens);
+    }
 
     // Extract text from Anthropic response
     const textBlock = response.content.find((b: any) => b.type === 'text');
@@ -895,13 +968,17 @@ TAB HANDLING:
         messages: [{ role: 'user', content: userContent }],
         temperature: 0.3,
       });
+      if (response.usage) {
+        this.costTracker.addUsage(response.usage.input_tokens, response.usage.output_tokens);
+      }
       const textBlock = response.content.find((b: any) => b.type === 'text');
       return (textBlock as any)?.text?.trim() || 'Test completed.';
     }
 
     // Default: OpenAI (use gpt-4o-mini for summary regardless of main model)
+    const summaryModel = 'gpt-4o-mini';
     const response = await this.openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: summaryModel,
       messages: [
         { role: 'system', content: systemContent },
         { role: 'user', content: userContent },
@@ -909,6 +986,10 @@ TAB HANDLING:
       temperature: 0.3,
       max_tokens: 300,
     });
+    if (response.usage) {
+      // Summary uses gpt-4o-mini; track against main model for simplicity
+      this.costTracker.addUsage(response.usage.prompt_tokens, response.usage.completion_tokens);
+    }
     return response.choices[0]?.message?.content?.trim() || 'Test completed.';
   }
 }

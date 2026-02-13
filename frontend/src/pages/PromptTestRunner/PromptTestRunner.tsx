@@ -38,6 +38,7 @@ import {
   Speed as SpeedIcon,
   Visibility as VisibilityIcon,
   SmartToy as AgenticIcon,
+  AttachMoney as CostIcon,
 } from '@mui/icons-material';
 import { apiService } from '../../services/apiService';
 
@@ -65,6 +66,20 @@ interface StepResult {
   timestamp: string;
 }
 
+interface CostBreakdown {
+  model: string;
+  provider: string;
+  tokenUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+  inputCostUsd: number;
+  outputCostUsd: number;
+  totalCostUsd: number;
+  apiCalls: number;
+}
+
 interface TestReport {
   status: 'passed' | 'failed' | 'error';
   prompt: string;
@@ -78,6 +93,7 @@ interface TestReport {
   videoPath?: string;
   startedAt: string;
   completedAt: string;
+  cost?: CostBreakdown;
 }
 
 interface LogEntry {
@@ -763,6 +779,99 @@ export const PromptTestRunner: React.FC = () => {
                     <> | Model: <strong>{(report as any).aiProvider === 'anthropic' ? 'Anthropic' : 'OpenAI'} {(report as any).aiModel}</strong></>
                   )}
                 </Typography>
+
+                {/* Cost Breakdown */}
+                {report.cost && (
+                  <>
+                    <Divider sx={{ my: 1.5 }} />
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
+                      <CostIcon sx={{ fontSize: 18, color: '#f57c00' }} />
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#e65100' }}>
+                        Execution Cost
+                      </Typography>
+                    </Box>
+
+                    <Box
+                      sx={{
+                        bgcolor: '#fff8e1',
+                        borderRadius: 1,
+                        p: 1.5,
+                        border: '1px solid #ffe082',
+                      }}
+                    >
+                      {/* Total cost - prominent */}
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          Total Cost
+                        </Typography>
+                        <Typography variant="h6" sx={{ fontWeight: 700, color: '#e65100' }}>
+                          ${report.cost.totalCostUsd < 0.01
+                            ? report.cost.totalCostUsd.toFixed(6)
+                            : report.cost.totalCostUsd < 1
+                            ? report.cost.totalCostUsd.toFixed(4)
+                            : report.cost.totalCostUsd.toFixed(2)}
+                        </Typography>
+                      </Box>
+
+                      <Divider sx={{ mb: 1 }} />
+
+                      {/* Token breakdown */}
+                      <Grid container spacing={1}>
+                        <Grid item xs={6}>
+                          <Typography variant="caption" color="text.secondary">
+                            Model
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
+                            {report.cost.provider === 'anthropic' ? 'Anthropic' : 'OpenAI'}{' '}
+                            {report.cost.model}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Typography variant="caption" color="text.secondary">
+                            API Calls
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
+                            {report.cost.apiCalls}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">
+                            Input Tokens
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 500, fontSize: 12 }}>
+                            {report.cost.tokenUsage.inputTokens.toLocaleString()}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#757575', fontSize: 10 }}>
+                            ${report.cost.inputCostUsd < 0.01
+                              ? report.cost.inputCostUsd.toFixed(6)
+                              : report.cost.inputCostUsd.toFixed(4)}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">
+                            Output Tokens
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 500, fontSize: 12 }}>
+                            {report.cost.tokenUsage.outputTokens.toLocaleString()}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#757575', fontSize: 10 }}>
+                            ${report.cost.outputCostUsd < 0.01
+                              ? report.cost.outputCostUsd.toFixed(6)
+                              : report.cost.outputCostUsd.toFixed(4)}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">
+                            Total Tokens
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
+                            {report.cost.tokenUsage.totalTokens.toLocaleString()}
+                          </Typography>
+                        </Grid>
+                      </Grid>
+                    </Box>
+                  </>
+                )}
               </CardContent>
             </Card>
           )}
