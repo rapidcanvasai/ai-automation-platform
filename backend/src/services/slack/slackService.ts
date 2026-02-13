@@ -1,5 +1,7 @@
 import axios from 'axios';
 import path from 'path';
+import fs from 'fs';
+import { WebClient } from '@slack/web-api';
 import { logger } from '../../utils/logger';
 import type { ExecutionResult } from '../testExecutor/testExecutorService';
 import { DebugPackageService } from '../debug/debugPackageService';
@@ -66,12 +68,18 @@ export class SlackService {
   private threadTimestamps: Map<string, string> = new Map(); // executionId -> thread_ts
   private testCreationTimestamps: Map<string, string> = new Map(); // testId -> test_creation_ts
   private channelId: string; // Dynamic channel ID
+  private slackClient: WebClient | null = null; // Official Slack SDK client
 
   constructor(config: SlackConfig) {
     this.config = config;
     this.debugPackageService = new DebugPackageService();
     // Use provided channelId or fallback to default
-    this.channelId = config.channelId || 'C09F5F2MH8D'; // Default to test-automation-platform-alerts
+    this.channelId = config.channelId || 'C09F5F2MH8D'; // Default Slack channel for video/file uploads
+    // Initialize official Slack SDK client if bot token is available
+    if (config.botToken) {
+      this.slackClient = new WebClient(config.botToken);
+      logger.info('🔧 Slack WebClient initialized');
+    }
     logger.info('🔧 SlackService initialized with channel ID', { channelId: this.channelId });
   }
 
@@ -169,9 +177,10 @@ export class SlackService {
       if (this.config.botToken) {
         const response = await this.sendMessageViaAPI(message);
         if (response && response.ts) {
-          // Update the thread timestamp to the execution thread
-          this.threadTimestamps.set(testId, response.ts);
-          logger.info('Test execution started notification sent to Slack via API', { executionId, testId, threadTs: response.ts });
+          // Store the execution reply ts under the executionId key — do NOT overwrite
+          // the testId key which must remain the parent thread timestamp
+          this.threadTimestamps.set(executionId, response.ts);
+          logger.info('Test execution started notification sent to Slack via API', { executionId, testId, threadTs: response.ts, parentThreadTs: threadTs });
         } else {
           logger.warn('Slack API returned no timestamp for execution started', { executionId, testId, response });
         }
@@ -229,6 +238,73 @@ export class SlackService {
       return true;
     } catch (error) {
       logger.error('Failed to send test result to Slack', { error, executionId, testName });
+      return false;
+    }
+  }
+
+  /**
+   * Upload a video file to an existing Slack thread for a given test ID.
+   * This is a public method that can be called from controllers or external endpoints.
+   * 
+   * @param testId - The test ID to find the thread timestamp
+   * @param videoPath - Absolute or relative path to the video file on disk
+   * @param executionId - The execution ID (used for labeling)
+   * @param status - The execution status ('passed' or 'failed')
+   * @returns true if upload succeeded, false otherwise
+   */
+  async uploadVideoToThread(
+    testId: string,
+    videoPath: string,
+    executionId: string,
+    status: 'passed' | 'failed'
+  ): Promise<boolean> {
+    try {
+      if (!this.config.botToken) {
+        logger.warn('Cannot upload video without bot token', { testId, executionId });
+        return false;
+      }
+
+      const threadTs = this.threadTimestamps.get(testId);
+      if (!threadTs) {
+        logger.warn('No thread timestamp found for test, cannot upload video', { testId });
+        return false;
+      }
+
+      // Skip for dummy timestamps
+      if (threadTs.startsWith('dummy_') || threadTs.startsWith('webhook_') || threadTs.startsWith('failed_')) {
+        logger.info('Dummy thread timestamp detected - skipping video upload', { testId, threadTs });
+        return false;
+      }
+
+      const absoluteVideoPath = path.resolve(videoPath);
+      if (!fs.existsSync(absoluteVideoPath)) {
+        logger.warn('Video file does not exist on disk', { videoPath, absoluteVideoPath });
+        return false;
+      }
+
+      const videoBuffer = fs.readFileSync(absoluteVideoPath);
+      const videoFilename = path.basename(absoluteVideoPath);
+      const fileSizeMB = (videoBuffer.length / (1024 * 1024)).toFixed(2);
+
+      logger.info('Uploading video to Slack thread (public method)', { 
+        testId, executionId, videoFilename, fileSizeMB: `${fileSizeMB} MB`, threadTs 
+      });
+
+      const statusEmoji = status === 'passed' ? '✅' : '❌';
+      const uploaded = await this.uploadFileToSlack({
+        file: videoBuffer,
+        filename: videoFilename,
+        title: `${statusEmoji} Test Recording - ${executionId}`,
+        initial_comment: `🎬 *Test Execution Recording* (${fileSizeMB} MB)\nStatus: ${status === 'passed' ? 'Passed ✅' : 'Failed ❌'}`,
+        thread_ts: threadTs,
+      });
+
+      if (uploaded) {
+        logger.info('Video uploaded to Slack thread successfully', { testId, executionId, videoFilename });
+      }
+      return uploaded;
+    } catch (error) {
+      logger.error('Failed to upload video to Slack thread', { error, testId, executionId });
       return false;
     }
   }
@@ -818,200 +894,65 @@ export class SlackService {
   }
 
   /**
-   * Upload file to Slack using external upload API (supports direct thread uploads)
+   * Upload file to Slack channel/thread using the official @slack/web-api SDK.
+   * Uses filesUploadV2 which reliably posts files as native inline attachments
+   * in threads (with video player for .webm/.mp4).
    */
   private async uploadFileToSlack(fileUpload: SlackFileUpload): Promise<boolean> {
     try {
-      if (!this.config.botToken) {
-        logger.warn('Cannot upload files without bot token');
+      if (!this.slackClient || !this.config.botToken) {
+        logger.warn('Cannot upload files without Slack client / bot token');
         return false;
       }
 
-      // Use channel ID directly for test-automation-platform-alerts
-      const channelId = 'C09F5F2MH8D';
-      
-      logger.info('Uploading file to Slack using external upload API', { 
+      const channelId = this.channelId;
+
+      logger.info('Uploading file to Slack via @slack/web-api filesUploadV2', { 
         filename: fileUpload.filename, 
         channelId, 
-        hasThreadTs: !!fileUpload.thread_ts 
+        hasThreadTs: !!fileUpload.thread_ts,
+        threadTs: fileUpload.thread_ts,
+        fileSizeBytes: fileUpload.file.length
       });
 
-      // Step 1: Get upload URL
-      const FormData = require('form-data');
-      const form = new FormData();
-      
-      form.append('token', this.config.botToken);
-      form.append('filename', fileUpload.filename);
-      form.append('length', fileUpload.file.length.toString());
-      form.append('alt_txt', fileUpload.title || fileUpload.filename);
-      
-      const uploadUrlResponse = await axios.post('https://slack.com/api/files.getUploadURLExternal', form, {
-        headers: {
-          ...form.getHeaders(),
-        },
-      });
-
-      if (!uploadUrlResponse.data.ok) {
-        logger.error('Failed to get upload URL', { error: uploadUrlResponse.data.error });
-        return false;
-      }
-
-      const { upload_url, file_id } = uploadUrlResponse.data;
-
-      // Step 2: Upload file to the external URL
-      const uploadResponse = await axios.put(upload_url, fileUpload.file, {
-        headers: {
-          'Content-Type': 'application/octet-stream',
-        },
-      });
-
-      if (uploadResponse.status !== 200) {
-        logger.error('Failed to upload file to external URL', { status: uploadResponse.status });
-        return false;
-      }
-
-      // Step 3: Complete the upload to the channel/thread
-      const completePayload = {
-        files: [{
-          id: file_id,
-          title: fileUpload.title || fileUpload.filename,
-        }],
+      const result = await this.slackClient.filesUploadV2({
         channel_id: channelId,
-        initial_comment: fileUpload.initial_comment,
-        // Try to upload directly to thread if thread_ts is provided
-        thread_ts: fileUpload.thread_ts
-      };
-      
-      const completeResponse = await axios.post('https://slack.com/api/files.completeUploadExternal', completePayload, {
-        headers: {
-          'Authorization': `Bearer ${this.config.botToken}`,
-          'Content-Type': 'application/json',
-        },
+        thread_ts: fileUpload.thread_ts,
+        initial_comment: fileUpload.initial_comment || undefined,
+        file_uploads: [
+          {
+            file: fileUpload.file,
+            filename: fileUpload.filename,
+            title: fileUpload.title || fileUpload.filename,
+          },
+        ],
       });
 
-      if (!completeResponse.data.ok) {
-        logger.error('Failed to complete file upload', { error: completeResponse.data.error });
+      if (result.ok) {
+        const files = (result as any).files || [];
+        logger.info('File uploaded to Slack thread successfully via SDK', { 
+          filename: fileUpload.filename, 
+          fileId: files[0]?.id,
+          permalink: files[0]?.permalink,
+          threadTs: fileUpload.thread_ts
+        });
+        return true;
+      } else {
+        logger.error('Slack SDK filesUploadV2 returned not ok', { error: (result as any).error });
         return false;
       }
-
-      const fileData = completeResponse.data.files?.[0];
-      
-      // Step 4: If thread_ts is provided, try to upload file directly to thread using files.upload
-      if (fileUpload.thread_ts && fileData) {
-        try {
-          // Try using the deprecated files.upload API for direct thread upload
-          const FormData = require('form-data');
-          const form = new FormData();
-          
-          form.append('token', this.config.botToken);
-          form.append('channels', channelId);
-          form.append('file', fileUpload.file, {
-            filename: fileUpload.filename,
-            contentType: 'application/zip'
-          });
-          form.append('title', fileUpload.title || fileUpload.filename);
-          form.append('initial_comment', fileUpload.initial_comment || '');
-          form.append('thread_ts', fileUpload.thread_ts);
-          
-          const uploadResponse = await axios.post('https://slack.com/api/files.upload', form, {
-            headers: {
-              ...form.getHeaders(),
-            },
-          });
-
-          if (uploadResponse.data.ok) {
-            logger.info('File uploaded directly to thread via files.upload', { 
-              filename: fileUpload.filename, 
-              fileId: uploadResponse.data.file?.id,
-              threadTs: fileUpload.thread_ts
-            });
-          } else {
-            logger.warn('files.upload failed, falling back to text message', { 
-              error: uploadResponse.data.error,
-              filename: fileUpload.filename 
-            });
-            
-            // Fallback: send message with permalink (files.info requires additional permissions)
-            const threadMessage = {
-              channel: channelId,
-              thread_ts: fileUpload.thread_ts,
-              text: `📦 ${fileUpload.title || fileUpload.filename}`,
-              blocks: [
-                {
-                  type: "section",
-                  text: {
-                    type: "mrkdwn",
-                    text: `📦 *${fileUpload.title || fileUpload.filename}*\n${fileUpload.initial_comment || 'Download and extract to view the video'}`
-                  }
-                },
-                {
-                  type: "section",
-                  text: {
-                    type: "mrkdwn",
-                    text: `📁 <${fileData.permalink}|Download ZIP File>`
-                  }
-                }
-              ]
-            };
-            await this.sendMessageViaAPI(threadMessage);
-            logger.info('File permalink sent to thread', { 
-              fileId: fileData.id,
-              permalink: fileData.permalink
-            });
-          }
-        } catch (uploadError) {
-          logger.warn('files.upload failed with error, falling back to text message', { 
-            error: uploadError,
-            filename: fileUpload.filename 
-          });
-          
-          // Fallback: send message with permalink (files.info requires additional permissions)
-          const threadMessage = {
-            channel: channelId,
-            thread_ts: fileUpload.thread_ts,
-            text: `📦 ${fileUpload.title || fileUpload.filename}`,
-            blocks: [
-              {
-                type: "section",
-                text: {
-                  type: "mrkdwn",
-                  text: `📦 *${fileUpload.title || fileUpload.filename}*\n${fileUpload.initial_comment || 'Download and extract to view the video'}`
-                }
-              },
-              {
-                type: "section",
-                text: {
-                  type: "mrkdwn",
-                  text: `📁 <${fileData.permalink}|Download ZIP File>`
-                }
-              }
-            ]
-          };
-          await this.sendMessageViaAPI(threadMessage);
-          logger.info('File permalink sent to thread (catch block)', { 
-            fileId: fileData.id,
-            permalink: fileData.permalink
-          });
-        }
-      }
-      
-      logger.info('File uploaded to Slack successfully', { 
-        filename: fileUpload.filename, 
-        fileId: fileData?.id,
-        permalink: fileData?.permalink,
-        threadTs: fileUpload.thread_ts
+    } catch (error: any) {
+      logger.error('Failed to upload file to Slack via SDK', { 
+        error: error?.message || error, 
+        code: error?.code,
+        filename: fileUpload.filename 
       });
-      
-      return true;
-    } catch (error) {
-      logger.error('Failed to upload file to Slack', { error, filename: fileUpload.filename });
       return false;
     }
   }
 
   /**
-   * Process test attachments - video upload functionality disabled
-   * Videos are still recorded locally but not uploaded to Slack
+   * Process test attachments - uploads video recording to the Slack thread
    */
   private async uploadTestAttachments(
     executionId: string,
@@ -1019,18 +960,48 @@ export class SlackService {
     threadTs: string
   ): Promise<void> {
     try {
-      logger.info('Video upload functionality disabled', { 
+      if (!result.videoPath) {
+        logger.info('No video path in execution result, skipping video upload', { executionId });
+        return;
+      }
+
+      const absoluteVideoPath = path.resolve(result.videoPath);
+      if (!fs.existsSync(absoluteVideoPath)) {
+        logger.warn('Video file does not exist on disk, skipping upload', { 
+          executionId, 
+          videoPath: result.videoPath, 
+          absolutePath: absoluteVideoPath 
+        });
+        return;
+      }
+
+      const videoBuffer = fs.readFileSync(absoluteVideoPath);
+      const videoFilename = path.basename(absoluteVideoPath);
+      const fileSizeMB = (videoBuffer.length / (1024 * 1024)).toFixed(2);
+      
+      logger.info('Uploading test video to Slack thread', { 
         executionId, 
-        hasVideoPath: !!result.videoPath, 
-        videoPath: result.videoPath 
+        videoFilename, 
+        fileSizeMB: `${fileSizeMB} MB`,
+        threadTs 
       });
-      
-      // Video upload functionality has been removed from Slack notifications
-      // Videos are still recorded and saved locally in test-results/videos/
-      // Users can access them directly from the file system if needed
-      
+
+      const statusEmoji = result.status === 'passed' ? '✅' : '❌';
+      const uploaded = await this.uploadFileToSlack({
+        file: videoBuffer,
+        filename: videoFilename,
+        title: `${statusEmoji} Test Recording - ${executionId}`,
+        initial_comment: `🎬 *Test Execution Recording* (${fileSizeMB} MB)\nStatus: ${result.status === 'passed' ? 'Passed ✅' : 'Failed ❌'}`,
+        thread_ts: threadTs,
+      });
+
+      if (uploaded) {
+        logger.info('Video uploaded to Slack thread successfully', { executionId, videoFilename });
+      } else {
+        logger.warn('Video upload to Slack returned false', { executionId, videoFilename });
+      }
     } catch (error) {
-      logger.error('Failed to process test attachments', { error, executionId });
+      logger.error('Failed to upload test video to Slack thread', { error, executionId });
     }
   }
 
