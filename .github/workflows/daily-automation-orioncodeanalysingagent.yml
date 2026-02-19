@@ -1,10 +1,10 @@
 name: Daily AI Test Automation - orionCodeAnalysingAgent
 
 on:
-  schedule:
+  # schedule:
     #- cron: '0 */3 * * *'
     # Monday (IST): 11:30, 14:30, 17:30, 20:30, 23:30
-    - cron: '30 5,8,11,14 * * 1-5'
+    # - cron: '30 5,8,11,14 * * 1-5'
 
     # - cron: '0 */3 * * 1-5'
   workflow_dispatch:
