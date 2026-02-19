@@ -24,6 +24,8 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
+  Slider,
+  Collapse,
 } from '@mui/material';
 import {
   PlayArrow as PlayIcon,
@@ -39,6 +41,9 @@ import {
   Visibility as VisibilityIcon,
   SmartToy as AgenticIcon,
   AttachMoney as CostIcon,
+  Tune as TuneIcon,
+  Timer as TimerIcon,
+  AspectRatio as ViewportIcon,
 } from '@mui/icons-material';
 import { apiService } from '../../services/apiService';
 
@@ -151,6 +156,13 @@ export const PromptTestRunner: React.FC = () => {
   }>>([]);
   const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
 
+  // Advanced options (configurable from UI)
+  const [maxSteps, setMaxSteps] = useState(80);
+  const [timeoutMs, setTimeoutMs] = useState(300000);
+  const [viewportWidth, setViewportWidth] = useState(1280);
+  const [viewportHeight, setViewportHeight] = useState(720);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+
   const logsEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -202,8 +214,10 @@ export const PromptTestRunner: React.FC = () => {
             prompt: prompt.trim(),
             headless,
             slowMoMs: 200,
-            timeoutMs: 300000,
-            maxSteps: 40,
+            timeoutMs,
+            maxSteps,
+            viewportWidth,
+            viewportHeight,
             aiModel,
           })
         : await apiService.runPromptTest({
@@ -486,6 +500,118 @@ export const PromptTestRunner: React.FC = () => {
                 },
               }}
             />
+
+            {/* Advanced Options Toggle */}
+            {agenticMode && (
+              <Box sx={{ mt: 2 }}>
+                <Button
+                  size="small"
+                  startIcon={<TuneIcon />}
+                  onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+                  sx={{ textTransform: 'none', color: 'text.secondary', fontSize: '0.8rem' }}
+                >
+                  {showAdvancedOptions ? 'Hide' : 'Show'} Advanced Options
+                </Button>
+                <Collapse in={showAdvancedOptions}>
+                  <Box sx={{ mt: 1.5, p: 2, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'grey.200' }}>
+                    <Grid container spacing={2}>
+                      {/* Max Steps */}
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="caption" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                          <SpeedIcon sx={{ fontSize: 14 }} /> Max Steps
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Slider
+                            value={maxSteps}
+                            onChange={(_, val) => setMaxSteps(val as number)}
+                            min={10}
+                            max={200}
+                            step={10}
+                            disabled={isRunning}
+                            size="small"
+                            valueLabelDisplay="auto"
+                            sx={{ flex: 1 }}
+                          />
+                          <Typography variant="body2" sx={{ minWidth: 32, textAlign: 'right', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                            {maxSteps}
+                          </Typography>
+                        </Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Max AI actions before stopping (default: 80)
+                        </Typography>
+                      </Grid>
+
+                      {/* Timeout */}
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="caption" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                          <TimerIcon sx={{ fontSize: 14 }} /> Timeout
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Slider
+                            value={timeoutMs / 60000}
+                            onChange={(_, val) => setTimeoutMs((val as number) * 60000)}
+                            min={1}
+                            max={15}
+                            step={1}
+                            disabled={isRunning}
+                            size="small"
+                            valueLabelDisplay="auto"
+                            valueLabelFormat={(v) => `${v} min`}
+                            sx={{ flex: 1 }}
+                          />
+                          <Typography variant="body2" sx={{ minWidth: 40, textAlign: 'right', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                            {timeoutMs / 60000}m
+                          </Typography>
+                        </Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Max execution time (default: 5 min)
+                        </Typography>
+                      </Grid>
+
+                      {/* Viewport Width */}
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="caption" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                          <ViewportIcon sx={{ fontSize: 14 }} /> Width
+                        </Typography>
+                        <Select
+                          value={viewportWidth}
+                          onChange={(e) => setViewportWidth(e.target.value as number)}
+                          disabled={isRunning}
+                          size="small"
+                          fullWidth
+                          sx={{ fontSize: 13, height: 32 }}
+                        >
+                          <MenuItem value={1024}>1024px</MenuItem>
+                          <MenuItem value={1280}>1280px</MenuItem>
+                          <MenuItem value={1440}>1440px</MenuItem>
+                          <MenuItem value={1920}>1920px</MenuItem>
+                        </Select>
+                      </Grid>
+
+                      {/* Viewport Height */}
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="caption" sx={{ fontWeight: 600, mb: 0.5, display: 'block' }}>
+                          Height
+                        </Typography>
+                        <Select
+                          value={viewportHeight}
+                          onChange={(e) => setViewportHeight(e.target.value as number)}
+                          disabled={isRunning}
+                          size="small"
+                          fullWidth
+                          sx={{ fontSize: 13, height: 32 }}
+                        >
+                          <MenuItem value={720}>720px</MenuItem>
+                          <MenuItem value={768}>768px</MenuItem>
+                          <MenuItem value={900}>900px</MenuItem>
+                          <MenuItem value={1080}>1080px</MenuItem>
+                        </Select>
+                      </Grid>
+                    </Grid>
+                  </Box>
+                </Collapse>
+              </Box>
+            )}
 
             <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
               {!isRunning ? (

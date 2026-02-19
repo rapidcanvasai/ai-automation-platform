@@ -38,8 +38,9 @@ export interface AgenticTestOptions {
 
 export interface AgenticAction {
   stepNumber: number;
-  action: 'navigate' | 'click' | 'fill' | 'select_option' | 'verify_text' | 'verify_no_error' |
-          'wait' | 'screenshot' | 'scroll' | 'hover' | 'press_key' | 'done' | 'fail';
+  action: 'navigate' | 'click' | 'fill' | 'select_option' | 'select_mui' | 'verify_text' | 'verify_no_error' |
+          'wait' | 'screenshot' | 'scroll' | 'hover' | 'press_key' | 'js_eval' | 'force_click' |
+          'done' | 'fail';
   selector?: string;    // Playwright selector
   value?: string;       // input value, URL, key name, expected text
   description: string;  // human-readable explanation of why this action
@@ -97,6 +98,13 @@ export interface AgenticTestReport {
 }
 
 type LogCallback = (evt: any) => void;
+
+// Conversation message with optional vision support
+interface ConversationMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+  screenshotBase64?: string; // when present, sent as an image to the vision API
+}
 
 const DANGEROUS_TEXTS = [
   'logout', 'log out', 'sign out', 'signout',
@@ -188,7 +196,7 @@ export class AgenticTestService {
       headless = true,
       slowMoMs = 200,
       timeoutMs = 300_000,
-      maxSteps = 40,
+      maxSteps = 80,
       viewportWidth = 1280,
       viewportHeight = 720,
     } = options;
@@ -207,8 +215,8 @@ export class AgenticTestService {
     const allActions: AgenticAction[] = [];
     const consoleErrors: string[] = [];
 
-    // Conversation history for multi-turn reasoning (generic format works for both providers)
-    const conversationHistory: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
+    // Conversation history for multi-turn reasoning with optional vision support
+    const conversationHistory: ConversationMessage[] = [];
     let goalCompleted = false;
 
     try {
@@ -362,18 +370,31 @@ export class AgenticTestService {
           content: JSON.stringify(action),
         });
 
-        // Add the observation as the next user message
+        // Add the observation as the next user message, with screenshot for vision
         const observation = this.buildObservation(
           stepNumber, stepStatus, stepError, currentUrl, pageTitle,
-          domSnapshot, stepConsoleErrors
+          domSnapshot, stepConsoleErrors, !!screenshotBase64
         );
-        conversationHistory.push({ role: 'user', content: observation });
+        conversationHistory.push({
+          role: 'user',
+          content: observation,
+          screenshotBase64: screenshotBase64,
+        });
 
         // Keep conversation manageable (last 20 turns)
         if (conversationHistory.length > 42) {
-          // Keep system prompt + last 20 exchanges
           const sys = conversationHistory[0];
           const recent = conversationHistory.slice(-40);
+          // Strip old screenshots to save memory/tokens (keep only last 4 screenshots)
+          let screenshotCount = 0;
+          for (let i = recent.length - 1; i >= 0; i--) {
+            if (recent[i].screenshotBase64) {
+              screenshotCount++;
+              if (screenshotCount > 4) {
+                recent[i].screenshotBase64 = undefined;
+              }
+            }
+          }
           conversationHistory.length = 0;
           conversationHistory.push(sys, ...recent);
         }
@@ -428,19 +449,20 @@ export class AgenticTestService {
 
   private buildSystemPrompt(goal: string): string {
     return `You are an AI test automation agent controlling a web browser via Playwright.
+You also receive SCREENSHOTS of the page after every action to help you understand the visual state.
 
 YOUR GOAL: ${goal}
 
 You operate in an OBSERVE → THINK → ACT loop:
-1. You receive a description of the current page state (URL, DOM elements, errors)
+1. You receive a screenshot + DOM snapshot of the current page state (URL, elements, errors)
 2. You decide the SINGLE NEXT action to take
 3. Your action is executed, and you see the result
 
 AVAILABLE ACTIONS (return ONE per turn as JSON):
 {
   "action": "<action_type>",
-  "selector": "<playwright_selector>",  // for click, fill, hover, scroll
-  "value": "<value>",                   // for fill, navigate, press_key, verify_text, wait
+  "selector": "<playwright_selector>",  // for click, fill, hover, scroll, force_click
+  "value": "<value>",                   // for fill, navigate, press_key, verify_text, wait, js_eval, select_mui
   "description": "<what_you_are_doing_and_why>",
   "reasoning": "<your_reasoning_for_this_choice>",
   "waitAfterMs": <ms_to_wait_after>     // optional, default 1500
@@ -449,14 +471,17 @@ AVAILABLE ACTIONS (return ONE per turn as JSON):
 ACTION TYPES:
 - "navigate": Go to URL. value = the URL.
 - "click": Click an element. selector = Playwright selector.
+- "force_click": Click via JavaScript (bypasses overlays/pointer-event blocks). selector = CSS selector.
 - "fill": Type into an input/textarea. selector = Playwright selector. value = text to type.
 - "select_option": Select dropdown option. selector = Playwright selector. value = option value/label.
+- "select_mui": Open a MUI Select dropdown and pick an option. selector = CSS selector for the MUI Select element (.MuiSelect-select). value = option text to pick.
 - "verify_text": Check text is on page. value = expected text.
 - "verify_no_error": Check no UI errors/exceptions visible.
 - "wait": Wait for something. value = ms (e.g. "5000") or "network_idle".
-- "press_key": Press keyboard key. value = key name (e.g. "Enter", "Tab").
+- "press_key": Press keyboard key. value = key name (e.g. "Enter", "Tab", "Escape").
 - "scroll": Scroll. selector = "down", "up", or element selector.
 - "hover": Hover over element. selector = Playwright selector.
+- "js_eval": Execute JavaScript on the page. value = JS code string (e.g. "document.querySelector('.btn').click()").
 - "screenshot": Take explicit screenshot.
 - "done": Goal is complete. description = summary of what was achieved.
 - "fail": Goal cannot be completed. description = reason why.
@@ -473,8 +498,9 @@ SELECTOR STRATEGY (use what you see in the DOM snapshot):
 CRITICAL RULES:
 - Return ONLY valid JSON. No markdown, no explanation outside JSON.
 - Take ONE action at a time. Never combine multiple actions.
+- LOOK AT THE SCREENSHOT to understand the visual page layout, not just the DOM.
 - After clicking something that opens a dialog/modal/dropdown, your next action should handle that dialog.
-- If a step fails, look at the DOM snapshot to understand WHY and try a different approach.
+- If a step fails, look at both the screenshot AND DOM snapshot to understand WHY and try a different approach.
 - If you see a dialog/modal/overlay blocking the page, handle it first before proceeding.
 - For login flows: fill email → fill password → click submit → wait for page to load.
 - When filling React inputs/textareas, use the visible selector from the DOM.
@@ -485,43 +511,83 @@ CRITICAL RULES:
 - If your action fails, analyze the error and DOM to find the correct selector.
 - When encountering a multi-step dialog (like a data connector selector), handle each step.
 
+THOROUGH TESTING STRATEGY (VERY IMPORTANT for sanity checks / clicking all elements):
+When the goal asks you to "click all buttons/tabs/links" or "perform a sanity check", you MUST be SYSTEMATIC:
+1. FIRST: After the page loads, review the "INTERACTIVE ELEMENTS SUMMARY" in the DOM snapshot. It lists ALL clickable items (tabs, buttons, links, dropdowns, filters, etc.) and how many there are.
+2. CREATE A MENTAL CHECKLIST: Note all tabs, buttons, filters, pagination, and controls visible in the screenshot and DOM.
+3. TEST EACH TAB FIRST: If the app has tabs (e.g. Overview, Schedule, Ask AI), click EACH tab and verify it loads.
+4. WITHIN EACH TAB, systematically test:
+   a. Buttons (Save, Export, Filter, Reset, etc.)
+   b. Dropdowns / Selects (use "select_mui" for MUI dropdowns)
+   c. Toggle buttons (View Only / Edit Mode)
+   d. Filters (location filters, machine filters, date filters)
+   e. Pagination (click page 2, go back to page 1)
+   f. Accordion/expandable sections (click to expand/collapse)
+5. AFTER EACH CLICK: Check for errors, then proceed to the NEXT untested element.
+6. DO NOT get stuck repeating the same element - move on to the next one.
+7. Keep track in your reasoning which elements you have already tested vs still need to test.
+8. Use "done" ONLY after you have tested ALL major interactive elements, not just a few.
+9. If you see a complex app (Gantt chart, data grid, scheduler), scroll to reveal more controls and test them.
+
+RECOVERY STRATEGIES (when actions fail):
+- If "click" fails with "intercepts pointer events": the element is behind an overlay/dialog.
+  1. First try: press_key "Escape" to dismiss overlays
+  2. Second try: use "force_click" with the same CSS selector (bypasses overlay via JS)
+  3. Third try: use "js_eval" with value "document.querySelector('YOUR_SELECTOR').click()"
+- If "click" fails with "timeout": the element might not exist or selector is wrong.
+  1. Look at the DOM snapshot for the correct selector
+  2. Try alternative selectors (data-testid, aria-label, text=)
+  3. Check if the page needs scrolling first
+- If the page appears stuck or not loading: use "wait" with "network_idle" or a timeout
+- NEVER repeat the exact same failed action more than twice. Switch to a different approach.
+- If you've tried 3+ approaches for the same element, skip it and move to the next element.
+
+MUI COMPONENT HANDLING:
+- MUI Select dropdowns (e.g. "Month View", "Day View"): Use "select_mui" action with selector=".MuiSelect-select" and value="Day View".
+  These require a mousedown event, NOT a click. The "select_mui" action handles this automatically.
+- MUI Accordion: Click the MuiAccordionSummary-root to expand/collapse.
+- MUI Tabs: Click using role="tab" selector, e.g. button[role="tab"]:has-text("Schedule").
+- MUI Pagination: Use aria-label="Go to page 2", aria-label="Go to next page", etc.
+
 DIALOG/MODAL HANDLING (VERY IMPORTANT):
 - The DOM snapshot starts with "=== OPEN DIALOG/MODAL ===" if a dialog is visible. ALWAYS handle the dialog FIRST before trying to interact with elements behind it.
 - Dialogs block ALL interactions with the page behind them. You MUST close/submit the dialog before clicking anything else.
 - Common dialog patterns:
   * "Save"/"Update Name" dialog → Click the "Save" button to save and close
   * "Chart Edit" dialog → Click "Save" or the close (X) button
-  * "Select Data Connector" dialog → Select a radio button → Click "Next" → Select items → Click "Next" → Click "Connect"
   * "Confirm" dialog → Click "OK" or "Confirm"
-  * Any dialog with "Cancel" and "Save" buttons → Usually click "Save" to proceed
-- For radio buttons in a list, click the radio input or the label text
-- If you see a "Next" button that's disabled, you need to make a selection first
-- If an action fails because "subtree intercepts pointer events", it means a DIALOG is blocking. Look at DIALOG BUTTONS in the DOM and click the appropriate one (usually Save, Close, or the X button).
-- If you've tried the same action 3+ times, try a COMPLETELY different approach
-- NEVER repeat the exact same failed selector more than twice
-- When clicking "+ DataApp" or similar chart-saving buttons, expect a name/save dialog to appear. Click "Save" to complete the operation.
-- After clicking "Save" in a dialog, wait 2-3 seconds (waitAfterMs: 3000) for the dialog to close.
-- "User Charts" or "Charts" tab: use the tab's id attribute (e.g., #dataapp-tab-1) or text=User Charts / text=Charts.
+  * "Exit Edit Mode" dialog → Click "Yes, Exit Edit Mode" or "Cancel"
+  * Any dialog with "Cancel" and "Save" buttons → Usually click "Cancel" to dismiss without changing state
+- If an action fails because "subtree intercepts pointer events", it means a DIALOG is blocking.
+  * Try pressing Escape first (press_key "Escape")
+  * Or use force_click on the dialog's close/save button
+- After dismissing a dialog, wait 2-3 seconds (waitAfterMs: 3000) for the dialog to close.
 
 TAB HANDLING:
 - Tabs often use role="tab" with an aria-controls attribute
 - Click tabs by their text content (text=Charts, text=User Charts) or by data-testid/id
-- After clicking a tab, wait for content to load before verifying`;
+- After clicking a tab, wait for content to load (waitAfterMs: 3000) before proceeding
+- Return to previous tabs after testing new ones to ensure the app doesn't break`;
   }
 
   // ── Build the observation message for the AI ──────────────────────────────
 
   private buildObservation(
     stepNumber: number, status: string, error: string | undefined,
-    url: string, title: string, domSnapshot: string, consoleErrors: string[]
+    url: string, title: string, domSnapshot: string, consoleErrors: string[],
+    hasScreenshot: boolean = false
   ): string {
     let obs = `OBSERVATION after step ${stepNumber}:\n`;
     obs += `- Status: ${status}${error ? ` (ERROR: ${error})` : ''}\n`;
     obs += `- URL: ${url}\n`;
     obs += `- Page title: ${title}\n`;
 
+    if (hasScreenshot) {
+      obs += `- Screenshot: ATTACHED (see the image for visual context of the current page state)\n`;
+    }
+
     if (consoleErrors.length > 0) {
-      obs += `- Console errors: ${consoleErrors.slice(0, 3).join('; ')}\n`;
+      obs += `- Console errors: ${consoleErrors.slice(0, 5).join('; ')}\n`;
     }
 
     obs += `\n${domSnapshot}\n`;
@@ -531,7 +597,12 @@ TAB HANDLING:
       obs += `\n*** A DIALOG IS OPEN! You MUST handle it first (click Save, Close, Next, etc.) before doing anything else. The dialog blocks all page interactions. ***\n`;
     }
 
-    obs += `\nWhat is the NEXT action? If the goal is fully achieved, use "done". If stuck (same action failed 3+ times), try a completely different approach. Return ONLY JSON.`;
+    // If click was blocked, suggest recovery strategies
+    if (error?.includes('BLOCKED by') || error?.includes('intercepts pointer events')) {
+      obs += `\n*** CLICK BLOCKED! Recovery options: 1) Press Escape to close overlay 2) Use "force_click" to bypass overlay 3) Use "js_eval" with document.querySelector('...').click() ***\n`;
+    }
+
+    obs += `\nWhat is the NEXT action? If the goal is fully achieved, use "done". If stuck (same action failed 3+ times), try a completely different approach (e.g. force_click, js_eval, press_key Escape). Return ONLY JSON.`;
 
     return obs;
   }
@@ -539,7 +610,7 @@ TAB HANDLING:
   // ── AI: Decide the next action ────────────────────────────────────────────
 
   private async decideNextAction(
-    conversationHistory: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+    conversationHistory: ConversationMessage[],
     stepNumber: number
   ): Promise<AgenticAction> {
     let content: string;
@@ -574,16 +645,37 @@ TAB HANDLING:
     };
   }
 
-  // ── OpenAI API call ───────────────────────────────────────────────────────
+  // ── OpenAI API call (with vision support) ────────────────────────────────
 
   private async callOpenAI(
-    conversationHistory: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+    conversationHistory: ConversationMessage[]
   ): Promise<string> {
+    // Convert ConversationMessage[] to OpenAI format, embedding screenshots as vision content
+    const messages: any[] = conversationHistory.map(msg => {
+      if (msg.screenshotBase64 && msg.role === 'user') {
+        // Multimodal message: text + image
+        return {
+          role: msg.role,
+          content: [
+            { type: 'text', text: msg.content },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:image/png;base64,${msg.screenshotBase64}`,
+                detail: 'auto', // Auto detail for better visual understanding of complex UIs
+              },
+            },
+          ],
+        };
+      }
+      return { role: msg.role, content: msg.content };
+    });
+
     const response = await this.openai.chat.completions.create({
       model: this.providerConfig.model,
-      messages: conversationHistory,
+      messages,
       temperature: 0.1,
-      max_tokens: 500,
+      max_tokens: 2048,
     });
     // Track token usage
     if (response.usage) {
@@ -592,22 +684,41 @@ TAB HANDLING:
     return response.choices[0]?.message?.content?.trim() || '';
   }
 
-  // ── Anthropic API call ────────────────────────────────────────────────────
+  // ── Anthropic API call (with vision support) ─────────────────────────────
 
   private async callAnthropic(
-    conversationHistory: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+    conversationHistory: ConversationMessage[]
   ): Promise<string> {
     if (!this.anthropic) throw new Error('Anthropic client not initialized');
 
     // Anthropic uses a separate system parameter, not a system message in the array
     const systemMsg = conversationHistory.find(m => m.role === 'system');
-    const messages = conversationHistory
+    const messages: any[] = conversationHistory
       .filter(m => m.role !== 'system')
-      .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+      .map(msg => {
+        if (msg.screenshotBase64 && msg.role === 'user') {
+          // Multimodal message: image + text for Anthropic vision API
+          return {
+            role: msg.role,
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/png',
+                  data: msg.screenshotBase64,
+                },
+              },
+              { type: 'text', text: msg.content },
+            ],
+          };
+        }
+        return { role: msg.role as 'user' | 'assistant', content: msg.content };
+      });
 
     const response = await this.anthropic.messages.create({
       model: this.providerConfig.model,
-      max_tokens: 500,
+      max_tokens: 2048,
       system: systemMsg?.content || '',
       messages,
       temperature: 0.1,
@@ -789,6 +900,87 @@ TAB HANDLING:
         break;
       }
 
+      case 'js_eval': {
+        if (!action.value) throw new Error('js_eval requires a value (JavaScript code)');
+        // Safety: block dangerous operations
+        const jsLower = action.value.toLowerCase();
+        if (DANGEROUS_TEXTS.some(d => jsLower.includes(d))) {
+          throw new Error('Dangerous JavaScript detected, skipping');
+        }
+        try {
+          const result = await page.evaluate((code) => {
+            const fn = new Function(code);
+            return fn();
+          }, action.value);
+          onLog({ type: 'info', message: `js_eval result: ${JSON.stringify(result)?.substring(0, 200)}` });
+        } catch (evalErr: any) {
+          throw new Error(`js_eval failed: ${evalErr.message}`);
+        }
+        break;
+      }
+
+      case 'force_click': {
+        if (!action.selector) throw new Error('force_click requires a selector');
+        const forceSelectorLower = action.selector.toLowerCase();
+        if (DANGEROUS_TEXTS.some(d => forceSelectorLower.includes(d))) {
+          onLog({ type: 'warning', message: `Skipping dangerous force_click: ${action.selector}` });
+          return;
+        }
+        // Use JavaScript click to bypass overlay/pointer-events blocking
+        const clicked = await page.evaluate((sel) => {
+          const el = document.querySelector(sel);
+          if (el) { (el as HTMLElement).click(); return true; }
+          return false;
+        }, action.selector);
+        if (!clicked) {
+          throw new Error(`force_click: no element found for selector "${action.selector}"`);
+        }
+        onLog({ type: 'info', message: `force_click succeeded on "${action.selector}"` });
+        break;
+      }
+
+      case 'select_mui': {
+        // Handle MUI Select dropdowns which require mousedown event to open
+        if (!action.selector || !action.value) throw new Error('select_mui requires selector and value');
+        const muiResult = await page.evaluate(({ sel, optionText }) => {
+          // Find the MUI Select element
+          const selectEl = document.querySelector(sel);
+          if (!selectEl) return { success: false, error: `No element found for "${sel}"` };
+
+          // Open the dropdown by dispatching mousedown event (MUI Select pattern)
+          selectEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+
+          return { success: true, opened: true };
+        }, { sel: action.selector, optionText: action.value });
+
+        if (!muiResult.success) {
+          throw new Error(`select_mui: ${(muiResult as any).error}`);
+        }
+
+        // Wait for the MUI dropdown menu to appear
+        await page.waitForTimeout(1000);
+
+        // Click the option by its text content
+        const optionClicked = await page.evaluate((optText) => {
+          const menuItems = Array.from(document.querySelectorAll('[role="option"], .MuiMenuItem-root, [role="listbox"] li'));
+          for (let i = 0; i < menuItems.length; i++) {
+            if (menuItems[i].textContent?.trim() === optText) {
+              (menuItems[i] as HTMLElement).click();
+              return true;
+            }
+          }
+          return false;
+        }, action.value);
+
+        if (!optionClicked) {
+          // Try pressing Escape to close the dropdown if option wasn't found
+          await page.keyboard.press('Escape');
+          throw new Error(`select_mui: option "${action.value}" not found in dropdown`);
+        }
+        onLog({ type: 'info', message: `select_mui: selected "${action.value}" from "${action.selector}"` });
+        break;
+      }
+
       default:
         throw new Error(`Unknown action: ${action.action}`);
     }
@@ -800,6 +992,86 @@ TAB HANDLING:
     try {
       return await page.evaluate(() => {
         const output: string[] = [];
+
+        // ── PHASE 0: Interactive Elements Summary (helps AI plan testing) ──
+        const interactiveSummary: { tabs: string[]; buttons: string[]; links: string[]; dropdowns: string[]; inputs: string[]; pagination: string[] } = {
+          tabs: [], buttons: [], links: [], dropdowns: [], inputs: [], pagination: [],
+        };
+
+        // Collect tabs
+        document.querySelectorAll('[role="tab"]').forEach(el => {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0) {
+            const text = el.textContent?.trim().substring(0, 40) || '';
+            const selected = el.getAttribute('aria-selected') === 'true' || el.classList.contains('Mui-selected');
+            interactiveSummary.tabs.push(`${text}${selected ? ' [ACTIVE]' : ''}`);
+          }
+        });
+
+        // Collect buttons (excluding pagination and SVG-only buttons)
+        document.querySelectorAll('button:not([aria-label*="page"]):not([aria-label*="Page"])').forEach(el => {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            const text = el.textContent?.trim().substring(0, 50) || '';
+            const ariaLabel = el.getAttribute('aria-label') || '';
+            const label = text || ariaLabel;
+            if (label && !label.match(/^\d+$/) && label.length > 1) {
+              interactiveSummary.buttons.push(label);
+            }
+          }
+        });
+
+        // Collect links
+        document.querySelectorAll('a[href]').forEach(el => {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0) {
+            const text = el.textContent?.trim().substring(0, 40) || '';
+            if (text) interactiveSummary.links.push(text);
+          }
+        });
+
+        // Collect MUI Selects / dropdowns
+        document.querySelectorAll('.MuiSelect-select, select, [role="combobox"]').forEach(el => {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0) {
+            const text = el.textContent?.trim().substring(0, 40) || '';
+            if (text) interactiveSummary.dropdowns.push(text);
+          }
+        });
+
+        // Collect pagination
+        document.querySelectorAll('[aria-label*="page"], [aria-label*="Page"]').forEach(el => {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0) {
+            const label = el.getAttribute('aria-label') || '';
+            interactiveSummary.pagination.push(label);
+          }
+        });
+
+        // Collect inputs
+        document.querySelectorAll('input:not([type="hidden"]), textarea').forEach(el => {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0) {
+            const ph = el.getAttribute('placeholder') || el.getAttribute('aria-label') || el.getAttribute('type') || 'input';
+            interactiveSummary.inputs.push(ph.substring(0, 40));
+          }
+        });
+
+        output.push('=== INTERACTIVE ELEMENTS SUMMARY ===');
+        if (interactiveSummary.tabs.length > 0)
+          output.push(`TABS (${interactiveSummary.tabs.length}): ${interactiveSummary.tabs.join(' | ')}`);
+        if (interactiveSummary.buttons.length > 0)
+          output.push(`BUTTONS (${interactiveSummary.buttons.length}): ${[...new Set(interactiveSummary.buttons)].slice(0, 30).join(' | ')}`);
+        if (interactiveSummary.dropdowns.length > 0)
+          output.push(`DROPDOWNS (${interactiveSummary.dropdowns.length}): ${interactiveSummary.dropdowns.join(' | ')}`);
+        if (interactiveSummary.links.length > 0)
+          output.push(`LINKS (${interactiveSummary.links.length}): ${interactiveSummary.links.slice(0, 15).join(' | ')}`);
+        if (interactiveSummary.inputs.length > 0)
+          output.push(`INPUTS (${interactiveSummary.inputs.length}): ${interactiveSummary.inputs.slice(0, 10).join(' | ')}`);
+        if (interactiveSummary.pagination.length > 0)
+          output.push(`PAGINATION: ${interactiveSummary.pagination.join(' | ')}`);
+        output.push('=== END SUMMARY ===');
+        output.push('');
 
         // ── PHASE 1: Extract ALL open dialogs/modals FIRST (highest priority) ──
         const dialogs = document.querySelectorAll(
@@ -875,14 +1147,15 @@ TAB HANDLING:
         }
 
         // ── PHASE 2: General DOM walk (page content) ──
+        // Prioritize interactive elements by walking them first
         output.push('=== PAGE ELEMENTS ===');
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
         let node: Element | null = walker.currentNode as Element;
         let count = 0;
 
-        while (node && count < 350) {
+        while (node && count < 1200) {
           const tag = node.tagName?.toLowerCase();
-          if (['script', 'style', 'noscript', 'link', 'meta', 'path', 'g', 'circle', 'rect', 'polygon', 'line'].includes(tag)) {
+          if (['script', 'style', 'noscript', 'link', 'meta', 'path', 'g', 'circle', 'rect', 'polygon', 'line', 'svg', 'defs', 'clippath', 'lineargradient', 'stop'].includes(tag)) {
             node = walker.nextNode() as Element;
             continue;
           }
@@ -903,6 +1176,10 @@ TAB HANDLING:
           if (name) attrs.push(`name="${name}"`);
           const disabled = node.hasAttribute('disabled');
           if (disabled) attrs.push('disabled');
+          const ariaSelected = node.getAttribute('aria-selected');
+          if (ariaSelected) attrs.push(`aria-selected="${ariaSelected}"`);
+          const ariaExpanded = node.getAttribute('aria-expanded');
+          if (ariaExpanded) attrs.push(`aria-expanded="${ariaExpanded}"`);
 
           if (tag === 'input') {
             const inp = node as HTMLInputElement;
@@ -938,6 +1215,10 @@ TAB HANDLING:
 
           count++;
           node = walker.nextNode() as Element;
+        }
+
+        if (count >= 1200) {
+          output.push('... (DOM truncated at 1200 elements. Use the INTERACTIVE ELEMENTS SUMMARY above to find more elements.)');
         }
 
         return output.join('\n');
