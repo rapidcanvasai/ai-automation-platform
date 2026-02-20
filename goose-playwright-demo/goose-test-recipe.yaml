@@ -1,0 +1,42 @@
+version: "1.0"
+title: Playwright CLI Skill Demo Test
+description: Test example.com navigation using Playwright CLI skill
+
+prompt: |
+  Use the Playwright CLI skill (summon playwright-cli skill) to automate a browser test.
+  The playwright-cli binary is at: /Users/surbhi/test-automation-platform/node_modules/.bin/playwright-cli
+  
+  Please run these shell commands in sequence and report what each one outputs:
+
+  Step 1 - Open browser:
+  /Users/surbhi/test-automation-platform/node_modules/.bin/playwright-cli open https://example.com -s goosedemo
+
+  Step 2 - Start tracing:
+  /Users/surbhi/test-automation-platform/node_modules/.bin/playwright-cli -s goosedemo tracing-start
+
+  Step 3 - Take snapshot:
+  /Users/surbhi/test-automation-platform/node_modules/.bin/playwright-cli -s goosedemo snapshot
+
+  Step 4 - Read the snapshot YAML file that was created to find the ref for the "Learn more" link, then click it:
+  /Users/surbhi/test-automation-platform/node_modules/.bin/playwright-cli -s goosedemo click <ref>
+
+  Step 5 - Take snapshot again to verify navigation:
+  /Users/surbhi/test-automation-platform/node_modules/.bin/playwright-cli -s goosedemo snapshot
+
+  Step 6 - Stop tracing:
+  /Users/surbhi/test-automation-platform/node_modules/.bin/playwright-cli -s goosedemo tracing-stop
+
+  Step 7 - Close browser:
+  /Users/surbhi/test-automation-platform/node_modules/.bin/playwright-cli -s goosedemo close
+
+  Step 8 - Generate and write a Playwright test file to:
+  /Users/surbhi/test-automation-platform/goose-playwright-demo/tests/goose-generated-test.spec.ts
+  
+  The test file should:
+  - Import from @playwright/test
+  - Navigate to https://example.com
+  - Assert the title is "Example Domain"  
+  - Click "Learn more" using getByRole('link', { name: 'Learn more' })
+  - Assert the URL contains iana.org
+  - Assert the title is "Example Domains"
+  - Each step should match the exact Playwright code that playwright-cli reported it ran
