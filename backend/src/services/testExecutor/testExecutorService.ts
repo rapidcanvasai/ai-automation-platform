@@ -196,8 +196,13 @@ export class TestExecutorService {
     const executionId = `${test.id}-${Date.now()}`;
     const emit = (e: any) => onEvent?.({ executionId, timestamp: new Date().toISOString(), ...e });
     try {
-      browser = await chromium.launch({ headless: opts?.headless !== false, slowMo: opts?.slowMoMs, args: ['--start-maximized'] });
-      context = await browser.newContext({ recordVideo: { dir: videosDir }, viewport: null });
+      const isHeadless = opts?.headless !== false;
+      const browserArgs = isHeadless
+        ? ['--window-size=1920,1080', '--no-sandbox', '--disable-setuid-sandbox']
+        : ['--start-maximized'];
+      const viewportSize = isHeadless ? { width: 1920, height: 1080 } : null;
+      browser = await chromium.launch({ headless: isHeadless, slowMo: opts?.slowMoMs, args: browserArgs });
+      context = await browser.newContext({ recordVideo: { dir: videosDir }, viewport: viewportSize });
       page = await context.newPage();
       emit({ type: 'start' });
 
