@@ -47,7 +47,7 @@ on:
 
 env:
   TEST_DESCRIPTION: |
-    Open https://app.rapidcanvas.ai/ Wait 2sec Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Wait 2sec Verify Dashboard Wait 10sec Click on xpath=//*[@data-testid="top-nav-bar-workspace-menu"] Wait 5sec Click on xpath=//*[@data-testid="workspace-menu-tenant-name"] Wait 5sec Enter GrupoRio - MX in Type to search Wait 5sec Click on xpath=//*[@test-id="tenant-menu-tenant-list-items"]/li[1] Wait 10sec Open https://app.rapidcanvas.ai/apps/salesman-performance-kpis-dashboard/GrupoRio%20-%20MX Wait 30sec Verify Grupo Rio Analytics with AI Verify Vista Directiva with AI Verify Rendimiento de ventas y operaciones en tiempo real with AI Verify Centro de Inteligencia Comercial with AI Verify Pipeline de Ventas with AI Verify Desglose de Citas with AI Verify Inicio with AI Verify Fin with AI Verify Buscar with AI Verify 30 Dias with AI Verify Revenue por Citas with AI Verify no error is coming on UI with AI Click on Vista por Agente with AI Verify Centro de Inteligencia Comercial with AI Verify Rendimiento de ventas y operaciones en tiempo real with AI Verify Representantes de Ventas with AI Verify Series de Tiempo with AI Verify Granularidad with AI Verify Métricas with AI Verify Ranking de Rendimiento with AI Verify Anterior with AI Verify Siguiente with AI Verify Correlaciones with AI Verify Inicio with AI Verify Fin with AI Verify Buscar with AI Verify 30 Dias with AI Verify no error is coming on UI with AI Click on Resumen de Calidad with AI Verify Centro de Inteligencia Comercial with AI Verify Representantes de Ventas with AI Verify % Llamadas Auditadas with AI Verify Score Promedio General with AI Verify Haz clic en un representante para filtrar with AI Verify Score numérico: with AI Verify Ranking de Calidad por Agente with AI Verify Calidad a lo Largo del Tiempo with AI Verify Inicio with AI Verify Fin with AI Verify Buscar with AI Verify 30 Dias with AI Verify no error is coming on UI with AI Click on Nivel Financiero with AI Verify Centro de Inteligencia Comercial with AI Wait 10sec Verify Rendimiento de ventas y operaciones en tiempo real with AI Verify Representantes de Ventas with AI Verify Haz clic en un representante para filtrar with AI Verify Resumen Financiero with AI Verify Ingreso Potencial por Tasa de Cierre with AI Verify Ingreso Perdido por Agente with AI Verify Ingreso Perdido por Tipo de Estudio with AI Verify Proyeccion Financiera si Mejora el Cierre 5% with AI Verify Ingreso Actual with AI Verify incremento proyectado with AI Verify Ingreso Proyectado with AI Verify Inicio with AI Verify Fin with AI Verify Buscar with AI Verify 30 Dias with AI Verify no error is coming on UI with AI
+    Open https://app.rapidcanvas.ai/ Wait 2sec Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Wait 2sec Verify Dashboard Wait 10sec Click on xpath=//*[@data-testid="top-nav-bar-workspace-menu"] Wait 5sec Click on xpath=//*[@data-testid="workspace-menu-tenant-name"] Wait 5sec Enter GrupoRio - MX in Type to search Wait 5sec Click on xpath=//*[@test-id="tenant-menu-tenant-list-items"]/li[1] Wait 10sec Open https://app.rapidcanvas.ai/apps/salesman-performance-kpis-dashboard/GrupoRio%20-%20MX Wait 60sec Verify Grupo Rio Analytics with AI Verify Vista Directiva with AI Verify Rendimiento de ventas y operaciones en tiempo real with AI Verify Centro de Inteligencia Comercial with AI Verify Pipeline de Ventas with AI Verify Desglose de Citas with AI Verify Inicio with AI Verify Fin with AI Verify Buscar with AI Verify 30 Dias with AI Verify Revenue por Citas with AI Verify no error is coming on UI with AI Click on Vista por Agente with AI Verify Centro de Inteligencia Comercial with AI Verify Rendimiento de ventas y operaciones en tiempo real with AI Verify Representantes de Ventas with AI Verify Series de Tiempo with AI Verify Granularidad with AI Verify Métricas with AI Verify Ranking de Rendimiento with AI Verify Anterior with AI Verify Siguiente with AI Verify Correlaciones with AI Verify Inicio with AI Verify Fin with AI Verify Buscar with AI Verify 30 Dias with AI Verify no error is coming on UI with AI Click on Resumen de Calidad with AI Verify Centro de Inteligencia Comercial with AI Verify Representantes de Ventas with AI Verify % Llamadas Auditadas with AI Verify Score Promedio General with AI Verify Haz clic en un representante para filtrar with AI Verify Score numérico: with AI Verify Ranking de Calidad por Agente with AI Verify Calidad a lo Largo del Tiempo with AI Verify Inicio with AI Verify Fin with AI Verify Buscar with AI Verify 30 Dias with AI Verify no error is coming on UI with AI Click on Nivel Financiero with AI Verify Centro de Inteligencia Comercial with AI Wait for 10sec Verify Rendimiento de ventas y operaciones en tiempo real with AI Verify Representantes de Ventas with AI Verify Haz clic en un representante para filtrar with AI Verify Resumen Financiero with AI Verify Ingreso Potencial por Tasa de Cierre with AI Verify Ingreso Perdido por Agente with AI Verify Ingreso Perdido por Tipo de Estudio with AI Verify Proyeccion Financiera si Mejora el Cierre 5% with AI Verify Ingreso Actual with AI Verify incremento proyectado with AI Verify Ingreso Proyectado with AI Verify Inicio with AI Verify Fin with AI Verify Buscar with AI Verify 30 Dias with AI Verify no error is coming on UI with AI
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENAI_MODEL: gpt-4o-mini
   SLACK_CHANNEL: 'rc-cust-grupo-rio-internal'
@@ -72,7 +72,6 @@ jobs:
         echo "**Supported Commands**: [View Documentation](https://rapidcanvas.atlassian.net/wiki/spaces/RAPIDCANVA/pages/887554049/Test+Automation+Platform+-+Supported+Commands+Documentation)" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "This documentation contains all supported commands and syntax for writing test descriptions." >> $GITHUB_STEP_SUMMARY
-
     - name: Checkout code
       uses: actions/checkout@v4
 
@@ -85,7 +84,6 @@ jobs:
       run: |
         cd backend
         npm ci
-
     - name: Install Playwright browsers
       run: |
         cd backend
@@ -98,12 +96,10 @@ jobs:
         echo "✅ Playwright installation completed!"
         echo "🔍 Verifying installation..."
         npx playwright install chromium --dry-run
-
     - name: Build backend
       run: |
         cd backend
         npm run build
-
     - name: Start backend server
       run: |
         cd backend
@@ -119,7 +115,6 @@ jobs:
           echo "Waiting for backend... ($i/30)"
           sleep 2
         done
-
     - name: Generate and create complete test scenario
       env:
         TEST_DESC_INPUT: ${{ env.TEST_DESCRIPTION }}
@@ -315,7 +310,6 @@ jobs:
         fi
         
         rm -f /tmp/steps.json /tmp/nlp-payload.json /tmp/test-desc-for-payload.txt
-
     - name: Create test in platform and execute
       run: |
         echo "🚀 Creating test in platform and executing..."
@@ -473,8 +467,6 @@ jobs:
         
         # Cleanup
         rm -f /tmp/test-payload.json /tmp/exec-payload.json /tmp/description.txt /tmp/steps-array.json
-
-
     - name: Verify test execution results
       run: |
         echo "📊 Verifying test execution results..."
@@ -503,7 +495,6 @@ jobs:
         else
           echo "❌ No execution ID found - test may not have been executed"
         fi
-
     - name: Update Slack main thread with test result
       if: env.EXECUTION_ID != '' && env.TEST_ID != '' && env.TEST_STATUS != '' && (env.ENABLE_SLACK == 'true' && (env.SLACK_NOTIFY_ONLY_FAILURES != 'true' || env.TEST_STATUS == 'failed'))
       run: |
@@ -563,7 +554,6 @@ jobs:
           echo "TEST_ID: ${{ env.TEST_ID }}"
           echo "TEST_STATUS: ${{ env.TEST_STATUS }}"
         fi
-
     - name: Upload test scenarios
       uses: actions/upload-artifact@v4
       with:
