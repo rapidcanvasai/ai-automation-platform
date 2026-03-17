@@ -35,7 +35,7 @@ on:
 
 env:
   TEST_DESCRIPTION: |
-    Open https://app.rapidcanvas.ai/ Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Verify Dashboard Open https://app.rapidcanvas.ai/apps/TYA_CausalInference/TYA%20Dev-Test?autoLaunch=true Wait 30sec If(text=Relaunch) then Click on Relaunch If(text=Launching) then wait 150sec Wait 100sec Click on Pronóstico de Precios: Departamentos with AI Wait 20sec Verify no error messages or exceptions are displayed on UI with AI Click on Pronóstico de Precios: Casas with AI Wait 30sec Verify no error messages or exceptions are displayed on UI with AI Click on Proyecciones de Absorción with AI Wait 30sec Verify no error messages or exceptions are displayed on UIwith AI
+    Open https://app.rapidcanvas.ai/ Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Verify Dashboard Open https://app.rapidcanvas.ai/apps/tya-frontend-prd/TYA%20Dev-Test Wait 20sec Click on Proyectos activos with AI Verify Sistema de Información de Mercado with AI Verify Proyectos activos with AI Verify no error messages or exceptions are displayed on UI with AI Click on Personalizador with AI Verify no error messages or exceptions are displayed on UI with AI Click on Análisis de mercado with AI Verify no error messages or exceptions are displayed on UI with AI Verify MLflow with AI Click on Análisis guardados with AI Verify no error messages or exceptions are displayed on UI with AI
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENAI_MODEL: gpt-4o-mini
   SLACK_CHANNEL: 'rc-cust-tya-internal'
@@ -45,7 +45,7 @@ env:
   ENABLE_SLACK: true
   SLACK_NOTIFY_ONLY_FAILURES: true
   HEADLESS: true
-  SLACK_MENTION: 'U099NAD6JBD'  # Use Slack user ID (e.g., U1234567890) for proper mentions, or username (e.g., Leonardo)
+  SLACK_MENTION: 'U0ADN1BLXM0'  # Use Slack user ID (e.g., U1234567890) for proper mentions, or username (e.g., Leonardo)
   DATAAPP_NAME: 'TYA_CausalInference'
   TENANT_NAME: 'TYA Dev-Test'
 
