@@ -47,14 +47,14 @@ async function sendMCPSlackAlert(opts: {
     ? (slackMention.startsWith('U') || slackMention.startsWith('W') ? `<@${slackMention}>` : `@${slackMention}`)
     : '';
 
-  const summaryLine = message.split('\n').find((l) => /PASS|FAIL|error|exception/i.test(l)) ?? message.slice(0, 200);
+  const summaryLine = message.split('\n').find((l) => /pass(ed|ing)?|fail(ed|ure)?|error|exception/i.test(l)) ?? message.slice(0, 200);
 
   const fields: { title: string; value: string; short: boolean }[] = [
     { title: 'DataApp', value: dataAppName, short: true },
   ];
   if (tenantName) fields.push({ title: 'Tenant', value: tenantName, short: true });
   if (model)      fields.push({ title: 'Model',  value: model,      short: true });
-  if (cost != null) fields.push({ title: 'Cost', value: `$${cost.toFixed(4)}`, short: true });
+  if (cost != null) fields.push({ title: 'Cost', value: `$${Number(cost).toFixed(4)}`, short: true });
   if (steps != null) fields.push({ title: 'Steps', value: String(steps), short: true });
   if (duration != null) fields.push({ title: 'Duration', value: `${Math.round(duration / 1000)}s`, short: true });
 
@@ -227,10 +227,12 @@ router.post('/run-sync', async (req: Request, res: Response) => {
     (completionEvent?.message ?? fatalEvent?.message ?? '') as string
   );
 
-  // Detect PASS/FAIL from Claude's final summary message
+  // Detect PASS/FAIL from Claude's final summary message.
+  // Match word variants: "pass", "passed", "passing" / "fail", "failed", "failure", "failing".
+  // Check FAIL first so "passed with no failures" doesn't accidentally resolve to PASS.
   const verdict: 'PASS' | 'FAIL' | 'UNKNOWN' =
-    /\bFAIL\b/i.test(finalMessage) ? 'FAIL' :
-    /\bPASS\b/i.test(finalMessage) ? 'PASS' :
+    /\bfail(ed|ure|ing|s)?\b/i.test(finalMessage) ? 'FAIL' :
+    /\bpass(ed|ing|es)?\b/i.test(finalMessage)    ? 'PASS' :
     fatalEvent ? 'FAIL' : 'UNKNOWN';
 
   const result = {
