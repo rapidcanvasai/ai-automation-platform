@@ -1,0 +1,182 @@
+name: MCP DataApp Monitor
+
+# ─────────────────────────────────────────────────────────────────────────────
+# One-off manual trigger — use this to test any prompt interactively.
+# To create a scheduled job, run "Configure MCP Monitor" workflow instead.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: 'Monitor prompt in plain English (what Claude should do and verify)'
+        required: true
+        type: string
+      dataapp_name:
+        description: 'DataApp name (shown in Slack alerts)'
+        required: false
+        type: string
+      tenant_name:
+        description: 'Tenant name (shown in Slack alerts)'
+        required: false
+        type: string
+      slack_channel_id:
+        description: 'Slack channel ID to send alert (e.g. C099YBV74G4). Leave blank to skip.'
+        required: false
+        type: string
+      slack_mention:
+        description: 'Slack user ID to mention on failure (e.g. U08HRLKPTKJ)'
+        required: false
+        type: string
+      slack_notify_only_failures:
+        description: 'Send Slack alert only on FAIL (true) or always (false)'
+        required: false
+        type: boolean
+        default: true
+      ai_model:
+        description: 'Claude model to use'
+        required: false
+        type: choice
+        options:
+          - claude-sonnet-4-5
+          - claude-haiku-4-5
+          - claude-3-5-sonnet-20241022
+          - claude-3-5-haiku-20241022
+        default: claude-sonnet-4-5
+
+env:
+  PROMPT: ${{ inputs.prompt }}
+  DATAAPP_NAME: ${{ inputs.dataapp_name }}
+  TENANT_NAME: ${{ inputs.tenant_name }}
+  SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+  SLACK_MENTION: ${{ inputs.slack_mention }}
+  SLACK_NOTIFY_ONLY_FAILURES: ${{ inputs.slack_notify_only_failures }}
+  AI_MODEL: ${{ inputs.ai_model }}
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+jobs:
+  mcp-monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Install Playwright + Chromium
+        working-directory: backend
+        run: |
+          npx playwright install chromium
+          npx playwright install-deps chromium
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+      - name: Start backend server
+        working-directory: backend
+        run: |
+          DB_DISABLED=true NODE_ENV=production PORT=3001 \
+          ANTHROPIC_API_KEY="${{ env.ANTHROPIC_API_KEY }}" \
+          SLACK_BOT_TOKEN="${{ env.SLACK_BOT_TOKEN }}" \
+          npm start &
+
+          for i in {1..30}; do
+            if curl -sf http://localhost:3001/health > /dev/null 2>&1; then
+              echo "✅ Backend ready"
+              break
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run MCP monitor
+        id: mcp_run
+        env:
+          PROMPT_INPUT: ${{ env.PROMPT }}
+        run: |
+          # Safely write prompt to file to handle all special characters
+          python3 -c "import os; open('/tmp/prompt.txt', 'w').write(os.environ.get('PROMPT_INPUT', ''))"
+          PROMPT=$(cat /tmp/prompt.txt)
+
+          if [ -z "$PROMPT" ]; then
+            echo "❌ Prompt is empty"
+            exit 1
+          fi
+
+          echo "📋 Running MCP monitor for: ${{ env.DATAAPP_NAME }}"
+          echo "📝 Prompt length: ${#PROMPT} characters"
+
+          RESPONSE=$(curl -sf -X POST http://localhost:3001/api/playwright-mcp/run-sync \
+            -H "Content-Type: application/json" \
+            --max-time 3300 \
+            -d "$(jq -n \
+              --rawfile prompt /tmp/prompt.txt \
+              --arg dataAppName "${{ env.DATAAPP_NAME }}" \
+              --arg tenantName "${{ env.TENANT_NAME }}" \
+              --arg slackChannelId "${{ env.SLACK_CHANNEL_ID }}" \
+              --arg slackMention "${{ env.SLACK_MENTION }}" \
+              --arg aiModel "${{ env.AI_MODEL }}" \
+              --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              --argjson slackNotifyOnlyFailures "${{ env.SLACK_NOTIFY_ONLY_FAILURES }}" \
+              '{
+                prompt: ($prompt | rtrimstr("\n")),
+                headless: true,
+                aiModel: $aiModel,
+                dataAppName: $dataAppName,
+                tenantName: $tenantName,
+                slackChannelId: $slackChannelId,
+                slackMention: $slackMention,
+                workflowRunUrl: $workflowRunUrl,
+                slackNotifyOnlyFailures: $slackNotifyOnlyFailures
+              }')")
+
+          echo "Response: $RESPONSE"
+
+          VERDICT=$(echo "$RESPONSE" | jq -r '.verdict // "UNKNOWN"')
+          MESSAGE=$(echo "$RESPONSE" | jq -r '.message // ""')
+          COST=$(echo "$RESPONSE"    | jq -r '.cost    // "n/a"')
+          STEPS=$(echo "$RESPONSE"   | jq -r '.steps   // "n/a"')
+          MODEL=$(echo "$RESPONSE"   | jq -r '.model   // "n/a"')
+
+          echo "verdict=$VERDICT"   >> $GITHUB_OUTPUT
+          echo "cost=$COST"         >> $GITHUB_OUTPUT
+          echo "steps=$STEPS"       >> $GITHUB_OUTPUT
+          echo "model=$MODEL"       >> $GITHUB_OUTPUT
+
+          # Write summary
+          ICON="✅"
+          [ "$VERDICT" = "FAIL" ]    && ICON="❌"
+          [ "$VERDICT" = "UNKNOWN" ] && ICON="⚠️"
+
+          echo "## $ICON MCP Monitor: $VERDICT" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| DataApp  | ${{ env.DATAAPP_NAME }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Verdict  | $VERDICT |"   >> $GITHUB_STEP_SUMMARY
+          echo "| Model    | $MODEL |"     >> $GITHUB_STEP_SUMMARY
+          echo "| Cost     | \$$COST |"    >> $GITHUB_STEP_SUMMARY
+          echo "| Steps    | $STEPS |"     >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Claude's verdict:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "$MESSAGE" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$VERDICT" = "FAIL" ] || [ "$VERDICT" = "UNKNOWN" ]; then
+            echo "❌ Monitor result: $VERDICT"
+            exit 1
+          fi
+
+          echo "✅ Monitor result: PASS"

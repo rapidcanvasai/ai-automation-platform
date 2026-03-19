@@ -11,6 +11,7 @@ import Layout from './components/Layout/Layout';
 import ExploratoryTestingPage from './pages/ExploratoryTesting/ExploratoryTesting';
 import { AutonomousAITesting } from './pages/AutonomousAITesting/AutonomousAITesting';
 import { PromptTestRunner } from './pages/PromptTestRunner/PromptTestRunner';
+import PlaywrightMCPPage from './pages/PlaywrightMCP/PlaywrightMCPPage';
 
 const theme = createTheme({
   palette: {
@@ -41,6 +42,7 @@ function App() {
               <Route path="/explore" element={<ExploratoryTestingPage />} />
               <Route path="/autonomous" element={<AutonomousAITesting />} />
               <Route path="/prompt-test" element={<PromptTestRunner />} />
+              <Route path="/playwright-mcp" element={<PlaywrightMCPPage />} />
             </Routes>
           </Layout>
         </Router>

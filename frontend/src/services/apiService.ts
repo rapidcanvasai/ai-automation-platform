@@ -148,6 +148,17 @@ export const apiService = {
     return response.data;
   },
 
+  // Playwright MCP endpoints
+  runPlaywrightMCP: async (data: {
+    prompt: string;
+    headless?: boolean;
+    aiModel?: string;
+    maxSteps?: number;
+  }) => {
+    const response = await api.post('/playwright-mcp/run', data);
+    return response.data;
+  },
+
   // Generic POST method for any endpoint
   post: async (endpoint: string, data: any) => {
     const response = await api.post(endpoint, data);
