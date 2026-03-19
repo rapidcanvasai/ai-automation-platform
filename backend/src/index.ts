@@ -12,6 +12,7 @@ import { logger } from './utils/logger';
 import { uploadRoutes } from './controllers/uploadController';
 import { connectDatabase } from './config/database';
 import { aiRoutes } from './controllers/aiController';
+import { playwrightMCPRoutes } from './controllers/playwrightMCPController';
 
 dotenv.config();
 
@@ -31,6 +32,7 @@ app.use('/api/execution', executionRoutes);
 app.use('/api/nlp', nlpRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/playwright-mcp', playwrightMCPRoutes);
 // Serve test-results (videos) statically
 app.use('/assets/videos', express.static(path.resolve('test-results')));
 app.use('/assets/uploads', express.static(path.resolve('uploads')));
