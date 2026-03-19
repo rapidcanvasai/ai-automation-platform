@@ -11,6 +11,8 @@
     "test:watch": "jest --watch"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@slack/web-api": "^7.14.1",
     "@types/multer": "^2.0.0",
     "archiver": "^6.0.2",

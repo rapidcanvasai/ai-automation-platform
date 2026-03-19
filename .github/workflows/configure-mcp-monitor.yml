@@ -1,0 +1,495 @@
+name: Configure MCP Monitor
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Manages scheduled MCP dataApp monitor jobs.
+# Actions:
+#   create  — saves config + generates a scheduled workflow file
+#   update  — overwrites an existing config + regenerates workflow
+#   delete  — removes config + workflow file
+#   list    — lists all configs
+#   view    — shows one config in detail
+#   enable  — re-activates the cron schedule in the workflow file
+#   disable — comments out the cron schedule (pauses job)
+#   test-run — runs the monitor once right now using the saved config
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options:
+          - create
+          - update
+          - delete
+          - list
+          - view
+          - enable
+          - disable
+          - test-run
+        default: create
+      config_name:
+        description: 'Configuration name (alphanumeric + hyphens, e.g. "globalgas-uc1")'
+        required: false
+        type: string
+        default: 'default'
+      cron_schedule:
+        description: 'Cron schedule in UTC (e.g. "0 7 * * *" = daily at 7 AM UTC)'
+        required: false
+        type: string
+        default: '0 7 * * *'
+      prompt:
+        description: 'Monitor prompt — what Claude should do and check. Plain English.'
+        required: false
+        type: string
+      dataapp_name:
+        description: 'DataApp name (shown in Slack alerts and workflow summary)'
+        required: false
+        type: string
+      tenant_name:
+        description: 'Tenant name (shown in Slack alerts)'
+        required: false
+        type: string
+      slack_channel_id:
+        description: 'Slack channel ID (e.g. C099YBV74G4). Leave blank to skip Slack.'
+        required: false
+        type: string
+      slack_mention:
+        description: 'Slack user ID to mention on failure (e.g. U08HRLKPTKJ)'
+        required: false
+        type: string
+      ai_model:
+        description: 'Claude model to use'
+        required: false
+        type: choice
+        options:
+          - claude-sonnet-4-5
+          - claude-haiku-4-5
+          - claude-3-5-sonnet-20241022
+          - claude-3-5-haiku-20241022
+        default: claude-sonnet-4-5
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  CONFIG_FILE: 'mcp-monitor-config.json'
+
+jobs:
+  configure-mcp-monitor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Setup config directory
+        run: mkdir -p .github/automation-configs
+
+      - name: Load existing config
+        id: load-config
+        run: |
+          CONFIG_PATH=".github/automation-configs/${{ env.CONFIG_FILE }}"
+          if [ -f "$CONFIG_PATH" ]; then
+            EXISTING=$(cat "$CONFIG_PATH" | jq '.' 2>/dev/null || echo '{}')
+          else
+            EXISTING='{}'
+          fi
+          echo "existing_configs<<EOF" >> $GITHUB_OUTPUT
+          echo "$EXISTING" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Process action
+        id: process-action
+        env:
+          PROMPT_INPUT: ${{ inputs.prompt }}
+        run: |
+          ACTION="${{ inputs.action }}"
+          CONFIG_NAME="${{ inputs.config_name }}"
+          CONFIG_PATH=".github/automation-configs/${{ env.CONFIG_FILE }}"
+
+          # Safely read prompt via Python to handle all special chars
+          python3 -c "import os; open('/tmp/prompt-safe.txt', 'w').write(os.environ.get('PROMPT_INPUT', ''))"
+          PROMPT=$(cat /tmp/prompt-safe.txt)
+
+          EXISTING_CONFIGS='${{ steps.load-config.outputs.existing_configs }}'
+
+          case "$ACTION" in
+
+            "create"|"update")
+              # Validate inputs
+              if [ -z "${{ inputs.cron_schedule }}" ]; then echo "❌ cron_schedule required"; exit 1; fi
+              if [ -z "$PROMPT" ];                    then echo "❌ prompt required";        exit 1; fi
+              if [ -z "$CONFIG_NAME" ];               then echo "❌ config_name required";   exit 1; fi
+              if ! echo "$CONFIG_NAME" | grep -E "^[a-zA-Z0-9_-]+$" > /dev/null; then
+                echo "❌ config_name must be alphanumeric + hyphens/underscores only"
+                exit 1
+              fi
+
+              NEW_CONFIG=$(jq -n \
+                --arg name          "$CONFIG_NAME" \
+                --arg cron          "${{ inputs.cron_schedule }}" \
+                --arg prompt        "$PROMPT" \
+                --arg dataapp_name  "${{ inputs.dataapp_name }}" \
+                --arg tenant_name   "${{ inputs.tenant_name }}" \
+                --arg slack_channel_id "${{ inputs.slack_channel_id }}" \
+                --arg slack_mention "${{ inputs.slack_mention }}" \
+                --arg ai_model      "${{ inputs.ai_model }}" \
+                --arg created_at    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                --arg created_by    "${{ github.actor }}" \
+                '{
+                  name:             $name,
+                  cron_schedule:    $cron,
+                  prompt:           $prompt,
+                  dataapp_name:     $dataapp_name,
+                  tenant_name:      $tenant_name,
+                  slack_channel_id: $slack_channel_id,
+                  slack_mention:    $slack_mention,
+                  ai_model:         $ai_model,
+                  created_at:       $created_at,
+                  created_by:       $created_by,
+                  last_updated:     $created_at,
+                  updated_by:       $created_by,
+                  is_active:        true
+                }')
+
+              UPDATED_CONFIGS=$(echo "$EXISTING_CONFIGS" | jq \
+                --arg name "$CONFIG_NAME" \
+                --argjson config "$NEW_CONFIG" \
+                '. + {($name): $config}')
+              echo "✅ Configuration $ACTION'd: $CONFIG_NAME"
+              ;;
+
+            "delete")
+              UPDATED_CONFIGS=$(echo "$EXISTING_CONFIGS" | jq --arg name "$CONFIG_NAME" 'del(.[$name])')
+              echo "✅ Configuration deleted: $CONFIG_NAME"
+              ;;
+
+            "list")
+              echo "$EXISTING_CONFIGS" | jq '.'
+              echo "Total: $(echo "$EXISTING_CONFIGS" | jq 'length')"
+              UPDATED_CONFIGS="$EXISTING_CONFIGS"
+              ;;
+
+            "view")
+              SELECTED=$(echo "$EXISTING_CONFIGS" | jq --arg name "$CONFIG_NAME" '.[$name]')
+              if [ "$SELECTED" = "null" ]; then echo "❌ Config '$CONFIG_NAME' not found"; exit 1; fi
+              echo "$SELECTED" | jq '.'
+              UPDATED_CONFIGS="$EXISTING_CONFIGS"
+              ;;
+
+            "enable")
+              SELECTED=$(echo "$EXISTING_CONFIGS" | jq --arg name "$CONFIG_NAME" '.[$name]')
+              if [ "$SELECTED" = "null" ]; then echo "❌ Config '$CONFIG_NAME' not found"; exit 1; fi
+              UPDATED_CONFIG=$(echo "$SELECTED" | jq \
+                --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                --arg who "${{ github.actor }}" \
+                '.is_active = true | .last_updated = $now | .updated_by = $who')
+              UPDATED_CONFIGS=$(echo "$EXISTING_CONFIGS" | jq \
+                --arg name "$CONFIG_NAME" --argjson c "$UPDATED_CONFIG" '. + {($name): $c}')
+              ;;
+
+            "disable")
+              SELECTED=$(echo "$EXISTING_CONFIGS" | jq --arg name "$CONFIG_NAME" '.[$name]')
+              if [ "$SELECTED" = "null" ]; then echo "❌ Config '$CONFIG_NAME' not found"; exit 1; fi
+              UPDATED_CONFIG=$(echo "$SELECTED" | jq \
+                --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                --arg who "${{ github.actor }}" \
+                '.is_active = false | .last_updated = $now | .updated_by = $who')
+              UPDATED_CONFIGS=$(echo "$EXISTING_CONFIGS" | jq \
+                --arg name "$CONFIG_NAME" --argjson c "$UPDATED_CONFIG" '. + {($name): $c}')
+              ;;
+
+            "test-run")
+              SELECTED=$(echo "$EXISTING_CONFIGS" | jq --arg name "$CONFIG_NAME" '.[$name]')
+              if [ "$SELECTED" = "null" ]; then echo "❌ Config '$CONFIG_NAME' not found"; exit 1; fi
+              # Extract prompt from saved config for this run
+              echo "$SELECTED" | jq -r '.prompt' > /tmp/prompt-safe.txt
+              UPDATED_CONFIGS="$EXISTING_CONFIGS"
+              ;;
+
+            *)
+              echo "❌ Unknown action: $ACTION"
+              exit 1
+              ;;
+          esac
+
+          echo "config_name<<EOF" >> $GITHUB_OUTPUT
+          echo "$CONFIG_NAME" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "updated_configs<<EOF" >> $GITHUB_OUTPUT
+          echo "$UPDATED_CONFIGS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      # ── Save config JSON ──────────────────────────────────────────────────
+      - name: Save config
+        if: inputs.action != 'list' && inputs.action != 'view' && inputs.action != 'test-run'
+        run: |
+          CONFIG_PATH=".github/automation-configs/${{ env.CONFIG_FILE }}"
+          python3 << 'PYEOF'
+          import json
+          data = r'''${{ steps.process-action.outputs.updated_configs }}'''
+          with open('/tmp/cfg.json', 'w') as f:
+              f.write(data)
+          PYEOF
+          cat /tmp/cfg.json | jq '.' > "$CONFIG_PATH"
+          echo "✅ Config saved: $CONFIG_PATH"
+
+      # ── Generate scheduled workflow file (create / update) ────────────────
+      - name: Generate scheduled workflow
+        if: inputs.action == 'create' || inputs.action == 'update'
+        run: |
+          CONFIG_NAME="${{ steps.process-action.outputs.config_name }}"
+          SANITIZED=$(echo "$CONFIG_NAME" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
+          WORKFLOW_FILE=".github/workflows/daily-automation-mcp-${SANITIZED}.yml"
+
+          python3 << 'PYEOF'
+          import json
+          data = r'''${{ steps.process-action.outputs.updated_configs }}'''
+          with open('/tmp/cfg.json', 'w') as f:
+              f.write(data)
+          PYEOF
+
+          CONFIG=$(cat /tmp/cfg.json | jq --arg name "$CONFIG_NAME" '.[$name]')
+          CRON=$(echo "$CONFIG" | jq -r '.cron_schedule')
+          DATAAPP=$(echo "$CONFIG"     | jq -r '.dataapp_name     // ""')
+          TENANT=$(echo "$CONFIG"      | jq -r '.tenant_name      // ""')
+          SLACK_CH=$(echo "$CONFIG"    | jq -r '.slack_channel_id // ""')
+          SLACK_MN=$(echo "$CONFIG"    | jq -r '.slack_mention    // ""')
+          AI_MODEL=$(echo "$CONFIG"    | jq -r '.ai_model         // "claude-sonnet-4-5"')
+          echo "$CONFIG"               | jq -r '.prompt'  > /tmp/prompt-for-wf.txt
+          PROMPT=$(cat /tmp/prompt-for-wf.txt)
+
+          # Copy the base template
+          TEMPLATE=".github/workflows/mcp-monitor-run.yml"
+          if [ ! -f "$TEMPLATE" ]; then
+            echo "❌ Base template not found: $TEMPLATE"
+            exit 1
+          fi
+          cp "$TEMPLATE" "$WORKFLOW_FILE"
+
+          # 1. Update workflow name
+          perl -i -pe "s/^name: MCP DataApp Monitor$/name: Daily MCP Monitor - $CONFIG_NAME/" "$WORKFLOW_FILE"
+
+          # 2. Add cron schedule after "on:"
+          echo "  schedule:" > /tmp/sched.txt
+          echo "    - cron: '$CRON'" >> /tmp/sched.txt
+          sed "/^on:/r /tmp/sched.txt" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
+          rm /tmp/sched.txt
+
+          # 3. Replace the entire env: section with hardcoded values
+          ENV_START=$(grep -n "^env:" "$WORKFLOW_FILE" | cut -d: -f1)
+          JOBS_START=$(grep -n "^jobs:" "$WORKFLOW_FILE" | cut -d: -f1)
+
+          {
+            echo "env:"
+            echo "  PROMPT: |"
+            sed 's/^/    /' /tmp/prompt-for-wf.txt
+            echo "  DATAAPP_NAME: '$(echo "$DATAAPP" | sed "s/'/''/"g)'"
+            echo "  TENANT_NAME: '$(echo "$TENANT" | sed "s/'/''/"g)'"
+            echo "  SLACK_CHANNEL_ID: '$SLACK_CH'"
+            echo "  SLACK_MENTION: '$SLACK_MN'"
+            echo "  SLACK_NOTIFY_ONLY_FAILURES: true"
+            echo "  AI_MODEL: '$AI_MODEL'"
+            echo "  ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}"
+            echo "  SLACK_BOT_TOKEN: \${{ secrets.SLACK_BOT_TOKEN }}"
+            echo ""
+          } > /tmp/new-env.txt
+
+          # Write the new workflow: everything before env: + new env + everything from jobs: onward
+          head -n $((ENV_START - 1)) "$WORKFLOW_FILE"  > "$WORKFLOW_FILE.tmp"
+          cat /tmp/new-env.txt                         >> "$WORKFLOW_FILE.tmp"
+          tail -n +$JOBS_START "$WORKFLOW_FILE"        >> "$WORKFLOW_FILE.tmp"
+          mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
+
+          # 4. Replace ${{ inputs.* }} references with ${{ env.* }} equivalents
+          #    (the template reads from inputs; the generated file reads from env)
+          perl -i -pe 's/\$\{\{\s*inputs\.prompt\s*\}\}/\${{ env.PROMPT }}/g'             "$WORKFLOW_FILE"
+          perl -i -pe 's/\$\{\{\s*inputs\.dataapp_name\s*\}\}/\${{ env.DATAAPP_NAME }}/g' "$WORKFLOW_FILE"
+          perl -i -pe 's/\$\{\{\s*inputs\.tenant_name\s*\}\}/\${{ env.TENANT_NAME }}/g'   "$WORKFLOW_FILE"
+          perl -i -pe 's/\$\{\{\s*inputs\.slack_channel_id\s*\}\}/\${{ env.SLACK_CHANNEL_ID }}/g' "$WORKFLOW_FILE"
+          perl -i -pe 's/\$\{\{\s*inputs\.slack_mention\s*\}\}/\${{ env.SLACK_MENTION }}/g'       "$WORKFLOW_FILE"
+          perl -i -pe 's/\$\{\{\s*inputs\.slack_notify_only_failures\s*\}\}/\${{ env.SLACK_NOTIFY_ONLY_FAILURES }}/g' "$WORKFLOW_FILE"
+          perl -i -pe 's/\$\{\{\s*inputs\.ai_model\s*\}\}/\${{ env.AI_MODEL }}/g'         "$WORKFLOW_FILE"
+
+          # Validate
+          if ! grep -q "^name:" "$WORKFLOW_FILE"; then echo "❌ Missing name"; exit 1; fi
+          if ! grep -q "schedule:" "$WORKFLOW_FILE"; then echo "❌ Missing schedule"; exit 1; fi
+          if ! grep -q "PROMPT:" "$WORKFLOW_FILE"; then echo "❌ Missing PROMPT env"; exit 1; fi
+
+          echo "✅ Workflow generated: $WORKFLOW_FILE"
+          git add "$WORKFLOW_FILE"
+
+      # ── Enable / disable cron in generated workflow ───────────────────────
+      - name: Enable/disable workflow schedule
+        if: inputs.action == 'enable' || inputs.action == 'disable'
+        run: |
+          CONFIG_NAME="${{ steps.process-action.outputs.config_name }}"
+          SANITIZED=$(echo "$CONFIG_NAME" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
+          WORKFLOW_FILE=".github/workflows/daily-automation-mcp-${SANITIZED}.yml"
+
+          if [ ! -f "$WORKFLOW_FILE" ]; then
+            echo "⚠️ Workflow file not found: $WORKFLOW_FILE"
+            exit 0
+          fi
+
+          if [ "${{ inputs.action }}" = "enable" ]; then
+            sed -i 's/^  # schedule:/  schedule:/' "$WORKFLOW_FILE"
+            sed -i 's/^    # - cron:/    - cron:/'  "$WORKFLOW_FILE"
+            echo "✅ Schedule enabled"
+          else
+            sed -i 's/^  schedule:/  # schedule:/' "$WORKFLOW_FILE"
+            sed -i 's/^    - cron:/    # - cron:/'  "$WORKFLOW_FILE"
+            echo "✅ Schedule disabled"
+          fi
+          git add "$WORKFLOW_FILE"
+
+      # ── Delete generated workflow file ────────────────────────────────────
+      - name: Delete workflow file
+        if: inputs.action == 'delete'
+        run: |
+          CONFIG_NAME="${{ steps.process-action.outputs.config_name }}"
+          SANITIZED=$(echo "$CONFIG_NAME" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
+          WORKFLOW_FILE=".github/workflows/daily-automation-mcp-${SANITIZED}.yml"
+          if [ -f "$WORKFLOW_FILE" ]; then
+            git rm "$WORKFLOW_FILE"
+            echo "✅ Workflow file deleted: $WORKFLOW_FILE"
+          else
+            echo "⚠️ Workflow file not found (already deleted?)"
+          fi
+
+      # ── Commit & push ─────────────────────────────────────────────────────
+      - name: Commit and push
+        if: inputs.action != 'list' && inputs.action != 'view' && inputs.action != 'test-run'
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name  "github-actions[bot]"
+
+          if [ -n "${{ secrets.PERSONAL_ACCESS_TOKEN }}" ]; then
+            git remote set-url origin https://x-access-token:${{ secrets.PERSONAL_ACCESS_TOKEN }}@github.com/${{ github.repository }}.git
+          fi
+
+          git add .github/automation-configs/ || true
+
+          if git diff --staged --quiet; then
+            echo "ℹ️ Nothing to commit"
+          else
+            git commit -m "mcp-monitor: ${{ inputs.action }} config '${{ steps.process-action.outputs.config_name }}'"
+            git push origin main
+            echo "✅ Pushed to main"
+          fi
+
+      # ── Test-run: spin up backend and call run-sync immediately ──────────
+      - name: Test-run the saved config
+        if: inputs.action == 'test-run'
+        run: |
+          # Install & build backend
+          cd backend && npm ci && npx playwright install chromium && npx playwright install-deps chromium && npm run build
+
+          DB_DISABLED=true NODE_ENV=production PORT=3001 \
+          ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
+          SLACK_BOT_TOKEN="${{ secrets.SLACK_BOT_TOKEN }}" \
+          npm start &
+
+          for i in {1..30}; do
+            curl -sf http://localhost:3001/health > /dev/null 2>&1 && echo "✅ Backend ready" && break
+            sleep 2
+          done
+
+          cd ..
+
+          python3 << 'PYEOF'
+          import json
+          data = r'''${{ steps.process-action.outputs.updated_configs }}'''
+          with open('/tmp/cfg.json', 'w') as f:
+              f.write(data)
+          PYEOF
+
+          CONFIG=$(cat /tmp/cfg.json | jq --arg name "${{ steps.process-action.outputs.config_name }}" '.[$name]')
+          echo "$CONFIG" | jq -r '.prompt' > /tmp/prompt-safe.txt
+
+          RESPONSE=$(curl -sf -X POST http://localhost:3001/api/playwright-mcp/run-sync \
+            -H "Content-Type: application/json" \
+            --max-time 3300 \
+            -d "$(jq -n \
+              --rawfile prompt /tmp/prompt-safe.txt \
+              --arg dataAppName  "$(echo "$CONFIG" | jq -r '.dataapp_name  // ""')" \
+              --arg tenantName   "$(echo "$CONFIG" | jq -r '.tenant_name   // ""')" \
+              --arg slackChannelId "$(echo "$CONFIG" | jq -r '.slack_channel_id // ""')" \
+              --arg slackMention   "$(echo "$CONFIG" | jq -r '.slack_mention    // ""')" \
+              --arg aiModel        "$(echo "$CONFIG" | jq -r '.ai_model         // "claude-sonnet-4-5"')" \
+              --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              --argjson slackNotifyOnlyFailures true \
+              '{
+                prompt: ($prompt | rtrimstr("\n")),
+                headless: true,
+                aiModel: $aiModel,
+                dataAppName: $dataAppName,
+                tenantName: $tenantName,
+                slackChannelId: $slackChannelId,
+                slackMention: $slackMention,
+                workflowRunUrl: $workflowRunUrl,
+                slackNotifyOnlyFailures: $slackNotifyOnlyFailures
+              }')")
+
+          echo "$RESPONSE"
+
+          VERDICT=$(echo "$RESPONSE" | jq -r '.verdict // "UNKNOWN"')
+          echo "## Test-Run Result: $VERDICT" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "$RESPONSE" | jq '.' >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+          [ "$VERDICT" = "PASS" ] && exit 0 || exit 1
+
+      # ── Summary ──────────────────────────────────────────────────────────
+      - name: Summary
+        if: inputs.action == 'list' || inputs.action == 'view' || inputs.action == 'create' || inputs.action == 'update'
+        run: |
+          echo "## Configure MCP Monitor — ${{ inputs.action }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          python3 << 'PYEOF'
+          data = r'''${{ steps.process-action.outputs.updated_configs }}'''
+          with open('/tmp/cfg.json', 'w') as f:
+              f.write(data)
+          PYEOF
+
+          case "${{ inputs.action }}" in
+            "list")
+              echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+              cat /tmp/cfg.json | jq 'to_entries | map({name: .key, cron: .value.cron_schedule, dataapp: .value.dataapp_name, active: .value.is_active})' >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              ;;
+            "view")
+              echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+              cat /tmp/cfg.json | jq --arg n "${{ steps.process-action.outputs.config_name }}" '.[$n]' >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              ;;
+            "create"|"update")
+              SANITIZED=$(echo "${{ steps.process-action.outputs.config_name }}" | sed 's/ /-/g' | sed 's/[^a-zA-Z0-9-]//g' | tr '[:upper:]' '[:lower:]')
+              echo "✅ **Config saved** and **scheduled workflow generated**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+              echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+              echo "| Config name   | ${{ steps.process-action.outputs.config_name }} |" >> $GITHUB_STEP_SUMMARY
+              echo "| Cron schedule | ${{ inputs.cron_schedule }} |" >> $GITHUB_STEP_SUMMARY
+              echo "| DataApp       | ${{ inputs.dataapp_name }} |" >> $GITHUB_STEP_SUMMARY
+              echo "| Workflow file | \`daily-automation-mcp-${SANITIZED}.yml\` |" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**Next steps:**" >> $GITHUB_STEP_SUMMARY
+              echo "- Manually test now: run **mcp-monitor-run** workflow with the same prompt" >> $GITHUB_STEP_SUMMARY
+              echo "- Or use action \`test-run\` here with config name \`${{ steps.process-action.outputs.config_name }}\`" >> $GITHUB_STEP_SUMMARY
+              echo "- The scheduled job will run automatically at: \`${{ inputs.cron_schedule }}\`" >> $GITHUB_STEP_SUMMARY
+              ;;
+          esac

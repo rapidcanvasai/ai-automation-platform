@@ -18,6 +18,7 @@ import {
   Assessment as ReportsIcon,
   Explore as ExploreIcon,
   SmartToy as AutonomousIcon,
+  TheaterComedy as MCPIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -38,6 +39,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { text: 'Reports', icon: <ReportsIcon />, path: '/reports' },
     { text: 'Exploratory Testing', icon: <ExploreIcon />, path: '/explore' },
     { text: 'AI Autonomous Testing', icon: <AutonomousIcon />, path: '/autonomous' },
+    { text: 'Playwright MCP', icon: <MCPIcon />, path: '/playwright-mcp' },
   ];
 
   return (
