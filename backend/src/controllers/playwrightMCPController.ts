@@ -4,6 +4,18 @@ import { PlaywrightMCPService } from '../services/playwrightMCP/playwrightMCPSer
 import { createExecutionStream, getExecutionStream, closeExecutionStream } from '../services/executionStream';
 import { logger } from '../utils/logger';
 
+interface MCPEvent {
+  type: string;
+  message?: string;
+  model?: string;
+  cost?: number;
+  steps?: number;
+  duration?: number;
+  durationMs?: number;
+  fatal?: boolean;
+  [key: string]: unknown;
+}
+
 // ── Slack helper for MCP monitor alerts ──────────────────────────────────────
 
 async function sendMCPSlackAlert(opts: {
@@ -172,13 +184,17 @@ router.post('/run-sync', async (req: Request, res: Response) => {
   res.setTimeout(0);
 
   const service = new PlaywrightMCPService();
-  let completionEvent: Record<string, unknown> | null = null;
-  let fatalEvent:      Record<string, unknown> | null = null;
+  // Use a wrapper object so TypeScript CFA doesn't narrow these to `null`
+  // after callback assignments (local `let` variables get narrowed in strict mode).
+  const runState: { completionEvent: MCPEvent | null; fatalEvent: MCPEvent | null } = {
+    completionEvent: null,
+    fatalEvent: null,
+  };
 
   try {
     await service.run({ prompt: prompt.trim(), headless, aiModel, maxSteps }, (evt) => {
-      if (evt.type === 'complete') completionEvent = evt;
-      if (evt.type === 'error' && evt.fatal)   fatalEvent = evt;
+      if (evt.type === 'complete') runState.completionEvent = evt as MCPEvent;
+      if (evt.type === 'error' && evt['fatal']) runState.fatalEvent = evt as MCPEvent;
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -189,6 +205,8 @@ router.post('/run-sync', async (req: Request, res: Response) => {
     }
     return res.status(500).json({ success: false, verdict: 'UNKNOWN', error: msg });
   }
+
+  const { completionEvent, fatalEvent } = runState;
 
   const finalMessage = (
     (completionEvent?.message ?? fatalEvent?.message ?? '') as string
