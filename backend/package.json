@@ -13,6 +13,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@slack/web-api": "^7.14.1",
     "@types/multer": "^2.0.0",
     "archiver": "^6.0.2",
     "axios": "^1.6.0",

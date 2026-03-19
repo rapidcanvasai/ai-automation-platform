@@ -57,13 +57,13 @@ env:
   ENABLE_SLACK: true
   SLACK_NOTIFY_ONLY_FAILURES: true
   HEADLESS: true
-  SLACK_MENTION: 'U06VC2XJM3L'
+  SLACK_MENTION: 'U09CUH7UC00'
   DATAAPP_NAME: 'PRD_Plataforma_de_Conciliacao'
   TENANT_NAME: 'Grupo Turim Conciliacao'
 
 jobs:
   create-test-scenario:
-    runs-on: ubuntu-latest
+    runs-on: rc-gh-azure-runner
     
     steps:
     - name: 📚 Documentation Link

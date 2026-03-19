@@ -51,10 +51,8 @@ router.post('/', async (req: Request, res: Response) => {
           // Send main test creation message with workflow run URL if available
           await slackService.sendTestCreated(test.name, test.id, test.workflowRunUrl);
           
-          // Send test steps as thread reply if steps exist
-          if (test.steps && test.steps.length > 0) {
-            await slackService.sendTestSteps(test.steps, test.id);
-          }
+          // Note: Test steps are no longer sent as thread replies during creation.
+          // Thread replies (result summary + execution details) are only sent for failed tests.
         }
       } catch (slackError) {
         logger.error('Failed to send Slack notification for test creation', { slackError, testId: test.id });

@@ -1,12 +1,8 @@
-name: Daily AI Test Automation - orionCodeAnalysingAgent
+name: Daily AI Test Automation - UC2_Main_Matrics_Dashboard_GrupoRio_MX
 
 on:
-  # schedule:
-    #- cron: '0 */3 * * *'
-    # Monday (IST): 11:30, 14:30, 17:30, 20:30, 23:30
-    # - cron: '30 5,8,11,14 * * 1-5'
-
-    # - cron: '0 */3 * * 1-5'
+  schedule:
+    - cron: '0 10 * * *'
   workflow_dispatch:
     inputs:
       test_description:
@@ -51,19 +47,19 @@ on:
 
 env:
   TEST_DESCRIPTION: |
-    Open https://rapidcanvas.orionic.com/ Enter testAutomation@gmail.com in email Enter testAutomation03@ in Password Click Sign In Verify Dashboard Wait 5sec Open https://rapidcanvas.orionic.com/apps/Code%20Analyzing%20Agent/OrionTenant Wait 10sec Click on xpath=//select Wait 1sec Click on xpath=//option[2] Wait 2sec Click Analyze Code with AI Wait 70sec Verify no error messages or exceptions are displayed on UI with AI Wait 1sec Enter How much can I adjust the analysis window in Ask a question about the code... Wait 1sec Click on xpath=//button[@type=submit] Wait 70sec Verify no error messages or exceptions are displayed on UI with AI
+    Open https://app.rapidcanvas.ai/ Wait 2sec Enter testAutomation@gmail.com in email Click Next Enter testAutomation03@ in Password Click Sign In Wait 2sec Verify Dashboard Wait 10sec Click on xpath=//*[@data-testid="top-nav-bar-workspace-menu"] Wait 5sec Click on xpath=//*[@data-testid="workspace-menu-tenant-name"] Wait 5sec Enter GrupoRio - MX in Type to search Wait 5sec Click on xpath=//*[@test-id="tenant-menu-tenant-list-items"]/li[1] Wait 10sec Open https://app.rapidcanvas.ai/apps/salesman-performance-kpis-dashboard/GrupoRio%20-%20MX Wait 60sec Verify Grupo Rio Analytics with AI Verify Vista Directiva with AI Verify Rendimiento de ventas y operaciones en tiempo real with AI Verify Centro de Inteligencia Comercial with AI Verify Pipeline de Ventas with AI Verify Desglose de Citas with AI Verify Inicio with AI Verify Fin with AI Verify Buscar with AI Verify 30 Dias with AI Verify Revenue por Citas with AI Verify no error is coming on UI with AI Click on Vista por Agente with AI Wait 60sec Verify Centro de Inteligencia Comercial with AI Verify Rendimiento de ventas y operaciones en tiempo real with AI Verify Representantes de Ventas with AI Verify Series de Tiempo with AI Verify Granularidad with AI Verify Métricas with AI Verify Ranking de Rendimiento with AI Verify Anterior with AI Verify Siguiente with AI Verify Correlaciones with AI Verify Inicio with AI Verify Fin with AI Verify Buscar with AI Verify 30 Dias with AI Verify no error is coming on UI with AI Click on Resumen de Calidad with AI Wait 60sec Verify Centro de Inteligencia Comercial with AI Verify Representantes de Ventas with AI Verify % Llamadas Auditadas with AI Verify Score Promedio General with AI Verify Haz clic en un representante para filtrar with AI Verify Score numérico: with AI Verify Ranking de Calidad por Agente with AI Verify Calidad a lo Largo del Tiempo with AI Verify Inicio with AI Verify Fin with AI Verify Buscar with AI Verify 30 Dias with AI Verify no error is coming on UI with AI Click on Nivel Financiero with AI Wait 60sec Verify Centro de Inteligencia Comercial with AI Wait for 10sec Verify Rendimiento de ventas y operaciones en tiempo real with AI Verify Representantes de Ventas with AI Verify Haz clic en un representante para filtrar with AI Verify Resumen Financiero with AI Verify Ingreso Potencial por Tasa de Cierre with AI Verify Ingreso Perdido por Agente with AI Verify Ingreso Perdido por Tipo de Estudio with AI Verify Proyeccion Financiera si Mejora el Cierre 5% with AI Verify Ingreso Actual with AI Verify incremento proyectado with AI Verify Ingreso Proyectado with AI Verify Inicio with AI Verify Fin with AI Verify Buscar with AI Verify 30 Dias with AI Verify no error is coming on UI with AI
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENAI_MODEL: gpt-4o-mini
-  SLACK_CHANNEL: 'rc-cust-orion-internal'
-  SLACK_CHANNEL_ID: 'C06HP5BLMUY'
+  SLACK_CHANNEL: 'rc-cust-grupo-rio-internal'
+  SLACK_CHANNEL_ID: 'C08N0J919C1'
   SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
   ENABLE_SLACK: true
   SLACK_NOTIFY_ONLY_FAILURES: true
   HEADLESS: true
-  SLACK_MENTION: 'U09CUH66X2L'
-  DATAAPP_NAME: 'Code Analyzing Agent'
-  TENANT_NAME: 'Orion Tenant'
+  SLACK_MENTION: 'U08RKS0KZB6'
+  DATAAPP_NAME: 'UC2_Main_Matrics_Dashboard'
+  TENANT_NAME: 'GrupoRio_MX'
 
 jobs:
   create-test-scenario:
@@ -76,7 +72,6 @@ jobs:
         echo "**Supported Commands**: [View Documentation](https://rapidcanvas.atlassian.net/wiki/spaces/RAPIDCANVA/pages/887554049/Test+Automation+Platform+-+Supported+Commands+Documentation)" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "This documentation contains all supported commands and syntax for writing test descriptions." >> $GITHUB_STEP_SUMMARY
-
     - name: Checkout code
       uses: actions/checkout@v4
 
@@ -89,7 +84,6 @@ jobs:
       run: |
         cd backend
         npm ci
-
     - name: Install Playwright browsers
       run: |
         cd backend
@@ -102,12 +96,10 @@ jobs:
         echo "✅ Playwright installation completed!"
         echo "🔍 Verifying installation..."
         npx playwright install chromium --dry-run
-
     - name: Build backend
       run: |
         cd backend
         npm run build
-
     - name: Start backend server
       run: |
         cd backend
@@ -123,15 +115,21 @@ jobs:
           echo "Waiting for backend... ($i/30)"
           sleep 2
         done
-
     - name: Generate and create complete test scenario
+      env:
+        TEST_DESC_INPUT: ${{ env.TEST_DESCRIPTION }}
       run: |
-        echo "🚀 Generating and creating complete test scenario from: ${{ env.TEST_DESCRIPTION }}"
+        # Store TEST_DESCRIPTION safely using Python to avoid shell parsing issues
+        # This safely handles all special characters (quotes, parentheses, brackets, etc.)
+        python3 -c "import os; open('/tmp/test-desc-safe.txt', 'w').write(os.environ.get('TEST_DESC_INPUT', ''))"
+        TEST_DESCRIPTION=$(cat /tmp/test-desc-safe.txt)
+        
+        echo "🚀 Generating and creating complete test scenario from: $TEST_DESCRIPTION"
         echo "Test description length: ${#TEST_DESCRIPTION}"
         
-        if [ -z "${{ env.TEST_DESCRIPTION }}" ]; then
+        if [ -z "$TEST_DESCRIPTION" ]; then
           echo "❌ No test description provided"
-          echo "Raw env value: '${{ env.TEST_DESCRIPTION }}'"
+          echo "Raw env value: '$TEST_DESCRIPTION'"
           exit 1
         fi
         
@@ -144,7 +142,7 @@ jobs:
         # GitHub Actions converts newlines to spaces, so we need to restore them
         # The web interface sends text with actual \n characters, so we need to match that
         echo "🔍 Restoring newlines to match web interface format..."
-        echo "Original input: ${{ env.TEST_DESCRIPTION }}"
+        echo "Original input: $TEST_DESCRIPTION"
         
         # Convert spaces back to newlines for action keywords (same as web interface)
         # GitHub Actions converts newlines to spaces, so we need to restore them
@@ -154,7 +152,7 @@ jobs:
         
         # Start with basic splits on action keywords (order matters - do specific patterns first)
         # CRITICAL: Split on "If(" FIRST to keep IF statements intact on their own lines
-        TEST_DESC_WITH_NEWLINES=$(echo "${{ env.TEST_DESCRIPTION }}" | sed 's/ Open https:/\nOpen https:/g' | sed 's/ Enter /\nEnter /g' | sed 's/ Verify /\nVerify /g' | sed 's/ Wait /\nWait /g' | sed 's/ If(/\nIf(/g')
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESCRIPTION" | sed 's/ Open https:/\nOpen https:/g' | sed 's/ Enter /\nEnter /g' | sed 's/ Verify /\nVerify /g' | sed 's/ Wait /\nWait /g' | sed 's/ If(/\nIf(/g')
         
         # Handle "Click on" - split ONLY on lines that don't start with "If(" to keep IF statements intact
         # Use awk to conditionally split: if line starts with "If(", leave it alone; otherwise split on "Click on"
@@ -189,11 +187,27 @@ jobs:
           END { if (prev != "") print prev }
         ')
         
+        # Fix bad splits: merge "Press\nEnter" (or other key) back to "Press Enter" - keyboard key press, not click
+        # The " Enter " split above breaks "Press Enter" into two lines; merge so backend parses as pressKey
+        TEST_DESC_WITH_NEWLINES=$(echo "$TEST_DESC_WITH_NEWLINES" | awk '
+          NR > 1 && prev ~ /Press$/ && /^(Enter|Tab|Escape|Backspace|Space|Return|ArrowDown|ArrowUp|ArrowLeft|ArrowRight|F1|F2|F3|F4|F5|F6|F7|F8|F9|F10|F11|F12)( with AI)?$/i {
+            prev = prev " " $0
+            next
+          }
+          {
+            if (NR > 1) print prev
+            prev = $0
+          }
+          END { if (prev != "") print prev }
+        ')
+        
         echo "Restored description with newlines:"
         echo "$TEST_DESC_WITH_NEWLINES"
         echo ""
         
-        jq -n --arg text "$TEST_DESC_WITH_NEWLINES" '{text: $text}' > /tmp/nlp-payload.json
+        # Use file for long text to avoid "Argument list too long" when passing to jq
+        printf '%s' "$TEST_DESC_WITH_NEWLINES" > /tmp/test-desc-for-payload.txt
+        jq -n --rawfile text /tmp/test-desc-for-payload.txt '{text: ($text | tostring)}' > /tmp/nlp-payload.json
         
         STEPS_RESPONSE=$(curl -X POST ${BACKEND_URL:-http://localhost:3001}/api/nlp/parse -H "Content-Type: application/json" -d @/tmp/nlp-payload.json -w "\n%{http_code}")
         HTTP_CODE=$(echo "$STEPS_RESPONSE" | tail -n1)
@@ -252,7 +266,7 @@ jobs:
             echo "Workflow Run: ${{ github.run_id }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md
             echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
             echo "## Test Description" >> test-scenarios/test-scenario-${{ github.run_id }}.md
-            echo "${{ env.TEST_DESCRIPTION }}" >> test-scenarios/test-scenario-${{ github.run_id }}.md
+            echo "$TEST_DESCRIPTION" >> test-scenarios/test-scenario-${{ github.run_id }}.md
             echo "" >> test-scenarios/test-scenario-${{ github.run_id }}.md
             echo "## Generated Test Steps" >> test-scenarios/test-scenario-${{ github.run_id }}.md
             echo "\`\`\`json" >> test-scenarios/test-scenario-${{ github.run_id }}.md
@@ -290,24 +304,24 @@ jobs:
         else
           echo "❌ Failed to generate test steps"
           echo "Raw steps response: $STEPS_RESPONSE"
-          echo "Debug: TEST_DESCRIPTION value: '${{ env.TEST_DESCRIPTION }}'"
+          echo "Debug: TEST_DESCRIPTION value: '$TEST_DESCRIPTION'"
           echo "Debug: TEST_DESCRIPTION length: ${#TEST_DESCRIPTION}"
           exit 1
         fi
         
-        rm -f /tmp/steps.json /tmp/nlp-payload.json
-
+        rm -f /tmp/steps.json /tmp/nlp-payload.json /tmp/test-desc-for-payload.txt
     - name: Create test in platform and execute
       run: |
         echo "🚀 Creating test in platform and executing..."
         echo "📝 Creating test payload..."
         TEST_NAME="GitHub Action Test - ${{ github.run_id }}"
         
-        # Extract steps from the original NLP parsing response (like the frontend does)
-        STEPS_DATA=$(cat test-scenarios/steps-response-${{ github.run_id }}.json | jq -c '.steps // []')
+        # Use files for large inputs to avoid "Argument list too long" when passing to jq
+        printf '%s' "$TEST_DESCRIPTION" > /tmp/description.txt
+        cat test-scenarios/steps-response-${{ github.run_id }}.json | jq -c '.steps // []' > /tmp/steps-array.json
         
         echo "🔍 Extracted steps data:"
-        echo "$STEPS_DATA" | jq '.'
+        cat /tmp/steps-array.json | jq '.'
         echo ""
         
         # Prepare slack notify only failures flag
@@ -317,20 +331,20 @@ jobs:
           SLACK_NOTIFY_ONLY_FAILURES_VALUE="false"
         fi
         
-        # Create test payload using jq to properly escape JSON (matching frontend behavior)
+        # Create test payload using jq with file inputs (avoids ARG_MAX for long description/steps)
         # Include slackMention if provided
         if [ -n "${{ env.SLACK_MENTION }}" ]; then
           jq -n \
             --arg name "$TEST_NAME" \
-            --arg description "${{ env.TEST_DESCRIPTION }}" \
-            --argjson steps "$STEPS_DATA" \
+            --rawfile description /tmp/description.txt \
+            --slurpfile stepsarr /tmp/steps-array.json \
             --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
             --arg slackMention "${{ env.SLACK_MENTION }}" \
             '{
               name: $name,
-              description: $description,
-              steps: $steps,
+              description: ($description | tostring),
+              steps: $stepsarr[0],
               workflowRunUrl: $workflowRunUrl,
               slackNotifyOnlyFailures: $slackNotifyOnlyFailures,
               slackMention: $slackMention
@@ -338,14 +352,14 @@ jobs:
         else
           jq -n \
             --arg name "$TEST_NAME" \
-            --arg description "${{ env.TEST_DESCRIPTION }}" \
-            --argjson steps "$STEPS_DATA" \
+            --rawfile description /tmp/description.txt \
+            --slurpfile stepsarr /tmp/steps-array.json \
             --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --argjson slackNotifyOnlyFailures "$SLACK_NOTIFY_ONLY_FAILURES_VALUE" \
             '{
               name: $name,
-              description: $description,
-              steps: $steps,
+              description: ($description | tostring),
+              steps: $stepsarr[0],
               workflowRunUrl: $workflowRunUrl,
               slackNotifyOnlyFailures: $slackNotifyOnlyFailures
             }' > /tmp/test-payload.json
@@ -452,9 +466,7 @@ jobs:
         fi
         
         # Cleanup
-        rm -f /tmp/test-payload.json /tmp/exec-payload.json
-
-
+        rm -f /tmp/test-payload.json /tmp/exec-payload.json /tmp/description.txt /tmp/steps-array.json
     - name: Verify test execution results
       run: |
         echo "📊 Verifying test execution results..."
@@ -483,7 +495,6 @@ jobs:
         else
           echo "❌ No execution ID found - test may not have been executed"
         fi
-
     - name: Update Slack main thread with test result
       if: env.EXECUTION_ID != '' && env.TEST_ID != '' && env.TEST_STATUS != '' && (env.ENABLE_SLACK == 'true' && (env.SLACK_NOTIFY_ONLY_FAILURES != 'true' || env.TEST_STATUS == 'failed'))
       run: |
@@ -543,7 +554,6 @@ jobs:
           echo "TEST_ID: ${{ env.TEST_ID }}"
           echo "TEST_STATUS: ${{ env.TEST_STATUS }}"
         fi
-
     - name: Upload test scenarios
       uses: actions/upload-artifact@v4
       with:
