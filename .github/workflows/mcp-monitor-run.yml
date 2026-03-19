@@ -78,21 +78,27 @@ jobs:
       - name: Install Playwright + Chromium
         working-directory: backend
         run: |
-          # Install chromium for the backend's own playwright version
-          npx playwright install chromium
+          # 1. Install system-level deps (covers all chromium versions)
           npx playwright install-deps chromium
 
-          # Pre-download @executeautomation/playwright-mcp-server (used at runtime via npx -y)
-          # and install chromium for *its* playwright version — it may differ from backend's.
-          # timeout keeps the stdio server from hanging the step.
-          timeout 60 npx -y @executeautomation/playwright-mcp-server 2>/dev/null || true
+          # 2. Install chromium for the backend's playwright (^1.40)
+          npx playwright install chromium
 
-          # Find every playwright binary cached by npx and run install chromium for each.
-          find ~/.npm/_npx -name "playwright" -path "*/node_modules/.bin/playwright" 2>/dev/null \
-            | while read -r pw; do
-                echo "Installing chromium for playwright at: $pw"
-                "$pw" install chromium 2>/dev/null || true
-              done
+          # 3. @executeautomation/playwright-mcp-server ships playwright@1.57 — a completely
+          #    different revision from the backend's. Install it globally so it doesn't conflict
+          #    with the monorepo, then install its browsers (including chromium-headless-shell
+          #    which is required for headless mode in playwright >=1.46).
+          npm install -g @executeautomation/playwright-mcp-server
+
+          # 4. Find the playwright CLI inside the global install and install its browsers.
+          #    PLAYWRIGHT_BROWSERS_PATH is set at job level so all playwright instances share
+          #    the same browser location and the backend child-process inherits it.
+          GLOBAL_MODULES=$(npm root -g)
+          for pw in $(find "$GLOBAL_MODULES" -maxdepth 6 -name "playwright" -path "*/.bin/playwright" 2>/dev/null); do
+            echo "▶ Installing browsers for playwright at: $pw"
+            "$pw" install chromium               2>/dev/null || true
+            "$pw" install chromium-headless-shell  2>/dev/null || true
+          done
 
       - name: Build backend
         working-directory: backend
