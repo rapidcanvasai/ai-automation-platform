@@ -605,15 +605,20 @@ router.post('/run-sync', async (req: Request, res: Response) => {
         ? (/^[UW]/.test(slackMention) ? `<@${slackMention}>` : `@${slackMention}`)
         : '';
 
+      const effectiveModel = report?.aiModel ?? aiModel ?? 'n/a';
+      const effectiveCost  = report?.cost?.totalCost != null
+        ? `$${Number(report.cost.totalCost).toFixed(4)}`
+        : 'n/a';
+
       const fields: any[] = [
-        { title: 'DataApp', value: dataAppName, short: true },
-        { title: 'Mode',    value: mode,         short: true },
+        { title: 'DataApp', value: dataAppName || 'n/a', short: true },
+        { title: 'Mode',    value: mode,                 short: true },
       ];
-      if (tenantName)             fields.push({ title: 'Tenant',     value: tenantName,                                  short: true });
-      if (report?.aiModel)        fields.push({ title: 'Model',      value: report.aiModel,                              short: true });
-      if (report?.totalSteps)     fields.push({ title: 'Steps',      value: `${report.passedSteps}/${report.totalSteps} passed`, short: true });
-      if (report?.durationMs)     fields.push({ title: 'Duration',   value: `${Math.round(report.durationMs / 1000)}s`, short: true });
-      if (report?.cost?.totalCost != null) fields.push({ title: 'Cost', value: `$${Number(report.cost.totalCost).toFixed(4)}`, short: true });
+      if (tenantName)        fields.push({ title: 'Tenant',   value: tenantName,                                        short: true });
+      fields.push(            { title: 'Model',    value: effectiveModel,                                               short: true });
+      if (report?.totalSteps) fields.push({ title: 'Steps',  value: `${report.passedSteps}/${report.totalSteps} passed`, short: true });
+      if (report?.durationMs) fields.push({ title: 'Duration', value: `${Math.round(report.durationMs / 1000)}s`,        short: true });
+      fields.push(            { title: 'Cost',     value: effectiveCost,                                                short: true });
 
       await client.chat.postMessage({
         channel: slackChannelId,

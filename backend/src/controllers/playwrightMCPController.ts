@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { WebClient } from '@slack/web-api';
+import * as fs from 'fs';
+import * as path from 'path';
 import { PlaywrightMCPService } from '../services/playwrightMCP/playwrightMCPService';
 import { createExecutionStream, getExecutionStream, closeExecutionStream } from '../services/executionStream';
 import { logger } from '../utils/logger';
@@ -183,6 +185,11 @@ router.post('/run-sync', async (req: Request, res: Response) => {
   // Express default timeout won't cover a long AI run — tell the client to wait.
   res.setTimeout(0);
 
+  // Set up a directory to save screenshots for this run
+  const resultsDir = path.resolve('test-results', `mcp-${Date.now()}`);
+  try { fs.mkdirSync(resultsDir, { recursive: true }); } catch { /* ignore */ }
+  let screenshotCount = 0;
+
   const service = new PlaywrightMCPService();
   // Use a wrapper object so TypeScript CFA doesn't narrow these to `null`
   // after callback assignments (local `let` variables get narrowed in strict mode).
@@ -195,6 +202,14 @@ router.post('/run-sync', async (req: Request, res: Response) => {
     await service.run({ prompt: prompt.trim(), headless, aiModel, maxSteps }, (evt) => {
       if (evt.type === 'complete') runState.completionEvent = evt as MCPEvent;
       if (evt.type === 'error' && evt['fatal']) runState.fatalEvent = evt as MCPEvent;
+      // Save any screenshots to disk for CI artifact upload
+      if (evt['screenshotBase64']) {
+        screenshotCount++;
+        const ssPath = path.join(resultsDir, `step-${screenshotCount}.png`);
+        try {
+          fs.writeFileSync(ssPath, Buffer.from(evt['screenshotBase64'] as string, 'base64'));
+        } catch { /* ignore */ }
+      }
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -247,7 +262,7 @@ router.post('/run-sync', async (req: Request, res: Response) => {
     });
   }
 
-  logger.info('PlaywrightMCP run-sync complete', { verdict, dataAppName, steps: result.steps });
+  logger.info('PlaywrightMCP run-sync complete', { verdict, dataAppName, steps: result.steps, screenshots: screenshotCount, resultsDir });
   return res.json(result);
 });
 

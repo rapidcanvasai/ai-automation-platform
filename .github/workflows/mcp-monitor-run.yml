@@ -54,6 +54,8 @@ env:
   AI_MODEL: ${{ inputs.ai_model }}
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+  # Shared browser path so ALL playwright versions (backend + MCP server) use the same binaries
+  PLAYWRIGHT_BROWSERS_PATH: /home/runner/.playwright-browsers
 
 jobs:
   mcp-monitor:
@@ -76,8 +78,21 @@ jobs:
       - name: Install Playwright + Chromium
         working-directory: backend
         run: |
+          # Install chromium for the backend's own playwright version
           npx playwright install chromium
           npx playwright install-deps chromium
+
+          # Pre-download @executeautomation/playwright-mcp-server (used at runtime via npx -y)
+          # and install chromium for *its* playwright version — it may differ from backend's.
+          # timeout keeps the stdio server from hanging the step.
+          timeout 60 npx -y @executeautomation/playwright-mcp-server 2>/dev/null || true
+
+          # Find every playwright binary cached by npx and run install chromium for each.
+          find ~/.npm/_npx -name "playwright" -path "*/node_modules/.bin/playwright" 2>/dev/null \
+            | while read -r pw; do
+                echo "Installing chromium for playwright at: $pw"
+                "$pw" install chromium 2>/dev/null || true
+              done
 
       - name: Build backend
         working-directory: backend
@@ -180,3 +195,12 @@ jobs:
           fi
 
           echo "✅ Monitor result: PASS"
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-monitor-results-${{ github.run_id }}
+          path: backend/test-results/
+          if-no-files-found: warn
+          retention-days: 7
