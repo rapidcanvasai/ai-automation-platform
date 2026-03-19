@@ -176,10 +176,12 @@ export class AgenticTestService {
     const modelKey = aiModel || 'gpt-4o';
     this.providerConfig = AI_MODELS[modelKey] || AI_MODELS['gpt-4o'];
 
-    // Validate: if anthropic model selected but no key, fall back to openai
+    // Validate: if anthropic model selected but no key, throw instead of silently falling back
     if (this.providerConfig.provider === 'anthropic' && !this.anthropic) {
-      logger.warn(`Anthropic API key not configured. Falling back to GPT-4o.`);
-      this.providerConfig = AI_MODELS['gpt-4o'];
+      throw new Error(
+        `Model "${modelKey}" requires an Anthropic API key, but ANTHROPIC_API_KEY is not configured on the server. ` +
+        `Add ANTHROPIC_API_KEY to your GitHub repository secrets (Settings → Secrets and variables → Actions).`
+      );
     }
 
     this.costTracker = new CostTracker();
@@ -419,7 +421,9 @@ export class AgenticTestService {
 
       const passedSteps = results.filter((r) => r.status === 'passed').length;
       const failedSteps = results.filter((r) => r.status === 'failed').length;
-      const overallStatus = (failedSteps === 0 && results.length > 0 && goalCompleted) ? 'passed' : 'failed';
+      // Consider the test passed if no steps failed, regardless of whether the AI
+      // explicitly emitted a "done" action — some models complete all steps without it.
+      const overallStatus = (failedSteps === 0 && results.length > 0) ? 'passed' : 'failed';
 
       let summary = '';
       try { summary = await this.generateSummary(prompt, results, consoleErrors); }

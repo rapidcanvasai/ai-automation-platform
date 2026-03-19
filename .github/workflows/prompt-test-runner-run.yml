@@ -117,6 +117,29 @@ jobs:
             sleep 2
           done
 
+      - name: Validate API key for selected model
+        run: |
+          MODEL="${{ env.AI_MODEL }}"
+          if [[ "$MODEL" == claude-* ]]; then
+            if [ -z "${{ env.ANTHROPIC_API_KEY }}" ]; then
+              echo "❌ Model '$MODEL' requires ANTHROPIC_API_KEY."
+              echo "   Add it to your GitHub repository secrets:"
+              echo "   Settings → Secrets and variables → Actions → New repository secret"
+              echo "   Name: ANTHROPIC_API_KEY"
+              exit 1
+            else
+              echo "✅ ANTHROPIC_API_KEY is set — Claude model '$MODEL' can be used."
+            fi
+          else
+            if [ -z "${{ env.OPENAI_API_KEY }}" ]; then
+              echo "❌ Model '$MODEL' requires OPENAI_API_KEY."
+              echo "   Add it to your GitHub repository secrets."
+              exit 1
+            else
+              echo "✅ OPENAI_API_KEY is set — OpenAI model '$MODEL' can be used."
+            fi
+          fi
+
       - name: Run prompt test
         id: run_test
         env:
@@ -205,3 +228,12 @@ jobs:
             exit 1
           fi
           echo "✅ Test result: PASS ($PASSED/$TOTAL steps passed)"
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ github.run_id }}
+          path: backend/test-results/
+          if-no-files-found: warn
+          retention-days: 7
