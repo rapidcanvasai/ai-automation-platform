@@ -4,6 +4,8 @@ import { TabExplorationService } from '../services/ai/tabExplorationService';
 import { AIElementDiscoveryService } from '../services/ai/aiElementDiscoveryService';
 import { VisualElementDetectionService } from '../services/ai/visualElementDetectionService';
 import { AIAgentService } from '../services/ai/aiAgentService';
+import { PromptTestService } from '../services/ai/promptTestService';
+import { AgenticTestService, AI_MODELS } from '../services/ai/agenticTestService';
 import { createExecutionStream, getExecutionStream } from '../services/executionStream';
 import { createSlackService } from '../services/slack/slackService';
 import { logger } from '../utils/logger';
@@ -358,6 +360,308 @@ router.post('/autonomous', async (req: Request, res: Response) => {
   });
 
   res.json({ success: true, aiExplorationId: id });
+});
+
+// ── Prompt-based Test Runner (AI + Playwright) ──────────────────────────
+router.post('/prompt-test', async (req: Request, res: Response) => {
+  const {
+    prompt,
+    headless = true,
+    slowMoMs = 300,
+    timeoutMs = 300000,
+    viewportWidth = 1280,
+    viewportHeight = 720,
+    enableSlackNotifications = false,
+  } = req.body || {};
+
+  if (!prompt) {
+    return res.status(400).json({ success: false, error: 'Missing prompt for test execution' });
+  }
+
+  const id = `prompt-test-${Date.now()}`;
+  const stream = createExecutionStream(id);
+
+  // Slack notification
+  if (enableSlackNotifications) {
+    try {
+      const slackService = createSlackService();
+      if (slackService) {
+        await slackService.sendOperationStarted(
+          'prompt_test',
+          id,
+          `Prompt Test: ${prompt.substring(0, 80)}...`,
+          'N/A'
+        );
+      }
+    } catch (slackError) {
+      logger.error('Failed to send Slack notification for prompt test start', { slackError, id });
+    }
+  }
+
+  const svc = new PromptTestService();
+  // Fire and forget; client uses SSE to stream results
+  svc.runPromptTest({
+    prompt,
+    headless,
+    slowMoMs,
+    timeoutMs,
+    viewportWidth,
+    viewportHeight,
+  }, (evt) => {
+    const s = getExecutionStream(id);
+    s?.emit('log', { executionId: id, ...evt });
+  }).then((result: any) => {
+    if (enableSlackNotifications) {
+      try {
+        const slackService = createSlackService();
+        if (slackService) {
+          slackService.sendOperationCompleted(
+            'prompt_test',
+            id,
+            `Prompt Test: ${prompt.substring(0, 80)}...`,
+            { status: result.status, totalSteps: result.totalSteps, passedSteps: result.passedSteps, failedSteps: result.failedSteps },
+            'N/A'
+          );
+        }
+      } catch (slackError) {
+        logger.error('Failed to send Slack notification for prompt test completion', { slackError, id });
+      }
+    }
+  }).catch((error: any) => {
+    if (enableSlackNotifications) {
+      try {
+        const slackService = createSlackService();
+        if (slackService) {
+          slackService.sendOperationFailed(
+            'prompt_test',
+            id,
+            `Prompt Test: ${prompt.substring(0, 80)}...`,
+            error instanceof Error ? error.message : 'Unknown error',
+            'N/A'
+          );
+        }
+      } catch (slackError) {
+        logger.error('Failed to send Slack notification for prompt test failure', { slackError, id });
+      }
+    }
+  });
+
+  res.json({ success: true, testId: id });
+});
+
+// ── Agentic AI Test Runner (observe→think→act loop) ─────────────────────
+router.post('/agentic-test', async (req: Request, res: Response) => {
+  const {
+    prompt,
+    headless = true,
+    slowMoMs = 200,
+    timeoutMs = 300000,
+    maxSteps = 80,
+    viewportWidth = 1280,
+    viewportHeight = 720,
+    aiModel = 'gpt-4o',
+    enableSlackNotifications = false,
+  } = req.body || {};
+
+  if (!prompt) {
+    return res.status(400).json({ success: false, error: 'Missing prompt for agentic test' });
+  }
+
+  const id = `agentic-test-${Date.now()}`;
+  const stream = createExecutionStream(id);
+
+  if (enableSlackNotifications) {
+    try {
+      const slackService = createSlackService();
+      if (slackService) {
+        await slackService.sendOperationStarted(
+          'prompt_test',
+          id,
+          `Agentic Test (${aiModel}): ${prompt.substring(0, 80)}...`,
+          'N/A'
+        );
+      }
+    } catch (slackError) {
+      logger.error('Failed to send Slack notification for agentic test start', { slackError, id });
+    }
+  }
+
+  const svc = new AgenticTestService(aiModel);
+  svc.runAgenticTest({
+    prompt,
+    headless,
+    slowMoMs,
+    timeoutMs,
+    maxSteps,
+    viewportWidth,
+    viewportHeight,
+    aiModel,
+  }, (evt) => {
+    const s = getExecutionStream(id);
+    s?.emit('log', { executionId: id, ...evt });
+  }).then((result: any) => {
+    if (enableSlackNotifications) {
+      try {
+        const slackService = createSlackService();
+        if (slackService) {
+          slackService.sendOperationCompleted(
+            'prompt_test',
+            id,
+            `Agentic Test: ${prompt.substring(0, 80)}...`,
+            { status: result.status, totalSteps: result.totalSteps, passedSteps: result.passedSteps, failedSteps: result.failedSteps },
+            'N/A'
+          );
+        }
+      } catch (slackError) {
+        logger.error('Failed to send Slack notification for agentic test completion', { slackError, id });
+      }
+    }
+  }).catch((error: any) => {
+    if (enableSlackNotifications) {
+      try {
+        const slackService = createSlackService();
+        if (slackService) {
+          slackService.sendOperationFailed(
+            'prompt_test',
+            id,
+            `Agentic Test: ${prompt.substring(0, 80)}...`,
+            error instanceof Error ? error.message : 'Unknown error',
+            'N/A'
+          );
+        }
+      } catch (slackError) {
+        logger.error('Failed to send Slack notification for agentic test failure', { slackError, id });
+      }
+    }
+  });
+
+  res.json({ success: true, testId: id });
+});
+
+// ── Synchronous run endpoint — designed for CI/GitHub Actions ────────────────
+// Blocks until the test completes, sends Slack alert, returns verdict JSON.
+router.post('/run-sync', async (req: Request, res: Response) => {
+  const {
+    prompt,
+    mode = 'agentic',          // 'agentic' | 'standard'
+    headless = true,
+    slowMoMs = 200,
+    timeoutMs = 300000,
+    maxSteps = 80,
+    aiModel = 'gpt-4o',
+    slackChannelId,
+    slackMention,
+    dataAppName = 'Test',
+    tenantName,
+    workflowRunUrl,
+    slackNotifyOnlyFailures = true,
+  } = req.body || {};
+
+  if (!prompt) {
+    return res.status(400).json({ success: false, error: 'Missing prompt' });
+  }
+
+  res.setTimeout(0);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let report: any = null;
+  let runError: string | null = null;
+
+  try {
+    if (mode === 'standard') {
+      const svc = new PromptTestService();
+      await new Promise<void>((resolve, reject) => {
+        svc.runPromptTest({ prompt, headless, slowMoMs, timeoutMs }, (evt: any) => {
+          if (evt.type === 'complete') report = evt.report ?? evt;
+        }).then(() => resolve()).catch(reject);
+      });
+    } else {
+      const svc = new AgenticTestService(aiModel);
+      await new Promise<void>((resolve, reject) => {
+        svc.runAgenticTest({ prompt, headless, slowMoMs, timeoutMs, maxSteps, aiModel }, (evt: any) => {
+          if (evt.type === 'complete') report = evt.report ?? evt;
+        }).then(() => resolve()).catch(reject);
+      });
+    }
+  } catch (err) {
+    runError = err instanceof Error ? err.message : String(err);
+    logger.error('AI run-sync failed', { error: runError });
+  }
+
+  const status  = (report?.status ?? 'error') as string;
+  const verdict: 'PASS' | 'FAIL' | 'UNKNOWN' =
+    status === 'passed' ? 'PASS' :
+    status === 'failed' ? 'FAIL' : 'UNKNOWN';
+
+  // Send Slack alert
+  const botToken = process.env.SLACK_BOT_TOKEN;
+  if (slackChannelId && botToken && (!slackNotifyOnlyFailures || verdict !== 'PASS')) {
+    try {
+      const { WebClient } = await import('@slack/web-api');
+      const client = new WebClient(botToken);
+      const icon  = verdict === 'PASS' ? '✅' : verdict === 'FAIL' ? '❌' : '⚠️';
+      const color = verdict === 'PASS' ? '#36a64f' : verdict === 'FAIL' ? '#e01e5a' : '#f4a300';
+      const mention = slackMention
+        ? (/^[UW]/.test(slackMention) ? `<@${slackMention}>` : `@${slackMention}`)
+        : '';
+
+      const fields: any[] = [
+        { title: 'DataApp', value: dataAppName, short: true },
+        { title: 'Mode',    value: mode,         short: true },
+      ];
+      if (tenantName)             fields.push({ title: 'Tenant',     value: tenantName,                                  short: true });
+      if (report?.aiModel)        fields.push({ title: 'Model',      value: report.aiModel,                              short: true });
+      if (report?.totalSteps)     fields.push({ title: 'Steps',      value: `${report.passedSteps}/${report.totalSteps} passed`, short: true });
+      if (report?.durationMs)     fields.push({ title: 'Duration',   value: `${Math.round(report.durationMs / 1000)}s`, short: true });
+      if (report?.cost?.totalCost != null) fields.push({ title: 'Cost', value: `$${Number(report.cost.totalCost).toFixed(4)}`, short: true });
+
+      await client.chat.postMessage({
+        channel: slackChannelId,
+        text: `${icon} Prompt Test Runner: *${verdict}* — ${dataAppName}${mention ? ` ${mention}` : ''}`,
+        attachments: [{
+          color,
+          fields,
+          text: report?.summary ? `*Summary:*\n\`\`\`${report.summary.slice(0, 500)}\`\`\`` : runError ? `Error: ${runError}` : '',
+          ...(workflowRunUrl ? { actions: [{ type: 'button', text: 'View Run', url: workflowRunUrl }] } : {}),
+          footer: 'Prompt Test Runner',
+        }],
+      });
+    } catch (slackErr) {
+      logger.error('Failed to send Slack alert from run-sync', { slackErr });
+    }
+  }
+
+  return res.json({
+    success: true,
+    verdict,
+    status,
+    summary:    report?.summary    ?? runError ?? 'No summary available',
+    totalSteps: report?.totalSteps ?? 0,
+    passedSteps: report?.passedSteps ?? 0,
+    failedSteps: report?.failedSteps ?? 0,
+    durationMs:  report?.durationMs  ?? 0,
+    aiModel:    report?.aiModel    ?? aiModel,
+    cost:       report?.cost?.totalCost ?? null,
+    mode,
+  });
+});
+
+// ── Available AI Models ─────────────────────────────────────────────────
+router.get('/models', (_req: Request, res: Response) => {
+  const models = Object.entries(AI_MODELS).map(([key, config]) => ({
+    id: key,
+    provider: config.provider,
+    model: config.model,
+    label: key === 'gpt-4o' ? 'OpenAI GPT-4o'
+      : key === 'gpt-4o-mini' ? 'OpenAI GPT-4o Mini'
+      : key === 'claude-sonnet-4' ? 'Anthropic Claude Sonnet 4'
+      : key === 'claude-3.5-sonnet' ? 'Anthropic Claude 3.5 Sonnet'
+      : `${config.provider} ${config.model}`,
+    available: config.provider === 'openai'
+      ? !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here')
+      : !!(process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY !== 'your_anthropic_api_key_here'),
+  }));
+  res.json({ success: true, models });
 });
 
 router.get('/stream/:id', async (req: Request, res: Response) => {

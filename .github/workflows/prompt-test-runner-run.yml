@@ -1,0 +1,207 @@
+name: Prompt Test Runner
+
+# ─────────────────────────────────────────────────────────────────────────────
+# One-off manual trigger — run any prompt test interactively.
+# To create a scheduled job, use "Configure Prompt Test Runner" workflow.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: 'Test prompt in plain English (what to do and verify)'
+        required: true
+        type: string
+      mode:
+        description: 'Execution mode — Agentic (adaptive AI loop) or Standard (parsed steps)'
+        required: false
+        type: choice
+        options:
+          - agentic
+          - standard
+        default: agentic
+      ai_model:
+        description: 'AI model to use (agentic mode only)'
+        required: false
+        type: choice
+        options:
+          - gpt-4o
+          - gpt-4o-mini
+          - claude-sonnet-4
+          - claude-3.5-sonnet
+        default: gpt-4o
+      max_steps:
+        description: 'Max agentic steps (agentic mode only, default 80)'
+        required: false
+        type: string
+        default: '80'
+      dataapp_name:
+        description: 'DataApp / test name (shown in Slack alerts)'
+        required: false
+        type: string
+      tenant_name:
+        description: 'Tenant name (shown in Slack alerts)'
+        required: false
+        type: string
+      slack_channel_id:
+        description: 'Slack channel ID for alerts (e.g. C099YBV74G4). Leave blank to skip.'
+        required: false
+        type: string
+      slack_mention:
+        description: 'Slack user ID to mention on failure (e.g. U08HRLKPTKJ)'
+        required: false
+        type: string
+      slack_notify_only_failures:
+        description: 'Send Slack alert only on FAIL (true) or always (false)'
+        required: false
+        type: boolean
+        default: true
+
+env:
+  PROMPT:                   ${{ inputs.prompt }}
+  MODE:                     ${{ inputs.mode }}
+  AI_MODEL:                 ${{ inputs.ai_model }}
+  MAX_STEPS:                ${{ inputs.max_steps }}
+  DATAAPP_NAME:             ${{ inputs.dataapp_name }}
+  TENANT_NAME:              ${{ inputs.tenant_name }}
+  SLACK_CHANNEL_ID:         ${{ inputs.slack_channel_id }}
+  SLACK_MENTION:            ${{ inputs.slack_mention }}
+  SLACK_NOTIFY_ONLY_FAILURES: ${{ inputs.slack_notify_only_failures }}
+  OPENAI_API_KEY:           ${{ secrets.OPENAI_API_KEY }}
+  ANTHROPIC_API_KEY:        ${{ secrets.ANTHROPIC_API_KEY }}
+  SLACK_BOT_TOKEN:          ${{ secrets.SLACK_BOT_TOKEN }}
+
+jobs:
+  prompt-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Install Playwright + Chromium
+        working-directory: backend
+        run: |
+          npx playwright install chromium
+          npx playwright install-deps chromium
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+      - name: Start backend server
+        working-directory: backend
+        run: |
+          DB_DISABLED=true NODE_ENV=production PORT=3001 \
+          OPENAI_API_KEY="${{ env.OPENAI_API_KEY }}" \
+          ANTHROPIC_API_KEY="${{ env.ANTHROPIC_API_KEY }}" \
+          SLACK_BOT_TOKEN="${{ env.SLACK_BOT_TOKEN }}" \
+          npm start &
+
+          for i in {1..30}; do
+            if curl -sf http://localhost:3001/health > /dev/null 2>&1; then
+              echo "✅ Backend ready"
+              break
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run prompt test
+        id: run_test
+        env:
+          PROMPT_INPUT: ${{ env.PROMPT }}
+        run: |
+          python3 -c "import os; open('/tmp/prompt.txt', 'w').write(os.environ.get('PROMPT_INPUT', ''))"
+          PROMPT=$(cat /tmp/prompt.txt)
+
+          if [ -z "$PROMPT" ]; then
+            echo "❌ Prompt is empty"
+            exit 1
+          fi
+
+          echo "📋 Running prompt test: ${{ env.DATAAPP_NAME }}"
+          echo "🤖 Mode: ${{ env.MODE }} | Model: ${{ env.AI_MODEL }}"
+
+          RESPONSE=$(curl -sf -X POST http://localhost:3001/api/ai/run-sync \
+            -H "Content-Type: application/json" \
+            --max-time 5000 \
+            -d "$(jq -n \
+              --rawfile prompt /tmp/prompt.txt \
+              --arg mode          "${{ env.MODE }}" \
+              --arg aiModel       "${{ env.AI_MODEL }}" \
+              --arg maxSteps      "${{ env.MAX_STEPS }}" \
+              --arg dataAppName   "${{ env.DATAAPP_NAME }}" \
+              --arg tenantName    "${{ env.TENANT_NAME }}" \
+              --arg slackChannelId "${{ env.SLACK_CHANNEL_ID }}" \
+              --arg slackMention  "${{ env.SLACK_MENTION }}" \
+              --arg workflowRunUrl "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              --argjson slackNotifyOnlyFailures "${{ env.SLACK_NOTIFY_ONLY_FAILURES }}" \
+              '{
+                prompt:           ($prompt | rtrimstr("\n")),
+                mode:             $mode,
+                headless:         true,
+                aiModel:          $aiModel,
+                maxSteps:         ($maxSteps | tonumber),
+                dataAppName:      $dataAppName,
+                tenantName:       $tenantName,
+                slackChannelId:   $slackChannelId,
+                slackMention:     $slackMention,
+                workflowRunUrl:   $workflowRunUrl,
+                slackNotifyOnlyFailures: $slackNotifyOnlyFailures
+              }')")
+
+          echo "Response: $RESPONSE"
+
+          VERDICT=$(echo "$RESPONSE"     | jq -r '.verdict     // "UNKNOWN"')
+          SUMMARY=$(echo "$RESPONSE"     | jq -r '.summary     // ""')
+          TOTAL=$(echo "$RESPONSE"       | jq -r '.totalSteps  // 0')
+          PASSED=$(echo "$RESPONSE"      | jq -r '.passedSteps // 0')
+          FAILED=$(echo "$RESPONSE"      | jq -r '.failedSteps // 0')
+          DURATION=$(echo "$RESPONSE"    | jq -r '.durationMs  // 0')
+          COST=$(echo "$RESPONSE"        | jq -r '.cost        // "n/a"')
+          MODEL=$(echo "$RESPONSE"       | jq -r '.aiModel     // "n/a"')
+
+          DURATION_S=$(echo "$DURATION" | awk '{printf "%.1f", $1/1000}')
+
+          echo "verdict=$VERDICT" >> $GITHUB_OUTPUT
+
+          ICON="✅"
+          [ "$VERDICT" = "FAIL" ]    && ICON="❌"
+          [ "$VERDICT" = "UNKNOWN" ] && ICON="⚠️"
+
+          {
+            echo "## $ICON Prompt Test Runner: $VERDICT"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| DataApp  | ${{ env.DATAAPP_NAME }} |"
+            echo "| Verdict  | $VERDICT |"
+            echo "| Mode     | ${{ env.MODE }} |"
+            echo "| Model    | $MODEL |"
+            echo "| Steps    | $PASSED / $TOTAL passed |"
+            echo "| Failed   | $FAILED |"
+            echo "| Duration | ${DURATION_S}s |"
+            echo "| Cost     | \$$COST |"
+            echo ""
+            echo "**Summary:**"
+            echo '```'
+            echo "$SUMMARY"
+            echo '```'
+          } >> $GITHUB_STEP_SUMMARY
+
+          if [ "$VERDICT" = "FAIL" ] || [ "$VERDICT" = "UNKNOWN" ]; then
+            echo "❌ Test result: $VERDICT ($FAILED failed steps)"
+            exit 1
+          fi
+          echo "✅ Test result: PASS ($PASSED/$TOTAL steps passed)"

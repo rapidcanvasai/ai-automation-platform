@@ -112,6 +112,42 @@ export const apiService = {
     return response.data;
   },
 
+  // Prompt Test Runner endpoints
+  runPromptTest: async (data: {
+    prompt: string;
+    headless?: boolean;
+    slowMoMs?: number;
+    timeoutMs?: number;
+    viewportWidth?: number;
+    viewportHeight?: number;
+    enableSlackNotifications?: boolean;
+  }) => {
+    const response = await api.post('/ai/prompt-test', data);
+    return response.data;
+  },
+
+  // Agentic Test Runner endpoints
+  runAgenticTest: async (data: {
+    prompt: string;
+    headless?: boolean;
+    slowMoMs?: number;
+    timeoutMs?: number;
+    maxSteps?: number;
+    viewportWidth?: number;
+    viewportHeight?: number;
+    aiModel?: string;
+    enableSlackNotifications?: boolean;
+  }) => {
+    const response = await api.post('/ai/agentic-test', data);
+    return response.data;
+  },
+
+  // Get available AI models
+  getAIModels: async () => {
+    const response = await api.get('/ai/models');
+    return response.data;
+  },
+
   // Playwright MCP endpoints
   runPlaywrightMCP: async (data: {
     prompt: string;
