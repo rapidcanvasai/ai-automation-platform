@@ -538,6 +538,114 @@ router.post('/agentic-test', async (req: Request, res: Response) => {
   res.json({ success: true, testId: id });
 });
 
+// ── Synchronous run endpoint — designed for CI/GitHub Actions ────────────────
+// Blocks until the test completes, sends Slack alert, returns verdict JSON.
+router.post('/run-sync', async (req: Request, res: Response) => {
+  const {
+    prompt,
+    mode = 'agentic',          // 'agentic' | 'standard'
+    headless = true,
+    slowMoMs = 200,
+    timeoutMs = 300000,
+    maxSteps = 80,
+    aiModel = 'gpt-4o',
+    slackChannelId,
+    slackMention,
+    dataAppName = 'Test',
+    tenantName,
+    workflowRunUrl,
+    slackNotifyOnlyFailures = true,
+  } = req.body || {};
+
+  if (!prompt) {
+    return res.status(400).json({ success: false, error: 'Missing prompt' });
+  }
+
+  res.setTimeout(0);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let report: any = null;
+  let runError: string | null = null;
+
+  try {
+    if (mode === 'standard') {
+      const svc = new PromptTestService();
+      await new Promise<void>((resolve, reject) => {
+        svc.runPromptTest({ prompt, headless, slowMoMs, timeoutMs }, (evt: any) => {
+          if (evt.type === 'complete') report = evt.report ?? evt;
+        }).then(() => resolve()).catch(reject);
+      });
+    } else {
+      const svc = new AgenticTestService(aiModel);
+      await new Promise<void>((resolve, reject) => {
+        svc.runAgenticTest({ prompt, headless, slowMoMs, timeoutMs, maxSteps, aiModel }, (evt: any) => {
+          if (evt.type === 'complete') report = evt.report ?? evt;
+        }).then(() => resolve()).catch(reject);
+      });
+    }
+  } catch (err) {
+    runError = err instanceof Error ? err.message : String(err);
+    logger.error('AI run-sync failed', { error: runError });
+  }
+
+  const status  = (report?.status ?? 'error') as string;
+  const verdict: 'PASS' | 'FAIL' | 'UNKNOWN' =
+    status === 'passed' ? 'PASS' :
+    status === 'failed' ? 'FAIL' : 'UNKNOWN';
+
+  // Send Slack alert
+  const botToken = process.env.SLACK_BOT_TOKEN;
+  if (slackChannelId && botToken && (!slackNotifyOnlyFailures || verdict !== 'PASS')) {
+    try {
+      const { WebClient } = await import('@slack/web-api');
+      const client = new WebClient(botToken);
+      const icon  = verdict === 'PASS' ? '✅' : verdict === 'FAIL' ? '❌' : '⚠️';
+      const color = verdict === 'PASS' ? '#36a64f' : verdict === 'FAIL' ? '#e01e5a' : '#f4a300';
+      const mention = slackMention
+        ? (/^[UW]/.test(slackMention) ? `<@${slackMention}>` : `@${slackMention}`)
+        : '';
+
+      const fields: any[] = [
+        { title: 'DataApp', value: dataAppName, short: true },
+        { title: 'Mode',    value: mode,         short: true },
+      ];
+      if (tenantName)             fields.push({ title: 'Tenant',     value: tenantName,                                  short: true });
+      if (report?.aiModel)        fields.push({ title: 'Model',      value: report.aiModel,                              short: true });
+      if (report?.totalSteps)     fields.push({ title: 'Steps',      value: `${report.passedSteps}/${report.totalSteps} passed`, short: true });
+      if (report?.durationMs)     fields.push({ title: 'Duration',   value: `${Math.round(report.durationMs / 1000)}s`, short: true });
+      if (report?.cost?.totalCost != null) fields.push({ title: 'Cost', value: `$${Number(report.cost.totalCost).toFixed(4)}`, short: true });
+
+      await client.chat.postMessage({
+        channel: slackChannelId,
+        text: `${icon} Prompt Test Runner: *${verdict}* — ${dataAppName}${mention ? ` ${mention}` : ''}`,
+        attachments: [{
+          color,
+          fields,
+          text: report?.summary ? `*Summary:*\n\`\`\`${report.summary.slice(0, 500)}\`\`\`` : runError ? `Error: ${runError}` : '',
+          ...(workflowRunUrl ? { actions: [{ type: 'button', text: 'View Run', url: workflowRunUrl }] } : {}),
+          footer: 'Prompt Test Runner',
+        }],
+      });
+    } catch (slackErr) {
+      logger.error('Failed to send Slack alert from run-sync', { slackErr });
+    }
+  }
+
+  return res.json({
+    success: true,
+    verdict,
+    status,
+    summary:    report?.summary    ?? runError ?? 'No summary available',
+    totalSteps: report?.totalSteps ?? 0,
+    passedSteps: report?.passedSteps ?? 0,
+    failedSteps: report?.failedSteps ?? 0,
+    durationMs:  report?.durationMs  ?? 0,
+    aiModel:    report?.aiModel    ?? aiModel,
+    cost:       report?.cost?.totalCost ?? null,
+    mode,
+  });
+});
+
 // ── Available AI Models ─────────────────────────────────────────────────
 router.get('/models', (_req: Request, res: Response) => {
   const models = Object.entries(AI_MODELS).map(([key, config]) => ({
