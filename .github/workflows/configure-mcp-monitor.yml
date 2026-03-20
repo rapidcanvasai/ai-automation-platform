@@ -314,13 +314,15 @@ jobs:
 
           # 4. Replace ${{ inputs.* }} references with ${{ env.* }} equivalents
           #    (the template reads from inputs; the generated file reads from env)
-          perl -i -pe 's/\$\{\{\s*inputs\.prompt\s*\}\}/\${{ env.PROMPT }}/g'             "$WORKFLOW_FILE"
-          perl -i -pe 's/\$\{\{\s*inputs\.dataapp_name\s*\}\}/\${{ env.DATAAPP_NAME }}/g' "$WORKFLOW_FILE"
-          perl -i -pe 's/\$\{\{\s*inputs\.tenant_name\s*\}\}/\${{ env.TENANT_NAME }}/g'   "$WORKFLOW_FILE"
-          perl -i -pe 's/\$\{\{\s*inputs\.slack_channel_id\s*\}\}/\${{ env.SLACK_CHANNEL_ID }}/g' "$WORKFLOW_FILE"
-          perl -i -pe 's/\$\{\{\s*inputs\.slack_mention\s*\}\}/\${{ env.SLACK_MENTION }}/g'       "$WORKFLOW_FILE"
-          perl -i -pe 's/\$\{\{\s*inputs\.slack_notify_only_failures\s*\}\}/\${{ env.SLACK_NOTIFY_ONLY_FAILURES }}/g' "$WORKFLOW_FILE"
-          perl -i -pe 's/\$\{\{\s*inputs\.ai_model\s*\}\}/\${{ env.AI_MODEL }}/g'         "$WORKFLOW_FILE"
+          # D='$' prevents GitHub Actions from evaluating ${D}{{ ... }} as an expression
+          D='$'
+          perl -i -pe "s/\\\$\{\{\s*inputs\.prompt\s*\}\}/${D}{{ env.PROMPT }}/g"                      "$WORKFLOW_FILE"
+          perl -i -pe "s/\\\$\{\{\s*inputs\.dataapp_name\s*\}\}/${D}{{ env.DATAAPP_NAME }}/g"          "$WORKFLOW_FILE"
+          perl -i -pe "s/\\\$\{\{\s*inputs\.tenant_name\s*\}\}/${D}{{ env.TENANT_NAME }}/g"            "$WORKFLOW_FILE"
+          perl -i -pe "s/\\\$\{\{\s*inputs\.slack_channel_id\s*\}\}/${D}{{ env.SLACK_CHANNEL_ID }}/g"  "$WORKFLOW_FILE"
+          perl -i -pe "s/\\\$\{\{\s*inputs\.slack_mention\s*\}\}/${D}{{ env.SLACK_MENTION }}/g"        "$WORKFLOW_FILE"
+          perl -i -pe "s/\\\$\{\{\s*inputs\.slack_notify_only_failures\s*\}\}/${D}{{ env.SLACK_NOTIFY_ONLY_FAILURES }}/g" "$WORKFLOW_FILE"
+          perl -i -pe "s/\\\$\{\{\s*inputs\.ai_model\s*\}\}/${D}{{ env.AI_MODEL }}/g"                  "$WORKFLOW_FILE"
 
           # Validate
           if ! grep -q "^name:" "$WORKFLOW_FILE"; then echo "❌ Missing name"; exit 1; fi
