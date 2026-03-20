@@ -606,8 +606,8 @@ router.post('/run-sync', async (req: Request, res: Response) => {
         : '';
 
       const effectiveModel = report?.aiModel ?? aiModel ?? 'n/a';
-      const effectiveCost  = report?.cost?.totalCost != null
-        ? `$${Number(report.cost.totalCost).toFixed(4)}`
+      const effectiveCost  = report?.cost?.totalCostUsd != null
+        ? `$${Number(report.cost.totalCostUsd).toFixed(4)}`
         : 'n/a';
 
       const fields: any[] = [
@@ -646,7 +646,7 @@ router.post('/run-sync', async (req: Request, res: Response) => {
     failedSteps: report?.failedSteps ?? 0,
     durationMs:  report?.durationMs  ?? 0,
     aiModel:    report?.aiModel    ?? aiModel,
-    cost:       report?.cost?.totalCost ?? null,
+    cost:       report?.cost?.totalCostUsd ?? null,
     mode,
   });
 });

@@ -278,6 +278,9 @@ IMPORTANT RULES:
                 message: `[P0-FATAL] ${p0Reason}\n\nTool: ${toolName}\nDetails: ${error}`,
                 fatal: true,
                 durationMs: Date.now() - startTime,
+                steps: stepCount,
+                model: aiModel,
+                cost: calcCost(aiModel, totalInputTokens, totalOutputTokens),
               });
               fatalHalt = true;
               break;
@@ -301,6 +304,9 @@ IMPORTANT RULES:
                 message: `[HALTED] Tool "${toolName}" failed ${MAX_CONSECUTIVE_TOOL_FAILURES} consecutive times — stopping to avoid infinite retry loop.\n\nLast error: ${error}`,
                 fatal: true,
                 durationMs: Date.now() - startTime,
+                steps: stepCount,
+                model: aiModel,
+                cost: calcCost(aiModel, totalInputTokens, totalOutputTokens),
               });
               fatalHalt = true;
               break;

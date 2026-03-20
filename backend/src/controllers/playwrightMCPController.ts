@@ -239,10 +239,10 @@ router.post('/run-sync', async (req: Request, res: Response) => {
     success: true,
     verdict,
     message:  finalMessage,
-    model:    completionEvent?.model    as string | undefined,
-    cost:     completionEvent?.cost     as number | undefined,
-    steps:    completionEvent?.steps    as number | undefined,
-    duration: completionEvent?.duration as number | undefined,
+    model:    (completionEvent?.model    ?? fatalEvent?.model)    as string | undefined,
+    cost:     (completionEvent?.cost     ?? fatalEvent?.cost)     as number | undefined,
+    steps:    (completionEvent?.steps    ?? fatalEvent?.steps)    as number | undefined,
+    duration: (completionEvent?.duration ?? fatalEvent?.durationMs) as number | undefined,
     fatal:    !!fatalEvent,
   };
 
