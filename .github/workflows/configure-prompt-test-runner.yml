@@ -278,6 +278,10 @@ jobs:
           sed "/^on:/r /tmp/sched.txt" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
           rm /tmp/sched.txt
 
+          # D='$' prevents GitHub Actions from evaluating ${D}{{ ... }} as an expression
+          # (used in both the env block below and the perl replacements in step 4)
+          D='$'
+
           # 3. Replace env: section with hardcoded values
           ENV_START=$(grep -n "^env:" "$WORKFLOW_FILE" | cut -d: -f1)
           JOBS_START=$(grep -n "^jobs:" "$WORKFLOW_FILE" | cut -d: -f1)
@@ -294,9 +298,9 @@ jobs:
             echo "  SLACK_CHANNEL_ID: '$SLACK_CH'"
             echo "  SLACK_MENTION: '$SLACK_MN'"
             echo "  SLACK_NOTIFY_ONLY_FAILURES: true"
-            echo "  OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}"
-            echo "  ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}"
-            echo "  SLACK_BOT_TOKEN: \${{ secrets.SLACK_BOT_TOKEN }}"
+            echo "  OPENAI_API_KEY: ${D}{{ secrets.OPENAI_API_KEY }}"
+            echo "  ANTHROPIC_API_KEY: ${D}{{ secrets.ANTHROPIC_API_KEY }}"
+            echo "  SLACK_BOT_TOKEN: ${D}{{ secrets.SLACK_BOT_TOKEN }}"
             echo ""
           } > /tmp/new-env.txt
 
@@ -306,8 +310,6 @@ jobs:
           mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
 
           # 4. Replace inputs.* refs with env.*
-          # D='$' prevents GitHub Actions from evaluating ${D}{{ ... }} as an expression
-          D='$'
           perl -i -pe "s/\\\$\{\{\s*inputs\.prompt\s*\}\}/${D}{{ env.PROMPT }}/g"                      "$WORKFLOW_FILE"
           perl -i -pe "s/\\\$\{\{\s*inputs\.mode\s*\}\}/${D}{{ env.MODE }}/g"                          "$WORKFLOW_FILE"
           perl -i -pe "s/\\\$\{\{\s*inputs\.ai_model\s*\}\}/${D}{{ env.AI_MODEL }}/g"                  "$WORKFLOW_FILE"

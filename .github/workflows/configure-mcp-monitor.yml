@@ -287,6 +287,10 @@ jobs:
           sed "/^on:/r /tmp/sched.txt" "$WORKFLOW_FILE" > "$WORKFLOW_FILE.tmp" && mv "$WORKFLOW_FILE.tmp" "$WORKFLOW_FILE"
           rm /tmp/sched.txt
 
+          # D='$' prevents GitHub Actions from evaluating ${D}{{ ... }} as an expression
+          # (used in both the env block below and the perl replacements in step 4)
+          D='$'
+
           # 3. Replace the entire env: section with hardcoded values
           ENV_START=$(grep -n "^env:" "$WORKFLOW_FILE" | cut -d: -f1)
           JOBS_START=$(grep -n "^jobs:" "$WORKFLOW_FILE" | cut -d: -f1)
@@ -301,8 +305,8 @@ jobs:
             echo "  SLACK_MENTION: '$SLACK_MN'"
             echo "  SLACK_NOTIFY_ONLY_FAILURES: true"
             echo "  AI_MODEL: '$AI_MODEL'"
-            echo "  ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}"
-            echo "  SLACK_BOT_TOKEN: \${{ secrets.SLACK_BOT_TOKEN }}"
+            echo "  ANTHROPIC_API_KEY: ${D}{{ secrets.ANTHROPIC_API_KEY }}"
+            echo "  SLACK_BOT_TOKEN: ${D}{{ secrets.SLACK_BOT_TOKEN }}"
             echo ""
           } > /tmp/new-env.txt
 
@@ -314,8 +318,6 @@ jobs:
 
           # 4. Replace ${{ inputs.* }} references with ${{ env.* }} equivalents
           #    (the template reads from inputs; the generated file reads from env)
-          # D='$' prevents GitHub Actions from evaluating ${D}{{ ... }} as an expression
-          D='$'
           perl -i -pe "s/\\\$\{\{\s*inputs\.prompt\s*\}\}/${D}{{ env.PROMPT }}/g"                      "$WORKFLOW_FILE"
           perl -i -pe "s/\\\$\{\{\s*inputs\.dataapp_name\s*\}\}/${D}{{ env.DATAAPP_NAME }}/g"          "$WORKFLOW_FILE"
           perl -i -pe "s/\\\$\{\{\s*inputs\.tenant_name\s*\}\}/${D}{{ env.TENANT_NAME }}/g"            "$WORKFLOW_FILE"
