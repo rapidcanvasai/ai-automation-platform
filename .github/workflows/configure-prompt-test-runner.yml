@@ -61,12 +61,12 @@ on:
           - gpt-4o-mini
           - claude-sonnet-4
           - claude-3.5-sonnet
-        default: gpt-4o
+        default: claude-sonnet-4
       max_steps:
         description: 'Max agentic steps (default 80)'
         required: false
         type: string
-        default: '80'
+        default: '800'
       dataapp_name:
         description: 'DataApp / test name (shown in Slack alerts)'
         required: false
